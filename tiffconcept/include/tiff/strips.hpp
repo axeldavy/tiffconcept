@@ -1,11 +1,10 @@
 #pragma once
 
-#include <vector>
 #include <span>
-#include "metadata.hpp"
+#include <vector>
+#include "image_shape.hpp"
 #include "result.hpp"
 #include "types.hpp"
-#include "image_shape.hpp"
 
 namespace tiff {
 

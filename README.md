@@ -2,6 +2,44 @@
 
 A header-only TIFF reading library using C++20 features
 
+## What is a TIFF file ?
+
+A TIFF (Tagged Image File Format) file is a flexible and adaptable file format for storing images and associated metadata.
+
+Essentially it is composed of:
+- A small header indicating endianness and offset to the first Image File Directory (IFD)
+- One or more IFDs, each containing a set of tags (metadata) and pointers to the actual image data
+- Image data, which can be stored in various formats and compressions
+
+To describe it differently, a tiff can contain one or multiple images (pages). Each image is always associated with an IFD.
+An IFD is a small array of tags, complemented with extra arrays for large tag values.
+
+The concept of reading a TIFF file can thus be broken down into:
+- Reading the header to determine endianness and locate the first IFD
+- Iterating through IFDs, in order to select the desired image/page
+- Fetching the tag array from the IFD
+- Extracting from the tag array and the extra arrays only the tags you care about (for instance the minimum set to read the image data)
+- From the extracted information (size, etc), select the image region you want to read
+- Read the target region from the image data, decompressing and decoding it as needed
+
+The TIFF format is very flexible, and for instance allows:
+- multichannel images
+- images stored in strips or tiles
+- images stored as chains (for instances pages of a physical document scanner), or as pyramids (multiple resolutions of the same image)
+- Storing all kinds of metadata (EXIF, XMP, custom tags, etc)
+
+As a result, to support most use-cases, the library decomposes the concept of reading a TIFF file into these separate steps.
+
+Higher level helpers are provided for simple use-cases (read the main image, read a page, etc).
+
+Similarly, for writing a TIFF file, the separate steps (sub-concepts) are:
+- Write the header
+- Edit an existing tag array
+- Reserve space for one or more tag arrays (unlike some libraries, for cache locality reasons, this library encourages to write tag arrays at the beginning of the file)
+- Write image data, compressing and encoding it as needed
+- Write IFDs (tag array), its extra arrays and update its pointers to image data
+- Edit IFD chains and pyramids
+
 ## Why yet another TIFF reading library ?
 
 This project started by the realization that reading a TIFF file when you know exactly what you expect and want is fast and can be done

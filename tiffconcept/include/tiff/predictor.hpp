@@ -1,9 +1,9 @@
 #pragma once
 
+#include <algorithm>
+#include <concepts>
 #include <cstdint>
 #include <span>
-#include <concepts>
-#include <algorithm>
 
 namespace tiff {
 

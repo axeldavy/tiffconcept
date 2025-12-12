@@ -2,8 +2,8 @@
 
 #include <cstddef>
 #include <cstdint>
-#include <span>
 #include <memory>
+#include <span>
 #include "decompressor_base.hpp"
 #include "result.hpp"
 

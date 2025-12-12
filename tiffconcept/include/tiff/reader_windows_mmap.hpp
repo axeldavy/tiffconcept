@@ -5,16 +5,16 @@
 #endif
 #include <windows.h>
 
+#include <algorithm>
 #include <cstddef>
-#include <span>
 #include <memory>
+#include <span>
 #include <string>
 #include <string_view>
-#include <algorithm>
 #include "reader_base.hpp"
 
 namespace tiff {
-
+namespace windows_mmap_impl {
 
 namespace detail {
     /// Custom deleter for memory-mapped view
@@ -82,16 +82,7 @@ namespace detail {
         static constexpr bool can_read = true;
         static constexpr bool can_write = false;
     };
-    
-    struct WriteOnlyAccess {
-        static constexpr DWORD desired_access = GENERIC_READ | GENERIC_WRITE;
-        static constexpr DWORD share_mode = FILE_SHARE_READ;
-        static constexpr DWORD page_protection = PAGE_READWRITE;
-        static constexpr DWORD map_access = FILE_MAP_WRITE;
-        static constexpr bool can_read = false;
-        static constexpr bool can_write = true;
-    };
-    
+
     struct ReadWriteAccess {
         static constexpr DWORD desired_access = GENERIC_READ | GENERIC_WRITE;
         static constexpr DWORD share_mode = FILE_SHARE_READ;
@@ -100,7 +91,7 @@ namespace detail {
         static constexpr bool can_read = true;
         static constexpr bool can_write = true;
     };
-}
+} // namespace detail
 
 /// Read-only view for memory-mapped regions (zero-copy, shared ownership)
 class WindowsMmapReadView {
@@ -163,9 +154,9 @@ public:
 };
 
 static_assert(DataWriteOnlyView<WindowsMmapWriteView<detail::ReadWriteAccess>>, "WindowsMmapWriteView must satisfy DataWriteOnlyView concept");
-static_assert(DataWriteOnlyView<WindowsMmapWriteView<detail::WriteOnlyAccess>>, "WindowsMmapWriteView must satisfy DataWriteOnlyView concept");
 static_assert(DataWriteViewWithReadback<WindowsMmapWriteView<detail::ReadWriteAccess>>, "WindowsMmapWriteView must support readback");
 
+} // namespace windows_mmap_impl
 
 /// Base template for Windows memory-mapped file access
 /// AccessPolicy determines read/write capabilities
@@ -173,14 +164,14 @@ template <typename AccessPolicy>
 class WindowsMmapFileBase {
 protected:
     HANDLE file_handle_{INVALID_HANDLE_VALUE};
-    detail::FileMappingHandle mapping_handle_;
+    windows_mmap_impl::detail::FileMappingHandle mapping_handle_;
     std::shared_ptr<void> base_mapping_;
     std::size_t size_{0};
     std::string path_;
 
 public:
-    using ReadViewType = WindowsMmapReadView;
-    using WriteViewType = WindowsMmapWriteView;
+    using ReadViewType = windows_mmap_impl::WindowsMmapReadView;
+    using WriteViewType = windows_mmap_impl::WindowsMmapWriteView<AccessPolicy>;
     
     WindowsMmapFileBase() noexcept = default;
     
@@ -282,7 +273,7 @@ public:
             return Err(Error::Code::ReadError, "Failed to create file mapping: " + std::string(path));
         }
         
-        mapping_handle_ = detail::FileMappingHandle(mapping);
+        mapping_handle_ = windows_mmap_impl::detail::FileMappingHandle(mapping);
         
         // Map the entire file into memory
         void* mapped_ptr = MapViewOfFile(
@@ -298,7 +289,7 @@ public:
         }
         
         // Store base mapping with custom deleter
-        base_mapping_ = std::shared_ptr<void>(mapped_ptr, detail::MmapViewDeleter{});
+        base_mapping_ = std::shared_ptr<void>(mapped_ptr, windows_mmap_impl::detail::MmapViewDeleter{});
         
         return Ok();
     }
@@ -345,7 +336,7 @@ public:
         const std::byte* base = static_cast<const std::byte*>(base_mapping_.get());
         std::span<const std::byte> data_span(base + offset, bytes_to_read);
         
-        return Ok(ReadViewType(data_span, base_mapping_));
+        return Ok(windows_mmap_impl::WindowsMmapReadView(data_span, base_mapping_));
     }
     
     /// Zero-copy write (only available if can_write is true)
@@ -364,7 +355,7 @@ public:
         std::byte* base = static_cast<std::byte*>(base_mapping_.get());
         std::span<std::byte> data_span(base + offset, bytes_to_write);
         
-        return Ok(WriteViewType(data_span, base_mapping_));
+        return Ok(windows_mmap_impl::WindowsMmapWriteView<AccessPolicy>(data_span, base_mapping_));
     }
     
     [[nodiscard]] Result<std::size_t> size() const noexcept {
@@ -416,7 +407,7 @@ public:
                 return Err(Error::Code::WriteError, "Failed to remap after resize");
             }
             
-            mapping_handle_ = detail::FileMappingHandle(mapping);
+            mapping_handle_ = windows_mmap_impl::detail::FileMappingHandle(mapping);
             
             void* mapped_ptr = MapViewOfFile(
                 mapping_handle_.get(),
@@ -429,7 +420,7 @@ public:
                 return Err(Error::Code::WriteError, "Failed to map view after resize");
             }
             
-            base_mapping_ = std::shared_ptr<void>(mapped_ptr, detail::MmapViewDeleter{});
+            base_mapping_ = std::shared_ptr<void>(mapped_ptr, windows_mmap_impl::detail::MmapViewDeleter{});
         }
         
         return Ok();
@@ -461,17 +452,14 @@ public:
 };
 
 /// Windows memory-mapped file reader - zero-copy, thread-safe, read-only
-using WindowsMmapFileReader = WindowsMmapFileBase<detail::ReadOnlyAccess>;
+using WindowsMmapFileReader = WindowsMmapFileBase<windows_mmap_impl::detail::ReadOnlyAccess>;
 
 static_assert(RawReader<WindowsMmapFileReader>, "WindowsMmapFileReader must satisfy RawReader concept");
 
-/// Windows memory-mapped file writer - zero-copy, thread-safe, write-only
-using WindowsMmapFileWriter = WindowsMmapFileBase<detail::WriteOnlyAccess>;
-
-static_assert(RawWriter<WindowsMmapFileWriter>, "WindowsMmapFileWriter must satisfy RawWriter concept");
+// Write-only mmap (write-only file) is not supported due to Windows mmap limitations
 
 /// Windows memory-mapped file reader+writer - zero-copy, thread-safe, read-write
-using WindowsMmapFileReadWriter = WindowsMmapFileBase<detail::ReadWriteAccess>;
+using WindowsMmapFileReadWriter = WindowsMmapFileBase<windows_mmap_impl::detail::ReadWriteAccess>;
 
 static_assert(RawReader<WindowsMmapFileReadWriter>, "WindowsMmapFileReadWriter must satisfy RawReader concept");
 static_assert(RawWriter<WindowsMmapFileReadWriter>, "WindowsMmapFileReadWriter must satisfy RawWriter concept");

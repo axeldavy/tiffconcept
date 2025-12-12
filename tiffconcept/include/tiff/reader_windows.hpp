@@ -5,15 +5,16 @@
 #endif
 #include <windows.h>
 
+#include <algorithm>
 #include <cstddef>
-#include <span>
 #include <memory>
+#include <span>
 #include <string>
 #include <string_view>
-#include <algorithm>
 #include "reader_base.hpp"
 
 namespace tiff {
+namespace windows_impl {
 
 /// Read-only view that owns allocated buffer
 class OwnedBufferReadView {
@@ -143,7 +144,7 @@ namespace detail {
     };
     
     struct WriteOnlyAccess {
-        static constexpr DWORD desired_access = GENERIC_READ | GENERIC_WRITE;
+        static constexpr DWORD desired_access = GENERIC_WRITE;
         static constexpr DWORD share_mode = FILE_SHARE_READ;
         static constexpr DWORD creation_disposition = OPEN_ALWAYS;
         static constexpr DWORD flags = FILE_FLAG_OVERLAPPED;
@@ -159,7 +160,9 @@ namespace detail {
         static constexpr bool can_read = true;
         static constexpr bool can_write = true;
     };
-}
+} // namespace detail
+
+} // namespace windows_impl
 
 /// Base template for Windows ReadFile/WriteFile access
 /// AccessPolicy determines read/write capabilities
@@ -171,8 +174,8 @@ protected:
     std::string path_;
 
 public:
-    using ReadViewType = OwnedBufferReadView;
-    using WriteViewType = OwnedBufferWriteView;
+    using ReadViewType = windows_impl::OwnedBufferReadView;
+    using WriteViewType = windows_impl::OwnedBufferWriteView;
     
     WindowsFileBase() noexcept = default;
     
@@ -292,7 +295,7 @@ public:
         
         std::span<const std::byte> data_span(buffer.get(), static_cast<std::size_t>(bytes_read));
         
-        return Ok(OwnedBufferReadView(data_span, buffer));
+        return Ok(windows_impl::OwnedBufferReadView(data_span, buffer));
     }
     
     /// Thread-safe write using WriteFile with OVERLAPPED (only available if can_write is true)
@@ -306,7 +309,7 @@ public:
         auto buffer = std::shared_ptr<std::byte[]>(new std::byte[size]);
         std::span<std::byte> data_span(buffer.get(), size);
         
-        return Ok(OwnedBufferWriteView(data_span, buffer, file_handle_, offset));
+        return Ok(windows_impl::OwnedBufferWriteView(data_span, buffer, file_handle_, offset));
     }
     
     [[nodiscard]] Result<std::size_t> size() const noexcept {
@@ -362,17 +365,17 @@ public:
 };
 
 /// Windows file reader using ReadFile with OVERLAPPED - thread-safe without locks, read-only
-using WindowsFileReader = WindowsFileBase<detail::ReadOnlyAccess>;
+using WindowsFileReader = WindowsFileBase<windows_impl::detail::ReadOnlyAccess>;
 
 static_assert(RawReader<WindowsFileReader>, "WindowsFileReader must satisfy RawReader concept");
 
 /// Windows file writer using WriteFile with OVERLAPPED - thread-safe without locks, write-only
-using WindowsFileWriter = WindowsFileBase<detail::WriteOnlyAccess>;
+using WindowsFileWriter = WindowsFileBase<windows_impl::detail::WriteOnlyAccess>;
 
 static_assert(RawWriter<WindowsFileWriter>, "WindowsFileWriter must satisfy RawWriter concept");
 
 /// Windows file reader+writer using ReadFile/WriteFile with OVERLAPPED - thread-safe without locks, read-write
-using WindowsFileReadWriter = WindowsFileBase<detail::ReadWriteAccess>;
+using WindowsFileReadWriter = WindowsFileBase<windows_impl::detail::ReadWriteAccess>;
 
 static_assert(RawReader<WindowsFileReadWriter>, "WindowsFileReadWriter must satisfy RawReader concept");
 static_assert(RawWriter<WindowsFileReadWriter>, "WindowsFileReadWriter must satisfy RawWriter concept");

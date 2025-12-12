@@ -45,6 +45,4 @@
 #include "tiff/types.hpp"
 #include "tiff/reader_base.hpp"
 #include "tiff/tag_spec.hpp"
-#include "tiff/tag_reader.hpp"
-#include "tiff/metadata.hpp"
 #include "tiff/image_shape.hpp"

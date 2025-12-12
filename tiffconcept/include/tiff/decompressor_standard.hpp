@@ -1,8 +1,8 @@
 #pragma once
 
 #include <cstddef>
-#include <span>
 #include <cstring>
+#include <span>
 #include "decompressor_base.hpp"
 #include "result.hpp"
 

@@ -1,12 +1,12 @@
 #pragma once
 
-#include <vector>
-#include <span>
 #include <cstring>
-#include "types.hpp"
-#include "result.hpp"
+#include <span>
+#include <vector>
 #include "decompressor_base.hpp"
 #include "predictor.hpp"
+#include "result.hpp"
+#include "types.hpp"
 
 namespace tiff {
 

@@ -15,6 +15,7 @@
 #include "reader_base.hpp"
 
 namespace tiff {
+namespace mmap_impl {
 
 namespace detail {
     struct MmapDeleter {
@@ -34,21 +35,14 @@ namespace detail {
         static constexpr bool can_read = true;
         static constexpr bool can_write = false;
     };
-    
-    struct WriteOnlyAccess {
-        static constexpr int open_flags = O_WRONLY;
-        static constexpr int prot_flags = PROT_WRITE;
-        static constexpr bool can_read = false;
-        static constexpr bool can_write = true;
-    };
-    
+
     struct ReadWriteAccess {
         static constexpr int open_flags = O_RDWR;
         static constexpr int prot_flags = PROT_READ | PROT_WRITE;
         static constexpr bool can_read = true;
         static constexpr bool can_write = true;
     };
-}
+} // namespace detail
 
 /// Read-only view for memory-mapped files - shares mmap ownership
 class MmapReadView {
@@ -109,9 +103,9 @@ public:
 };
 
 static_assert(DataWriteOnlyView<MmapWriteView<detail::ReadWriteAccess>>, "MmapWriteView must satisfy DataWriteOnlyView concept");
-static_assert(DataWriteOnlyView<MmapWriteView<detail::WriteOnlyAccess>>, "MmapWriteView must satisfy DataWriteOnlyView concept");
 static_assert(DataWriteViewWithReadback<MmapWriteView<detail::ReadWriteAccess>>, "MmapWriteView must support readback");
 
+} // namespace mmap_impl
 
 /// Base template for memory-mapped file access
 /// AccessPolicy determines read/write capabilities
@@ -124,8 +118,8 @@ protected:
     std::shared_ptr<void> mmap_handle_;
 
 public:
-    using ReadViewType = MmapReadView;
-    using WriteViewType = MmapWriteView<AccessPolicy>;
+    using ReadViewType = mmap_impl::MmapReadView;
+    using WriteViewType = mmap_impl::MmapWriteView<AccessPolicy>;
     
     MmapFileBase() noexcept = default;
     
@@ -199,7 +193,7 @@ public:
                 madvise(addr, size_, MADV_SEQUENTIAL);
             }
             
-            mmap_handle_ = std::shared_ptr<void>(addr, detail::MmapDeleter{size_});
+            mmap_handle_ = std::shared_ptr<void>(addr, mmap_impl::detail::MmapDeleter{size_});
         }
         
         return Ok();
@@ -236,7 +230,7 @@ public:
         auto* base = static_cast<const std::byte*>(mmap_handle_.get());
         std::span<const std::byte> data_span(base + offset, bytes_to_read);
         
-        return Ok(MmapReadView(data_span, mmap_handle_));
+        return Ok(tiff::mmap_impl::MmapReadView(data_span, mmap_handle_));
     }
     
     /// Zero-copy write (only available if can_write is true)
@@ -255,7 +249,7 @@ public:
         auto* base = static_cast<std::byte*>(mmap_handle_.get());
         std::span<std::byte> data_span(base + offset, bytes_to_write);
         
-        return Ok(MmapWriteView<AccessPolicy>(data_span, mmap_handle_));
+        return Ok(tiff::mmap_impl::MmapWriteView<AccessPolicy>(data_span, mmap_handle_));
     }
     
     [[nodiscard]] Result<std::size_t> size() const noexcept {
@@ -293,7 +287,7 @@ public:
                 return Err(Error::Code::WriteError, "Failed to remap file after resize");
             }
             
-            mmap_handle_ = std::shared_ptr<void>(addr, detail::MmapDeleter{size_});
+            mmap_handle_ = std::shared_ptr<void>(addr, mmap_impl::detail::MmapDeleter{size_});
         }
         
         return Ok();
@@ -320,17 +314,14 @@ public:
 };
 
 /// Memory-mapped file reader (POSIX) - zero-copy, thread-safe, read-only
-using MmapFileReader = MmapFileBase<detail::ReadOnlyAccess>;
+using MmapFileReader = MmapFileBase<mmap_impl::detail::ReadOnlyAccess>;
 
 static_assert(RawReader<MmapFileReader>, "MmapFileReader must satisfy RawReader concept");
 
-/// Memory-mapped file writer (POSIX) - zero-copy, thread-safe, write-only
-using MmapFileWriter = MmapFileBase<detail::WriteOnlyAccess>;
-
-static_assert(RawWriter<MmapFileWriter>, "MmapFileWriter must satisfy RawWriter concept");
+// Write-only mmap (write-only file) is not supported due to POSIX mmap limitations
 
 /// Memory-mapped file reader+writer (POSIX) - zero-copy, thread-safe, read-write
-using MmapFileReadWriter = MmapFileBase<detail::ReadWriteAccess>;
+using MmapFileReadWriter = MmapFileBase<mmap_impl::detail::ReadWriteAccess>;
 
 static_assert(RawReader<MmapFileReadWriter>, "MmapFileReadWriter must satisfy RawReader concept");
 static_assert(RawWriter<MmapFileReadWriter>, "MmapFileReadWriter must satisfy RawWriter concept");

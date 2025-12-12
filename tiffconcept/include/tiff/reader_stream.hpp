@@ -1,16 +1,17 @@
 #pragma once
 
+#include <algorithm>
+#include <cstddef>
 #include <fstream>
+#include <memory>
 #include <mutex>
+#include <span>
 #include <string>
 #include <string_view>
-#include <span>
-#include <memory>
-#include <cstddef>
-#include <algorithm>
 #include "reader_base.hpp"
 
 namespace tiff {
+namespace stream_impl {
 
 /// Read-only view that owns allocated buffer
 class OwnedBufferReadView {
@@ -145,7 +146,9 @@ namespace detail {
         static constexpr bool can_read = true;
         static constexpr bool can_write = true;
     };
-}
+} // namespace detail
+
+} // namespace stream_impl
 
 /// Base template for stream-based file access
 /// AccessPolicy determines read/write capabilities
@@ -158,8 +161,8 @@ protected:
     std::string path_;
 
 public:
-    using ReadViewType = OwnedBufferReadView;
-    using WriteViewType = OwnedBufferWriteView;
+    using ReadViewType = stream_impl::OwnedBufferReadView;
+    using WriteViewType = stream_impl::OwnedBufferWriteView;
     
     StreamFileBase() noexcept = default;
     
@@ -270,7 +273,7 @@ public:
         std::size_t actual_read = static_cast<std::size_t>(stream_.gcount());
         std::span<const std::byte> data_span(buffer.get(), actual_read);
         
-        return Ok(OwnedBufferReadView(data_span, buffer));
+        return Ok(stream_impl::OwnedBufferReadView(data_span, buffer));
     }
     
     /// Thread-safe write (only available if can_write is true)
@@ -279,12 +282,16 @@ public:
         if (!is_valid()) {
             return Err(Error::Code::WriteError, "File not open");
         }
+
+        if (offset > size_) {
+            return Err(Error::Code::OutOfBounds, "Write offset beyond file size");
+        }
         
         // Allocate buffer
         auto buffer = std::shared_ptr<std::byte[]>(new std::byte[size]);
         std::span<std::byte> data_span(buffer.get(), size);
         
-        return Ok(OwnedBufferWriteView(data_span, buffer, &stream_, &mutex_, offset));
+        return Ok(stream_impl::OwnedBufferWriteView(data_span, buffer, &stream_, &mutex_, offset));
     }
     
     [[nodiscard]] Result<std::size_t> size() const noexcept {
@@ -360,17 +367,17 @@ public:
 };
 
 /// Portable file reader using std::fstream - thread-safe with mutex, read-only
-using StreamFileReader = StreamFileBase<detail::ReadOnlyAccess>;
+using StreamFileReader = StreamFileBase<stream_impl::detail::ReadOnlyAccess>;
 
 static_assert(RawReader<StreamFileReader>, "StreamFileReader must satisfy RawReader concept");
 
 /// Portable file writer using std::fstream - thread-safe with mutex, write-only
-using StreamFileWriter = StreamFileBase<detail::WriteOnlyAccess>;
+using StreamFileWriter = StreamFileBase<stream_impl::detail::WriteOnlyAccess>;
 
 static_assert(RawWriter<StreamFileWriter>, "StreamFileWriter must satisfy RawWriter concept");
 
 /// Portable file reader+writer using std::fstream - thread-safe with mutex, read-write
-using StreamFileReadWriter = StreamFileBase<detail::ReadWriteAccess>;
+using StreamFileReadWriter = StreamFileBase<stream_impl::detail::ReadWriteAccess>;
 
 static_assert(RawReader<StreamFileReadWriter>, "StreamFileReadWriter must satisfy RawReader concept");
 static_assert(RawWriter<StreamFileReadWriter>, "StreamFileReadWriter must satisfy RawWriter concept");

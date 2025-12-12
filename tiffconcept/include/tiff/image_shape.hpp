@@ -2,7 +2,6 @@
 
 #include <cstdint>
 #include <type_traits>
-#include "metadata.hpp"
 #include "result.hpp"
 #include "types.hpp"
 

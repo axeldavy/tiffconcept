@@ -1,18 +1,19 @@
 #pragma once
 
+#include <algorithm>
 #include <cstddef>
-#include <span>
-#include <memory>
+#include <cstring>
 #include <fcntl.h>
-#include <unistd.h>
-#include <sys/stat.h>
+#include <memory>
+#include <span>
 #include <string>
 #include <string_view>
-#include <algorithm>
-#include <cstring>
+#include <sys/stat.h>
+#include <unistd.h>
 #include "reader_base.hpp"
 
 namespace tiff {
+namespace pread_impl {
 
 /// Read-only view that owns allocated buffer
 class OwnedBufferReadView {
@@ -118,7 +119,6 @@ public:
 static_assert(DataWriteOnlyView<OwnedBufferWriteView>, "OwnedBufferWriteView must satisfy DataWriteOnlyView concept");
 static_assert(DataWriteViewWithReadback<OwnedBufferWriteView>, "OwnedBufferWriteView must support readback");
 
-
 namespace detail {
     // Access mode policies for pread/pwrite
     struct ReadOnlyAccess {
@@ -138,7 +138,9 @@ namespace detail {
         static constexpr bool can_read = true;
         static constexpr bool can_write = true;
     };
-}
+} // namespace detail
+
+} // namespace pread_impl
 
 /// Base template for pread/pwrite file access
 /// AccessPolicy determines read/write capabilities
@@ -150,8 +152,8 @@ protected:
     std::string path_;
 
 public:
-    using ReadViewType = OwnedBufferReadView;
-    using WriteViewType = OwnedBufferWriteView;
+    using ReadViewType = pread_impl::OwnedBufferReadView;
+    using WriteViewType = pread_impl::OwnedBufferWriteView;
     
     PreadFileBase() noexcept = default;
     
@@ -249,7 +251,7 @@ public:
         
         std::span<const std::byte> data_span(buffer.get(), static_cast<std::size_t>(bytes_read));
         
-        return Ok(OwnedBufferReadView(data_span, buffer));
+        return Ok(pread_impl::OwnedBufferReadView(data_span, buffer));
     }
     
     /// Thread-safe write using pwrite (only available if can_write is true)
@@ -267,7 +269,7 @@ public:
         auto buffer = std::shared_ptr<std::byte[]>(new std::byte[size]);
         std::span<std::byte> data_span(buffer.get(), size);
         
-        return Ok(OwnedBufferWriteView(data_span, buffer, fd_, offset));
+        return Ok(pread_impl::OwnedBufferWriteView(data_span, buffer, fd_, offset));
     }
     
     [[nodiscard]] Result<std::size_t> size() const noexcept {
@@ -313,17 +315,17 @@ public:
 };
 
 /// File reader using pread (POSIX) - thread-safe without locks, read-only
-using PreadFileReader = PreadFileBase<detail::ReadOnlyAccess>;
+using PreadFileReader = PreadFileBase<pread_impl::detail::ReadOnlyAccess>;
 
 static_assert(RawReader<PreadFileReader>, "PreadFileReader must satisfy RawReader concept");
 
 /// File writer using pwrite (POSIX) - thread-safe without locks, write-only
-using PwriteFileWriter = PreadFileBase<detail::WriteOnlyAccess>;
+using PwriteFileWriter = PreadFileBase<pread_impl::detail::WriteOnlyAccess>;
 
 static_assert(RawWriter<PwriteFileWriter>, "PwriteFileWriter must satisfy RawWriter concept");
 
 /// File reader+writer using pread/pwrite (POSIX) - thread-safe without locks, read-write
-using PreadFileReadWriter = PreadFileBase<detail::ReadWriteAccess>;
+using PreadFileReadWriter = PreadFileBase<pread_impl::detail::ReadWriteAccess>;
 
 static_assert(RawReader<PreadFileReadWriter>, "PreadFileReadWriter must satisfy RawReader concept");
 static_assert(RawWriter<PreadFileReadWriter>, "PreadFileReadWriter must satisfy RawWriter concept");

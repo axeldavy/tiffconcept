@@ -1,8 +1,7 @@
 #pragma once
 
-#include <vector>
 #include <span>
-#include "metadata.hpp"
+#include <vector>
 #include "result.hpp"
 #include "types.hpp"
 #include "image_shape.hpp"
@@ -253,7 +252,6 @@ inline void copy_tile_to_buffer(
                         const std::size_t tile_plane_offset = static_cast<std::size_t>(tile_start_sample) * 
                             tile_width * tile_height * tile_depth;
                         output_buffer[output_pixel_offset] = tile_data[tile_plane_offset + tile_row_offset + w];
-                        }
                     }
                 }
             }

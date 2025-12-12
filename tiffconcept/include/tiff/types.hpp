@@ -1,12 +1,25 @@
 #pragma once
 
+#include <array>
 #include <bit>
 #include <cassert>
 #include <cstdint>
-#include <array>
+#include <cstring>
 #include <span>
 
 namespace tiff {
+
+/// Rational number representation (unsigned)
+struct Rational {
+    uint32_t numerator;
+    uint32_t denominator;
+};
+
+/// Rational number representation (signed)
+struct SRational {
+    int32_t numerator;
+    int32_t denominator;
+};
 
 template <typename T>
 [[nodiscard]] constexpr T byteswap(T value) noexcept requires std::is_integral_v<T> {
