@@ -14,16 +14,7 @@ namespace tiff {
 /// NOT thread-safe - only one thread should use it at a time.
 /// Contains a scratch buffer to avoid reallocations
 template <typename PixelType, typename DecompSpec>
-    requires (std::is_same_v<PixelType, uint8_t> || 
-              std::is_same_v<PixelType, uint16_t> ||
-              std::is_same_v<PixelType, uint32_t> ||
-              std::is_same_v<PixelType, uint64_t> ||
-              std::is_same_v<PixelType, int8_t> ||
-              std::is_same_v<PixelType, int16_t> ||
-              std::is_same_v<PixelType, int32_t> ||
-              std::is_same_v<PixelType, int64_t> ||
-              std::is_same_v<PixelType, float> ||
-              std::is_same_v<PixelType, double>) &&
+    requires predictor::DeltaDecodable<PixelType> &&
              ValidDecompressorSpec<DecompSpec>
 class ChunkDecoder {
 private:
@@ -47,11 +38,11 @@ private:
         
         if (predictor == Predictor::Horizontal) {
             if constexpr (!std::is_floating_point_v<PixelType>) {
-                delta_decode_horizontal(typed_data, width, height, stride, samples_per_pixel);
+                predictor::delta_decode_horizontal(typed_data, width, height, stride, samples_per_pixel);
             }
         } else if (predictor == Predictor::FloatingPoint) {
             if constexpr (std::is_floating_point_v<PixelType>) {
-                delta_decode_floating_point(typed_data, width, height, stride, samples_per_pixel);
+                predictor::delta_decode_floating_point(typed_data, width, height, stride, samples_per_pixel);
             }
         }
         return Ok();

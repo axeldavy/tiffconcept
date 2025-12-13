@@ -221,7 +221,6 @@ TEST(ExtractedTags, ClearVectorTags) {
 
 TEST(ExtractedTags, ExtractSortedTagsAllRequired) {
     // Create a simple tag set
-    using SimpleSpec = TagSpec<ImageWidthTag, ImageLengthTag, CompressionTag>;
     ExtractedTags<ImageWidthTag, ImageLengthTag, CompressionTag> tags;
     
     // Create tags in sorted order

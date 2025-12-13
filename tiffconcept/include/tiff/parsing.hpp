@@ -127,7 +127,6 @@ template <typename TagDesc, typename Reader, TiffFormatType TiffFormat, std::end
                 }();
             }
         }
-        RefType value;
         auto result = read_struct_no_endianness_conversion<Reader, RefType>(reader, tag.template get_offset<std::endian::native>());
         if (!result) return Err(result.error().code, result.error().message);
         return Ok(static_cast<ElementType>(result.value()));
@@ -270,7 +269,6 @@ template <typename TagDesc, typename Reader, TiffFormatType TiffFormat, std::end
     requires RawReader<Reader>
 {
     using ContainerType = typename TagDesc::value_type;
-    using RationalType = typename TagDesc::element_type;
     using ComponentType = typename TagDesc::reference_type;
     const std::size_t tag_count = static_cast<std::size_t>(tag.template get_count<std::endian::native>());
     
@@ -368,7 +366,6 @@ template <typename TagDesc, typename Reader, TiffFormatType TiffFormat, std::end
     requires RawReader<Reader>
 {
     using ValueType = typename TagDesc::value_type;
-    using ElementType = typename TagDesc::element_type;
     
     // Handle strings specially
     if constexpr (std::is_same_v<ValueType, std::string>) {

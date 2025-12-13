@@ -149,9 +149,7 @@ consteval bool validate_no_rational_promotion() {
 
     if (primary_is_rational) {
         // Disallow any alternate types if primary is rational
-        for (const auto& alt_type : alternate_types) {
-            return false;
-        }
+        return alternate_types.empty();
     }
 
     return true;

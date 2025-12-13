@@ -38,6 +38,10 @@ add_executable(test_extracted_tags
     test_extracted_tags.cpp
 )
 
+add_executable(test_predictor
+    test_predictor.cpp
+)
+
 # Link against GoogleTest
 target_link_libraries(test_reader_writer
     GTest::gtest_main
@@ -54,17 +58,24 @@ target_link_libraries(test_extracted_tags
     GTest::gtest
 )
 
+target_link_libraries(test_predictor
+    GTest::gtest_main
+    GTest::gtest
+)
+
 # Platform-specific libraries
 if(UNIX AND NOT APPLE)
     # Linux-specific libraries
     target_compile_definitions(test_reader_writer PRIVATE __unix__)
     target_compile_definitions(test_tag_parsing_writing PRIVATE __unix__)
     target_compile_definitions(test_extracted_tags PRIVATE __unix__)
+    target_compile_definitions(test_predictor PRIVATE __unix__)
 elseif(WIN32)
     # Windows-specific libraries
     target_compile_definitions(test_reader_writer PRIVATE _WIN32)
     target_compile_definitions(test_tag_parsing_writing PRIVATE _WIN32)
     target_compile_definitions(test_extracted_tags PRIVATE _WIN32)
+    target_compile_definitions(test_predictor PRIVATE _WIN32)
 endif()
 
 # Add tests to CTest
@@ -72,10 +83,17 @@ include(GoogleTest)
 gtest_discover_tests(test_reader_writer)
 gtest_discover_tests(test_tag_parsing_writing)
 gtest_discover_tests(test_extracted_tags)
+gtest_discover_tests(test_predictor)
 
 # Optional: Add compiler warnings
 if(MSVC)
     target_compile_options(test_reader_writer PRIVATE /W4)
+    target_compile_options(test_tag_parsing_writing PRIVATE /W4)
+    target_compile_options(test_extracted_tags PRIVATE /W4)
+    target_compile_options(test_predictor PRIVATE /W4)
 else()
     target_compile_options(test_reader_writer PRIVATE -Wall -Wextra -Wpedantic)
+    target_compile_options(test_tag_parsing_writing PRIVATE -Wall -Wextra -Wpedantic)
+    target_compile_options(test_extracted_tags PRIVATE -Wall -Wextra -Wpedantic)
+    target_compile_options(test_predictor PRIVATE -Wall -Wextra -Wpedantic)
 endif()

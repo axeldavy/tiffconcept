@@ -309,7 +309,6 @@ public:
     [[nodiscard]] std::size_t extra_byte_size() const noexcept {
         constexpr std::size_t inline_limit = (TiffFormat == TiffFormatType::Classic) ? 4 : 8;
         std::size_t total_size = 0;
-        std::size_t idx = 0;
         
         [&]<std::size_t... Is>(std::index_sequence<Is...>) {
             auto add_size = [&]<std::size_t Idx, typename TagDesc>() {

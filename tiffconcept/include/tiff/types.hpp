@@ -21,6 +21,202 @@ struct SRational {
     int32_t denominator;
 };
 
+/// Non-native float types represented as fixed-size byte arrays
+struct Float16 {
+    uint8_t bytes[2];
+
+    constexpr Float16() noexcept : bytes{0, 0} {}
+
+    explicit Float16(float value) noexcept {
+        from_float(value);
+    }
+    
+    // Helper to treat as uint16_t for predictor operations
+    uint16_t as_uint16() const noexcept {
+        return (static_cast<uint16_t>(bytes[0])) | 
+               (static_cast<uint16_t>(bytes[1]) << 8);
+    }
+    
+    void from_uint16(uint16_t val) noexcept {
+        bytes[0] = static_cast<uint8_t>(val & 0xFF);
+        bytes[1] = static_cast<uint8_t>((val >> 8) & 0xFF);
+    }
+
+    // Helpers to use Float16 in your program
+    /// Convert from float32 to float16 (IEEE 754 half-precision)
+    void from_float(float value) noexcept {
+        uint32_t f32 = std::bit_cast<uint32_t>(value);
+        
+        uint32_t sign = (f32 >> 16) & 0x8000;
+        int32_t exponent = ((f32 >> 23) & 0xFF) - 127;
+        uint32_t mantissa = f32 & 0x7FFFFF;
+        
+        uint16_t f16;
+        
+        // Handle special cases
+        if (exponent == 128) {
+            // Infinity or NaN
+            f16 = static_cast<uint16_t>(sign | 0x7C00 | (mantissa != 0 ? 0x0200 : 0));
+        } else if (exponent > 15) {
+            // Overflow to infinity
+            f16 = static_cast<uint16_t>(sign | 0x7C00);
+        } else if (exponent > -15) {
+            // Normalized number
+            exponent += 15;
+            f16 = static_cast<uint16_t>(sign | (exponent << 10) | (mantissa >> 13));
+        } else if (exponent >= -24) {
+            // Denormalized number
+            mantissa |= 0x800000;
+            uint32_t shift = static_cast<uint32_t>(-14 - exponent);
+            f16 = static_cast<uint16_t>(sign | (mantissa >> shift));
+        } else {
+            // Underflow to zero
+            f16 = static_cast<uint16_t>(sign);
+        }
+        
+        from_uint16(f16);
+    }
+    
+    /// Convert from float16 to float32
+    [[nodiscard]] float to_float() const noexcept {
+        uint16_t f16 = as_uint16();
+        
+        uint32_t sign = (static_cast<uint32_t>(f16) & 0x8000) << 16;
+        uint32_t exponent = (f16 >> 10) & 0x1F;
+        uint32_t mantissa = f16 & 0x3FF;
+        
+        uint32_t f32;
+        
+        if (exponent == 0) {
+            if (mantissa == 0) {
+                // Zero
+                f32 = sign;
+            } else {
+                // Denormalized number
+                exponent = 1;
+                while ((mantissa & 0x400) == 0) {
+                    mantissa <<= 1;
+                    exponent--;
+                }
+                mantissa &= 0x3FF;
+                f32 = sign | ((exponent + (127 - 15)) << 23) | (mantissa << 13);
+            }
+        } else if (exponent == 31) {
+            // Infinity or NaN
+            f32 = sign | 0x7F800000 | (mantissa << 13);
+        } else {
+            // Normalized number
+            f32 = sign | ((exponent + (127 - 15)) << 23) | (mantissa << 13);
+        }
+        
+        return std::bit_cast<float>(f32);
+    }
+    
+    /// Conversion operator to float
+    explicit operator float() const noexcept {
+        return to_float();
+    }
+};
+
+struct Float24 {
+    uint8_t bytes[3];
+
+    constexpr Float24() noexcept : bytes{0, 0, 0} {}
+
+    explicit Float24(float value) noexcept {
+        from_float(value);
+    }
+    
+    // Helper to treat as uint32_t for predictor operations (padded)
+    uint32_t as_uint32() const noexcept {
+        return (static_cast<uint32_t>(bytes[0])) | 
+               (static_cast<uint32_t>(bytes[1]) << 8) |
+               (static_cast<uint32_t>(bytes[2]) << 16);
+    }
+    
+    void from_uint32(uint32_t val) noexcept {
+        bytes[0] = static_cast<uint8_t>(val & 0xFF);
+        bytes[1] = static_cast<uint8_t>((val >> 8) & 0xFF);
+        bytes[2] = static_cast<uint8_t>((val >> 16) & 0xFF);
+    }
+
+    // Helpers to use Float24 in your program
+    /// Convert from float32 to float24 (custom 24-bit format)
+    /// Float24 format: 1 sign bit, 7 exponent bits, 16 mantissa bits
+    void from_float(float value) noexcept {
+        uint32_t f32 = std::bit_cast<uint32_t>(value);
+        
+        uint32_t sign = (f32 >> 31) & 0x1;
+        int32_t exponent = ((f32 >> 23) & 0xFF) - 127;
+        uint32_t mantissa = f32 & 0x7FFFFF;
+        
+        uint32_t f24;
+        
+        // Handle special cases
+        if (exponent == 128) {
+            // Infinity or NaN
+            f24 = (sign << 23) | 0x7F0000 | ((mantissa != 0) ? 0x8000 : 0);
+        } else if (exponent > 63) {
+            // Overflow to infinity
+            f24 = (sign << 23) | 0x7F0000;
+        } else if (exponent > -63) {
+            // Normalized number
+            exponent += 63;
+            f24 = (sign << 23) | (static_cast<uint32_t>(exponent) << 16) | (mantissa >> 7);
+        } else if (exponent >= -78) {
+            // Denormalized number
+            mantissa |= 0x800000;
+            uint32_t shift = static_cast<uint32_t>(-62 - exponent);
+            f24 = (sign << 23) | (mantissa >> shift);
+        } else {
+            // Underflow to zero
+            f24 = sign << 23;
+        }
+        
+        from_uint32(f24 & 0xFFFFFF);
+    }
+    
+    /// Convert from float24 to float32
+    [[nodiscard]] float to_float() const noexcept {
+        uint32_t f24 = as_uint32();
+        
+        uint32_t sign = (f24 >> 23) & 0x1;
+        uint32_t exponent = (f24 >> 16) & 0x7F;
+        uint32_t mantissa = f24 & 0xFFFF;
+        
+        uint32_t f32;
+        
+        if (exponent == 0) {
+            if (mantissa == 0) {
+                // Zero
+                f32 = sign << 31;
+            } else {
+                // Denormalized number
+                exponent = 1;
+                while ((mantissa & 0x10000) == 0) {
+                    mantissa <<= 1;
+                    exponent--;
+                }
+                mantissa &= 0xFFFF;
+                f32 = (sign << 31) | ((exponent + (127 - 63)) << 23) | (mantissa << 7);
+            }
+        } else if (exponent == 127) {
+            // Infinity or NaN
+            f32 = (sign << 31) | 0x7F800000 | (mantissa << 7);
+        } else {
+            // Normalized number
+            f32 = (sign << 31) | ((exponent + (127 - 63)) << 23) | (mantissa << 7);
+        }
+        
+        return std::bit_cast<float>(f32);
+    }
+    
+    /// Conversion operator to float
+    explicit operator float() const noexcept {
+        return to_float();
+    }
+};
+
 template <typename T>
 [[nodiscard]] constexpr T byteswap(T value) noexcept requires std::is_integral_v<T> {
     if constexpr (sizeof(T) == 1) {
