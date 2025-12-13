@@ -221,7 +221,7 @@ public:
         
         // Strips don't support 3D
         if (region.start_z != 0 || region.depth != 1) {
-            return Err(Error::Code::InvalidArgument, "Stripped images do not support 3D regions");
+            return Err(Error::Code::UnsupportedFeature, "Stripped images do not support 3D regions");
         }
         
         return read_region_impl<OutSpec>(
@@ -255,7 +255,7 @@ private:
         // Validate output buffer size
         std::size_t expected_size = region.num_samples();
         if (output_buffer.size() < expected_size) {
-            return Err(Error::Code::InvalidArgument, "Output buffer too small");
+            return Err(Error::Code::OutOfBounds, "Output buffer too small");
         }
         
         // Collect all chunks needed for this region

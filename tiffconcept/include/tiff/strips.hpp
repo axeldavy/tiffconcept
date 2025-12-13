@@ -22,7 +22,7 @@ struct StripInfo {
 template <typename PixelType>
 class StrippedImageInfo {
 private:
-    ImageShape<PixelType> shape_;  // Common image properties
+    ImageShape shape_;  // Common image properties
     
     uint32_t rows_per_strip_;
     
@@ -50,12 +50,18 @@ public:
     template <typename TagSpec>
         requires StrippedImageTagSpec<TagSpec>
     [[nodiscard]] Result<void> update_from_metadata(
-        const metadata_type_t<TagSpec>& metadata) noexcept {
+        const ExtractedTags<TagSpec>& metadata) noexcept {
         
         // Extract common image shape first
         auto shape_result = shape_.update_from_metadata(metadata);
         if (!shape_result) {
             return shape_result;
+        }
+
+        // Validate pixel type
+        auto format_validation = shape_.validate_pixel_type<PixelType>();
+        if (!format_validation) {
+            return format_validation;
         }
         
         // Extract strip-specific fields
@@ -102,7 +108,7 @@ public:
     }
     
     // Image shape access
-    [[nodiscard]] const ImageShape<PixelType>& shape() const noexcept { return shape_; }
+    [[nodiscard]] const ImageShape& shape() const noexcept { return shape_; }
     
     // Strip-specific getters
     [[nodiscard]] uint32_t rows_per_strip() const noexcept { return rows_per_strip_; }

@@ -139,12 +139,12 @@ struct DecompressorSpec {
 template <typename T>
 concept ValidDecompressorSpec = requires {
     { T::num_decompressors } -> std::convertible_to<std::size_t>;
-    
-    requires []<DecompressorDescriptorType... Decompressors>(DecompressorSpec<Decompressors...>*) {
-        return std::is_same_v<std::remove_cvref_t<T>, DecompressorSpec<Decompressors...>>;
-    }(static_cast<std::remove_cvref_t<T>*>(nullptr));
-
     requires T::num_decompressors > 0;
+
+    // Check that T has the expected interface of DecompressorSpec
+    typename T::template get_decompressor<CompressionScheme::None>;
+    { T::template supports<CompressionScheme::None>() } -> std::same_as<bool>; // compile-time version
+    { T::supports(CompressionScheme::None) } -> std::same_as<bool>; // runtime version
 };
 
 /// Storage helper for a single decompressor

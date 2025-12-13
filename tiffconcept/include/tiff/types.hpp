@@ -544,6 +544,34 @@ struct [[gnu::packed]] TiffTag {
     [[nodiscard]] std::size_t data_size() const noexcept {
         return get_count<std::endian::native>() * tiff_type_size(get_datatype<std::endian::native>());
     }
+
+    /// Writing helpers
+    template <std::endian SourceEndian = std::endian::native>
+    void set_code(uint16_t tag_code) noexcept {
+        if constexpr (SourceEndian == StorageEndian) {
+            code = tag_code;
+        } else {
+            code = byteswap(tag_code);
+        }
+    }
+
+    template <std::endian SourceEndian = std::endian::native>
+    void set_datatype(TiffDataType type) noexcept {
+        if constexpr (SourceEndian == StorageEndian) {
+            datatype = type;
+        } else {
+            datatype = static_cast<TiffDataType>(byteswap(static_cast<uint16_t>(type)));
+        }
+    }
+
+    template <std::endian SourceEndian = std::endian::native>
+    void set_count(uint32_t cnt) noexcept {
+        if constexpr (SourceEndian == StorageEndian) {
+            count = cnt;
+        } else {
+            count = byteswap(cnt);
+        }
+    }
 };
 
 template <std::endian StorageEndian>
@@ -604,6 +632,34 @@ struct [[gnu::packed]] TiffBigTag {
     /// Get the total size of the data in bytes
     [[nodiscard]] std::size_t data_size() const noexcept {
         return get_count<std::endian::native>() * tiff_type_size(get_datatype<std::endian::native>());
+    }
+
+        /// Writing helpers
+    template <std::endian SourceEndian = std::endian::native>
+    void set_code(uint16_t tag_code) noexcept {
+        if constexpr (SourceEndian == StorageEndian) {
+            code = tag_code;
+        } else {
+            code = byteswap(tag_code);
+        }
+    }
+
+    template <std::endian SourceEndian = std::endian::native>
+    void set_datatype(TiffDataType type) noexcept {
+        if constexpr (SourceEndian == StorageEndian) {
+            datatype = type;
+        } else {
+            datatype = static_cast<TiffDataType>(byteswap(static_cast<uint16_t>(type)));
+        }
+    }
+
+    template <std::endian SourceEndian = std::endian::native>
+    void set_count(uint64_t cnt) noexcept {
+        if constexpr (SourceEndian == StorageEndian) {
+            count = cnt;
+        } else {
+            count = byteswap(cnt);
+        }
     }
 };
 

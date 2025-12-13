@@ -142,12 +142,12 @@ struct CompressorSpec {
 template <typename T>
 concept ValidCompressorSpec = requires {
     { T::num_compressors } -> std::convertible_to<std::size_t>;
-    
-    requires []<CompressorDescriptorType... Compressors>(CompressorSpec<Compressors...>*) {
-        return std::is_same_v<std::remove_cvref_t<T>, CompressorSpec<Compressors...>>;
-    }(static_cast<std::remove_cvref_t<T>*>(nullptr));
-
     requires T::num_compressors > 0;
+
+    // Check that T has the expected interface of CompressorSpec
+    typename T::template get_compressor<CompressionScheme::None>;
+    { T::template supports<CompressionScheme::None>() } -> std::same_as<bool>; // compile-time version
+    { T::supports(CompressionScheme::None) } -> std::same_as<bool>; // runtime version
 };
 
 /// Storage helper for a single compressor

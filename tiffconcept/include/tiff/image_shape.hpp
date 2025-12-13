@@ -79,7 +79,7 @@ public:
     template <typename TagSpec>
         requires ImageDimensionTagSpec<TagSpec>
     [[nodiscard]] Result<void> update_from_metadata(
-        const metadata_type_t<TagSpec>& metadata) noexcept {
+        const ExtractedTags<TagSpec>& metadata) noexcept {
         
         // Extract required fields
         auto width_val = extract_tag_value<TagCode::ImageWidth, TagSpec>(metadata);
@@ -132,12 +132,6 @@ public:
             sample_format_ = extract_tag_or<TagCode::SampleFormat, TagSpec>(
                 metadata, SampleFormat::UnsignedInt
             );
-        }
-        
-        // Validate pixel type matches the metadata
-        auto validation_result = validate_pixel_type();
-        if (!validation_result) {
-            return validation_result;
         }
         
         return Ok();

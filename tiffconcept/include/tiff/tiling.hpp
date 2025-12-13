@@ -1,10 +1,12 @@
 #pragma once
 
+#include <cassert>
+#include <cstring>
 #include <span>
 #include <vector>
+#include "image_shape.hpp"
 #include "result.hpp"
 #include "types.hpp"
-#include "image_shape.hpp"
 
 namespace tiff {
 
@@ -345,7 +347,7 @@ struct TileInfo {
 template <typename PixelType>
 class TiledImageInfo {
 private:
-    ImageShape<PixelType> shape_;  // Common image properties
+    ImageShape shape_;  // Common image properties
     
     uint32_t tile_width_;
     uint32_t tile_height_;
@@ -381,12 +383,18 @@ public:
     template <typename TagSpec>
         requires TiledImageTagSpec<TagSpec>
     [[nodiscard]] Result<void> update_from_metadata(
-        const metadata_type_t<TagSpec>& metadata) noexcept {
+        const ExtractedTags<TagSpec>& metadata) noexcept {
         
         // Extract common image shape first
         auto shape_result = shape_.update_from_metadata(metadata);
         if (!shape_result) {
             return shape_result;
+        }
+
+        // Validate pixel type
+        auto format_validation = shape_.validate_pixel_type<PixelType>();
+        if (!format_validation) {
+            return format_validation;
         }
         
         // Extract tile-specific fields
@@ -447,7 +455,7 @@ public:
     }
     
     // Image shape access
-    [[nodiscard]] const ImageShape<PixelType>& shape() const noexcept { return shape_; }
+    [[nodiscard]] const ImageShape& shape() const noexcept { return shape_; }
     
     // Tile-specific getters
     [[nodiscard]] uint32_t tile_width() const noexcept { return tile_width_; }
