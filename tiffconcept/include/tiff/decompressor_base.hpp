@@ -81,7 +81,7 @@ using get_decompressor_for_t = typename get_decompressor_for<Scheme, Decompresso
 
 /// Helper to check if compression schemes don't overlap across decompressors
 template <typename... Decompressors>
-consteval bool schemes_are_unique() {
+inline consteval bool decompressor_schemes_are_unique() {
     constexpr std::size_t total_schemes = (Decompressors::schemes.size() + ...);
     std::array<CompressionScheme, total_schemes> all_schemes{};
     
@@ -110,7 +110,7 @@ struct DecompressorSpec {
     static constexpr std::size_t num_decompressors = sizeof...(Decompressors);
 
     // Compile-time check that no compression scheme is handled by multiple decompressors
-    static_assert(schemes_are_unique<Decompressors...>(), 
+    static_assert(decompressor_schemes_are_unique<Decompressors...>(), 
                   "Each compression scheme can only be handled by one decompressor");
 
     /// Check if a compression scheme is supported
