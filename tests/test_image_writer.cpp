@@ -138,7 +138,7 @@ TEST(ImageWriter, WriteSmallImageNoCompression) {
     auto image = generate_test_image<uint8_t>(64, 64, 1);
     BufferWriter file_writer;
     
-    auto result = writer.write_image(
+    auto result = writer.write_image<OutputSpec::DHWC>(
         file_writer,
         std::span<const uint8_t>(image),
         64, 64, 1,      // dimensions
@@ -170,7 +170,7 @@ TEST(ImageWriter, WriteTiledImage) {
     auto image = generate_test_image<uint16_t>(256, 256, 3);
     BufferWriter file_writer;
     
-    auto result = writer.write_image(
+    auto result = writer.write_image<OutputSpec::DHWC>(
         file_writer,
         std::span<const uint16_t>(image),
         256, 256, 1,
@@ -205,7 +205,7 @@ TEST(ImageWriter, WriteStrippedImage) {
     auto image = generate_test_image<uint8_t>(512, 512, 1);
     BufferWriter file_writer;
     
-    auto result = writer.write_stripped_image(
+    auto result = writer.write_stripped_image<OutputSpec::DHWC>(
         file_writer,
         std::span<const uint8_t>(image),
         512, 512,
@@ -239,7 +239,7 @@ TEST(ImageWriter, WriteWithZSTD) {
     auto image = generate_gradient<uint8_t>(256, 256, 3);
     BufferWriter file_writer;
     
-    auto result = writer.write_image(
+    auto result = writer.write_image<OutputSpec::DHWC>(
         file_writer,
         std::span<const uint8_t>(image),
         256, 256, 1,
@@ -271,7 +271,7 @@ TEST(ImageWriter, WriteWithPredictor) {
     auto image = generate_gradient<uint16_t>(128, 128, 1);
     BufferWriter file_writer;
     
-    auto result = writer.write_image(
+    auto result = writer.write_image<OutputSpec::DHWC>(
         file_writer,
         std::span<const uint16_t>(image),
         128, 128, 1,
@@ -302,7 +302,7 @@ TEST(ImageWriter, WriteWithZSTDAndPredictor) {
     auto image = generate_gradient<uint16_t>(256, 256, 3);
     BufferWriter file_writer;
     
-    auto result = writer.write_image(
+    auto result = writer.write_image<OutputSpec::DHWC>(
         file_writer,
         std::span<const uint16_t>(image),
         256, 256, 1,
@@ -337,7 +337,7 @@ TEST(ImageWriter, WritePlanarImage) {
     auto image = generate_test_image<uint8_t>(128, 128, 3);
     BufferWriter file_writer;
     
-    auto result = writer.write_image(
+    auto result = writer.write_image<OutputSpec::DHWC>(
         file_writer,
         std::span<const uint8_t>(image),
         128, 128, 1,
@@ -370,7 +370,7 @@ TEST(ImageWriter, WriteFloat32) {
     auto image = generate_test_image<float>(64, 64, 4);
     BufferWriter file_writer;
     
-    auto result = writer.write_image(
+    auto result = writer.write_image<OutputSpec::DHWC>(
         file_writer,
         std::span<const float>(image),
         64, 64, 1,
@@ -403,7 +403,7 @@ TEST(ImageWriter, OptimizedForReading) {
     auto image = generate_test_image<uint8_t>(256, 256, 1);
     BufferWriter file_writer;
     
-    auto result = writer.write_image(
+    auto result = writer.write_image<OutputSpec::DHWC>(
         file_writer,
         std::span<const uint8_t>(image),
         256, 256, 1,
@@ -429,7 +429,7 @@ TEST(ImageWriter, StreamingMode) {
     auto image = generate_test_image<uint8_t>(256, 256, 1);
     BufferWriter file_writer;
     
-    auto result = writer.write_image(
+    auto result = writer.write_image<OutputSpec::DHWC>(
         file_writer,
         std::span<const uint8_t>(image),
         256, 256, 1,
@@ -460,7 +460,7 @@ TEST(ImageWriter, ClearBuffers) {
     auto image1 = generate_test_image<uint16_t>(128, 128, 3);
     BufferWriter writer1;
     
-    auto result1 = writer.write_image(
+    auto result1 = writer.write_image<OutputSpec::DHWC>(
         writer1, std::span<const uint16_t>(image1),
         128, 128, 1, 64, 64, 1, 3,
         PlanarConfiguration::Chunky,
@@ -475,7 +475,7 @@ TEST(ImageWriter, ClearBuffers) {
     auto image2 = generate_test_image<uint16_t>(256, 256, 1);
     BufferWriter writer2;
     
-    auto result2 = writer.write_image(
+    auto result2 = writer.write_image<OutputSpec::DHWC>(
         writer2, std::span<const uint16_t>(image2),
         256, 256, 1, 128, 128, 1, 1,
         PlanarConfiguration::Chunky,
@@ -499,7 +499,7 @@ TEST(ImageWriter, SinglePixelImage) {
     std::vector<uint8_t> single = {42};
     BufferWriter file_writer;
     
-    auto result = writer.write_image(
+    auto result = writer.write_image<OutputSpec::DHWC>(
         file_writer, std::span<const uint8_t>(single),
         1, 1, 1, 1, 1, 1, 1,
         PlanarConfiguration::Chunky,
@@ -524,7 +524,7 @@ TEST(ImageWriter, NonZeroDataOffset) {
     auto image = generate_test_image<uint8_t>(64, 64, 1);
     BufferWriter file_writer;
     
-    auto result = writer.write_image(
+    auto result = writer.write_image<OutputSpec::DHWC>(
         file_writer, std::span<const uint8_t>(image),
         64, 64, 1, 64, 64, 1, 1,
         PlanarConfiguration::Chunky,

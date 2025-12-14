@@ -9,6 +9,7 @@
 #include "image_shape.hpp"
 #include "result.hpp"
 #include "tag_spec.hpp"
+#include "tiling.hpp"
 #include "types.hpp"
 #include "write_strategy.hpp"
 
@@ -123,74 +124,13 @@ private:
     TileOrdering ordering_strategy_;
     OffsetResolution offset_strategy_;
     
-    /// Extract chunk data from input buffer
-    [[nodiscard]] Result<std::span<const PixelType>> extract_chunk_data(
-        std::span<const PixelType> input_data,
-        const ChunkWriteInfo& chunk,
-        uint32_t image_width,
-        uint32_t image_height,
-        uint32_t image_depth,
-        uint16_t samples_per_pixel,
-        PlanarConfiguration planar_config,
-        std::vector<PixelType>& temp_buffer) const noexcept {
-        
-        // For chunky configuration, extract the rectangular region
-        if (planar_config == PlanarConfiguration::Chunky) {
-            // Input layout: DHWC (depth, height, width, channels)
-            std::size_t slice_size = static_cast<std::size_t>(image_width) * image_height * samples_per_pixel;
-            std::size_t row_size = static_cast<std::size_t>(image_width) * samples_per_pixel;
-            
-            std::size_t chunk_samples = static_cast<std::size_t>(chunk.width) * chunk.height * chunk.depth * samples_per_pixel;
-            temp_buffer.resize(chunk_samples);
-            
-            std::size_t out_idx = 0;
-            for (uint32_t d = 0; d < chunk.depth; ++d) {
-                for (uint32_t h = 0; h < chunk.height; ++h) {
-                    std::size_t in_idx = (chunk.pixel_z + d) * slice_size +
-                                        (chunk.pixel_y + h) * row_size +
-                                        chunk.pixel_x * samples_per_pixel;
-                    
-                    std::memcpy(&temp_buffer[out_idx], &input_data[in_idx], 
-                               chunk.width * samples_per_pixel * sizeof(PixelType));
-                    out_idx += chunk.width * samples_per_pixel;
-                }
-            }
-            
-            return Ok(std::span<const PixelType>(temp_buffer.data(), chunk_samples));
-        } else {
-            // Planar configuration: each plane is separate
-            // Input layout: CDHW (channels, depth, height, width)
-            std::size_t plane_size = static_cast<std::size_t>(image_width) * image_height * image_depth;
-            std::size_t slice_size = static_cast<std::size_t>(image_width) * image_height;
-            std::size_t row_size = image_width;
-            
-            std::size_t chunk_samples = static_cast<std::size_t>(chunk.width) * chunk.height * chunk.depth;
-            temp_buffer.resize(chunk_samples);
-            
-            std::size_t out_idx = 0;
-            for (uint32_t d = 0; d < chunk.depth; ++d) {
-                for (uint32_t h = 0; h < chunk.height; ++h) {
-                    std::size_t in_idx = chunk.plane * plane_size +
-                                        (chunk.pixel_z + d) * slice_size +
-                                        (chunk.pixel_y + h) * row_size +
-                                        chunk.pixel_x;
-                    
-                    std::memcpy(&temp_buffer[out_idx], &input_data[in_idx],
-                               chunk.width * sizeof(PixelType));
-                    out_idx += chunk.width;
-                }
-            }
-            
-            return Ok(std::span<const PixelType>(temp_buffer.data(), chunk_samples));
-        }
-    }
-    
 public:
     ImageWriter() = default;
     
     /// Write complete image to file
     /// Returns offset and size information for creating IFD tags
-    template <typename Writer>
+    /// @tparam InputSpec Layout of input_data buffer (DHWC, DCHW, or CDHW)
+    template <OutputSpec InputSpec, typename Writer>
         requires RawWriter<Writer>
     [[nodiscard]] Result<WrittenImageInfo> write_image(
         Writer& writer,
@@ -208,12 +148,7 @@ public:
         std::size_t data_start_offset) noexcept {
         
         // Validate input size
-        std::size_t expected_samples;
-        if (planar_config == PlanarConfiguration::Chunky) {
-            expected_samples = static_cast<std::size_t>(image_width) * image_height * image_depth * samples_per_pixel;
-        } else {
-            expected_samples = static_cast<std::size_t>(image_width) * image_height * image_depth * samples_per_pixel;
-        }
+        std::size_t expected_samples = static_cast<std::size_t>(image_width) * image_height * image_depth * samples_per_pixel;
         
         if (input_data.size() < expected_samples) {
             return Err(Error::Code::OutOfBounds, "Input data size too small for image dimensions");
@@ -239,35 +174,67 @@ public:
         std::vector<EncodedChunk> encoded_chunks;
         encoded_chunks.reserve(layout.chunks.size());
         
-        std::vector<PixelType> extraction_buffer;  // Reused for extracting chunk data
+        std::vector<PixelType> tile_buffer;  // Reused for extracting tile data
         
         uint16_t effective_samples = (planar_config == PlanarConfiguration::Planar) ? 1 : samples_per_pixel;
         
         for (const auto& chunk_info : layout.chunks) {
-            // Extract chunk data from input buffer
-            auto chunk_data_result = extract_chunk_data(
-                input_data, chunk_info,
-                image_width, image_height, image_depth,
-                samples_per_pixel, planar_config,
-                extraction_buffer
-            );
-            
-            if (!chunk_data_result) {
-                return Err(chunk_data_result.error().code, chunk_data_result.error().message);
+            // Calculate tile size (full tile dimensions, not actual chunk dimensions)
+            std::size_t tile_size = static_cast<std::size_t>(tile_width) * tile_height * tile_depth * effective_samples;
+            tile_buffer.resize(tile_size);
+
+
+            // TODO: tiled and strips differ for the strategy of the last tile/strip
+            // Tiles are always full size, but the height of the last strip may be less than rows_per_strip
+            // For now we assume full tiles only and have asserts for stripped images in such cases
+
+            // Use fetch_tile_from_buffer to extract and pad tile data
+            if (planar_config == PlanarConfiguration::Planar && effective_samples == 1) {
+                fetch_tile_from_buffer<PlanarConfiguration::Planar, InputSpec, PixelType>(
+                    input_data,
+                    std::span<PixelType>(tile_buffer),
+                    image_depth,
+                    image_height,
+                    image_width,
+                    samples_per_pixel,
+                    chunk_info.pixel_z,
+                    chunk_info.pixel_y,
+                    chunk_info.pixel_x,
+                    0,
+                    tile_depth,
+                    tile_height,
+                    tile_width,
+                    effective_samples
+                );
+            } else {
+                fetch_tile_from_buffer<PlanarConfiguration::Chunky, InputSpec, PixelType>(
+                    input_data,
+                    std::span<PixelType>(tile_buffer),
+                    image_depth,
+                    image_height,
+                    image_width,
+                    samples_per_pixel,
+                    chunk_info.pixel_z,
+                    chunk_info.pixel_y,
+                    chunk_info.pixel_x,
+                    chunk_info.plane,
+                    tile_depth,
+                    tile_height,
+                    tile_width,
+                    effective_samples
+                );
             }
             
-            auto chunk_data = chunk_data_result.value();
-            
-            // Encode chunk
+            // Encode chunk (use actual chunk dimensions for encoding)
             auto encoded_result = encoder_.encode(
-                chunk_data,
+                std::span<const PixelType>(tile_buffer),
                 chunk_info.chunk_index,
-                chunk_info.pixel_x,
-                chunk_info.pixel_y,
-                chunk_info.pixel_z,
-                chunk_info.width,
-                chunk_info.height,
-                chunk_info.depth,
+                0,  // Tile is already extracted, so starts at 0
+                0,
+                0,
+                tile_width,   // Use full tile dimensions
+                tile_height,
+                tile_depth,
                 chunk_info.plane,
                 compression,
                 predictor,
@@ -321,7 +288,7 @@ public:
     }
     
     /// Write stripped image (convenience wrapper)
-    template <typename Writer>
+    template <OutputSpec InputSpec, typename Writer>
         requires RawWriter<Writer>
     [[nodiscard]] Result<WrittenImageInfo> write_stripped_image(
         Writer& writer,
@@ -334,8 +301,12 @@ public:
         CompressionScheme compression,
         Predictor predictor,
         std::size_t data_start_offset) noexcept {
+
+        if (image_height % rows_per_strip != 0) {
+            return Err(Error::Code::UnsupportedFeature, "Current limitation: rows per strip must evenly divide image height");
+        }
         
-        return write_image(
+        return write_image<OutputSpec::DHWC>(
             writer,
             input_data,
             image_width,

@@ -26,8 +26,8 @@ private:
     
     uint32_t rows_per_strip_;
     
-    std::vector<uint32_t> strip_offsets_;      // Owned data
-    std::vector<uint32_t> strip_byte_counts_;  // Owned data
+    std::vector<std::size_t> strip_offsets_;      // Owned data
+    std::vector<std::size_t> strip_byte_counts_;  // Owned data
     
     CompressionScheme compression_;
     Predictor predictor_;
@@ -65,9 +65,9 @@ public:
         }
         
         // Extract strip-specific fields
-        auto rows_per_strip_val = extract_tag_value<TagCode::RowsPerStrip, TagSpec>(metadata);
-        auto strip_offsets_val = extract_tag_value<TagCode::StripOffsets, TagSpec>(metadata);
-        auto strip_byte_counts_val = extract_tag_value<TagCode::StripByteCounts, TagSpec>(metadata);
+        auto rows_per_strip_val = metadata.template get<TagCode::RowsPerStrip>();
+        auto strip_offsets_val = metadata.template get<TagCode::StripOffsets>();
+        auto strip_byte_counts_val = metadata.template get<TagCode::StripByteCounts>();
         
         // Validation
         if (!is_value_present(rows_per_strip_val)) {
@@ -81,22 +81,22 @@ public:
         }
         
         // Extract strip dimensions
-        rows_per_strip_ = unwrap_value(rows_per_strip_val);
+        rows_per_strip_ = optional::unwrap_value(rows_per_strip_val);
         
         // Copy vector data (reuses allocation if size matches)
-        const auto& offsets = unwrap_value(strip_offsets_val);
-        const auto& byte_counts = unwrap_value(strip_byte_counts_val);
+        const auto& offsets = optional::unwrap_value(strip_offsets_val);
+        const auto& byte_counts = optional::unwrap_value(strip_byte_counts_val);
         
         strip_offsets_.assign(offsets.begin(), offsets.end());
         strip_byte_counts_.assign(byte_counts.begin(), byte_counts.end());
         
-        compression_ = extract_tag_or<TagCode::Compression, TagSpec>(
+        compression_ = optional::extract_tag_or<TagCode::Compression, TagSpec>(
             metadata, CompressionScheme::None
         );
         
         predictor_ = Predictor::None;
         if constexpr (TagSpec::template has_tag<TagCode::Predictor>()) {
-            predictor_ = extract_tag_or<TagCode::Predictor, TagSpec>(
+            predictor_ = optional::extract_tag_or<TagCode::Predictor, TagSpec>(
                 metadata, Predictor::None
             );
         }

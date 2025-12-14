@@ -74,6 +74,10 @@ private:
         } else {  // BigTIFF
             tag.template set_count<std::endian::native>(static_cast<uint64_t>(count));
         }
+        std::cerr << "Debug: Creating tag " 
+                  << static_cast<uint16_t>(TagDesc::code) 
+                  << " with count " << count 
+                  << " and byte size " << byte_size << std::endl;
         
         // Inline or external data?
         if (byte_size <= inline_limit) {
@@ -130,50 +134,52 @@ public:
     
     /// Build IFD from ExtractedTags
     /// Additional arrays (like TileOffsets) can be added separately
-    template <TagDescriptorType... Tags>
-        requires ValidTagSpec<TagSpec<Tags...>>
+    template <typename... Args>
     [[nodiscard]] Result<void> add_tags(
-        const ExtractedTags<Tags...>& extracted_tags) noexcept {
-        
+        const ExtractedTags<Args...>& extracted_tags) noexcept {
+
+        using Spec = typename detail::GetSpec<Args...>::type;
         std::size_t current_external_offset = external_data_offset_;
         
         // Process each tag
         bool success = true;
         Error last_error{Error::Code::Success};
         
-        [&]<std::size_t... Is>(std::index_sequence<Is...>) {
-            auto process_tag = [&]<std::size_t Idx, typename TagDesc>() {
-                if (!success) return;
-                
-                const auto& value_storage = std::get<Idx>(extracted_tags.values);
-                
-                // Skip optional tags that are not set
-                if constexpr (TagDesc::is_optional) {
-                    if (!value_storage.has_value()) {
-                        return;
-                    }
-                    const auto& value = value_storage.value();
+        [&]<typename... Tags>(TagSpec<Tags...>*) {
+            [&]<std::size_t... Is>(std::index_sequence<Is...>) {
+                [[maybe_unused]] auto process_tag = [&]<std::size_t Idx, typename TagDesc>() {
+                    if (!success) return;
                     
-                    auto tag_result = create_tag_entry<TagDesc>(value, current_external_offset);
-                    if (!tag_result) {
-                        success = false;
-                        last_error = tag_result.error();
-                        return;
+                    const auto& value_storage = std::get<Idx>(extracted_tags.values);
+                    
+                    // Skip optional tags that are not set
+                    if constexpr (TagDesc::is_optional) {
+                        if (!value_storage.has_value()) {
+                            return;
+                        }
+                        const auto& value = value_storage.value();
+                        
+                        auto tag_result = create_tag_entry<TagDesc>(value, current_external_offset);
+                        if (!tag_result) {
+                            success = false;
+                            last_error = tag_result.error();
+                            return;
+                        }
+                        tags_.push_back(tag_result.value());
+                    } else {
+                        auto tag_result = create_tag_entry<TagDesc>(value_storage, current_external_offset);
+                        if (!tag_result) {
+                            success = false;
+                            last_error = tag_result.error();
+                            return;
+                        }
+                        tags_.push_back(tag_result.value());
                     }
-                    tags_.push_back(tag_result.value());
-                } else {
-                    auto tag_result = create_tag_entry<TagDesc>(value_storage, current_external_offset);
-                    if (!tag_result) {
-                        success = false;
-                        last_error = tag_result.error();
-                        return;
-                    }
-                    tags_.push_back(tag_result.value());
-                }
-            };
-            
-            (process_tag.template operator()<Is, Tags>(), ...);
-        }(std::index_sequence_for<Tags...>{});
+                };
+                
+                (process_tag.template operator()<Is, Tags>(), ...);
+            }(std::index_sequence_for<Tags...>{});
+        }(static_cast<Spec*>(nullptr));
         
         if (!success) {
             return Err(last_error.code, last_error.message);
@@ -192,7 +198,6 @@ public:
         
         return Ok();
     }
-    
     /// Add a single tag manually
     template <typename TagDesc, typename ValueType>
     [[nodiscard]] Result<void> add_tag(const ValueType& value) noexcept {

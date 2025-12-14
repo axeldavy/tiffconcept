@@ -287,13 +287,14 @@ struct [[gnu::packed]] TiffHeader {
 
     template <std::endian TargetEndian>
     [[nodiscard]] constexpr bool is_valid() const noexcept {
+        uint16_t native_version = (TargetEndian == std::endian::native) ? version : byteswap(version);
         if constexpr (TargetEndian != StorageEndian) {
             return false;
         }
         if constexpr (TargetEndian == std::endian::little) {
-            return is_little_endian() && version == 42;
+            return is_little_endian() && native_version == 42;
         } else if constexpr (TargetEndian == std::endian::big) {
-            return is_big_endian() && version == 42;
+            return is_big_endian() && native_version == 42;
         }
         static_assert(TargetEndian == std::endian::little || TargetEndian == std::endian::big,
                       "Invalid endian specified");
@@ -333,13 +334,17 @@ struct [[gnu::packed]] TiffBigHeader {
 
     template <std::endian TargetEndian>
     [[nodiscard]] constexpr bool is_valid() const noexcept {
+        uint16_t native_version = (TargetEndian == std::endian::native) ? version : byteswap(version);
+        uint16_t native_offset_size = (TargetEndian == std::endian::native) ? offset_size : byteswap(offset_size);
+        uint16_t native_reserved = (TargetEndian == std::endian::native) ? reserved : byteswap(reserved);
+
         if constexpr (TargetEndian != StorageEndian) {
             return false;
         }
         if constexpr (TargetEndian == std::endian::little) {
-            return is_little_endian() && version == 43 && offset_size == 8 && reserved == 0;
+            return is_little_endian() && native_version == 43 && native_offset_size == 8 && native_reserved == 0;
         } else if constexpr (TargetEndian == std::endian::big) {
-            return is_big_endian() && version == 43 && offset_size == 8 && reserved == 0;
+            return is_big_endian() && native_version == 43 && native_offset_size == 8 && native_reserved == 0;
         }
         static_assert(TargetEndian == std::endian::little || TargetEndian == std::endian::big,
                       "Invalid endian specified");

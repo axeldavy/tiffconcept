@@ -271,13 +271,16 @@ struct get_tag<Code> {
 template <TagCode Code, typename... Tags>
 using get_tag_t = typename get_tag<Code, Tags...>::type;
 
+
 /// Helper to check if tag codes are sorted at compile time
 template <TagCode... Codes>
 consteval bool are_codes_sorted() {
-    constexpr std::array codes = {Codes...};
-    for (std::size_t i = 1; i < codes.size(); ++i) {
-        if (codes[i] <= codes[i-1]) {
-            return false;
+    if constexpr (sizeof...(Codes) > 0) {
+        constexpr std::array codes = {Codes...};
+        for (std::size_t i = 1; i < codes.size(); ++i) {
+            if (codes[i] <= codes[i-1]) {
+                return false;
+            }
         }
     }
     return true;
@@ -289,7 +292,7 @@ struct TagSpec {
     static constexpr std::size_t num_tags = sizeof...(Tags);
 
     // Compile-time check that tags are sorted by code
-    static_assert(are_codes_sorted<Tags::code...>(), 
+    static_assert(are_codes_sorted<Tags::code...>(),
                   "Tags must be sorted by TagCode in ascending order");
 
     /// Check if a tag code is in this spec
@@ -326,8 +329,8 @@ concept ValidTagSpec = requires {
     // Must have num_tags
     { T::num_tags } -> std::convertible_to<std::size_t>;
 
-    // Must have at least one tag
-    requires T::num_tags > 0;
+    // zero tags is allowed as it avoid branching in some code paths
+    requires T::num_tags >= 0;
 } && detail::is_tag_spec_v<T>; // Must be instantiation of TagSpec template
 
 // Common tag descriptors
@@ -559,10 +562,10 @@ using MinStrippedSpec = TagSpec<
     ImageLengthTag,
     BitsPerSampleTag,
     CompressionTag,
-    RowsPerStripTag,
     StripOffsetsTag,
-    StripByteCountsTag,
     OptTag_t<SamplesPerPixelTag> ,// Default: 1
+    RowsPerStripTag,
+    StripByteCountsTag,
     OptTag_t<PredictorTag>, // Default: 1 (no predictor)
     OptTag_t<SampleFormatTag> // Default: 1 (unsigned)
 >;
@@ -573,12 +576,12 @@ using MinTiledSpec = TagSpec<
     ImageLengthTag,
     BitsPerSampleTag,
     CompressionTag,
+    OptTag_t<SamplesPerPixelTag>, // Default: 1
+    OptTag_t<PredictorTag>, // Default: 1 (no predictor)
     TileWidthTag,
     TileLengthTag,
     TileOffsetsTag,
     TileByteCountsTag,
-    OptTag_t<SamplesPerPixelTag>, // Default: 1
-    OptTag_t<PredictorTag>, // Default: 1 (no predictor)
     OptTag_t<SampleFormatTag> // Default: 1 (unsigned)
 >;
 
@@ -592,25 +595,30 @@ using MinImageSpec = TagSpec<
     OptTag_t<FillOrderTag>, // Bit order within bytes (MSB/LSB first)
     OptTag_t<StripOffsetsTag>,
     OptTag_t<OrientationTag>, // Image orientation (rotation/flip)
+    OptTag_t<SamplesPerPixelTag>, // Number of components per pixel
     OptTag_t<RowsPerStripTag>,
     OptTag_t<StripByteCountsTag>,
-    OptTag_t<SamplesPerPixelTag>, // Number of components per pixel
     OptTag_t<MinSampleValueTag>, // Minimum sample value per component
     OptTag_t<MaxSampleValueTag>, // Maximum sample value per component
     OptTag_t<XResolutionTag>, // Horizontal resolution
     OptTag_t<YResolutionTag>, // Vertical resolution
     OptTag_t<PlanarConfigurationTag>, // Chunky (1) vs Planar (2) layout - for multi-channel images
     OptTag_t<ResolutionUnitTag>, // Unit for resolution (inches, cm, none)
+    OptTag_t<TransferFunctionTag>, // Gamma correction curve
     OptTag_t<PredictorTag>, // Compression predictor (none, horizontal, floating point)
+    OptTag_t<WhitePointTag>, // CIE white point for calibrated RGB
+    OptTag_t<PrimaryChromaticitiesTag>, // CIE primaries for calibrated RGB
     OptTag_t<ColorMapTag>, // Palette lookup table (PhotometricInterpretation=3)
     OptTag_t<TileWidthTag>, // Tile width (for tiled images)
     OptTag_t<TileLengthTag>, // Tile height (for tiled images)
     OptTag_t<TileOffsetsTag>, // Tile data offsets (for tiled images)
     OptTag_t<TileByteCountsTag>, // Tile data sizes (for tiled images)
+    OptTag_t<SubIFDTag>, // Sub-image IFD offsets (thumbnails, reduced resolution copies)
     OptTag_t<ExtraSamplesTag>, // Alpha channel or other extra components
     OptTag_t<SampleFormatTag>, // Data type (unsigned, signed, float, undefined)
     OptTag_t<SMinSampleValueTag>, // Minimum sample value for signed/float data
     OptTag_t<SMaxSampleValueTag>, // Maximum sample value for signed/float data
+    OptTag_t<JPEGTablesTag>, // JPEG quantization/Huffman tables for abbreviated streams
     OptTag_t<JPEGProcTag>, // JPEG compression type (baseline, lossless)
     OptTag_t<JPEGInterchangeFormatTag>, // Offset to JPEG interchange format stream
     OptTag_t<JPEGInterchangeFormatLengthTag>, // Length of JPEG interchange format stream
@@ -624,15 +632,9 @@ using MinImageSpec = TagSpec<
     OptTag_t<YCbCrSubSamplingTag>, // YCbCr chroma subsampling factors
     OptTag_t<YCbCrPositioningTag>, // YCbCr sample positioning (centered/cosited)
     OptTag_t<ReferenceBlackWhiteTag>, // YCbCr reference black/white values
-    OptTag_t<WhitePointTag>, // CIE white point for calibrated RGB
-    OptTag_t<PrimaryChromaticitiesTag>, // CIE primaries for calibrated RGB
-    OptTag_t<TransferFunctionTag>, // Gamma correction curve
-    OptTag_t<ICCProfileTag>, // Embedded ICC color profile
-    OptTag_t<JPEGTablesTag>, // JPEG quantization/Huffman tables for abbreviated streams
     OptTag_t<ImageDepthTag>, // Number of images in a stack (3D images)
     OptTag_t<TileDepthTag>, // Tile depth for 3D tiled images
-    OptTag_t<SubIFDTag> // Sub-image IFD offsets (thumbnails, reduced resolution copies)
+    OptTag_t<ICCProfileTag> // Embedded ICC color profile
 >;
-
 
 } // namespace tiff

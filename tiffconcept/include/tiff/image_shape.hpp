@@ -3,6 +3,8 @@
 #include <cstdint>
 #include <type_traits>
 #include "result.hpp"
+#include "tag_extraction.hpp"
+#include "tag_spec.hpp"
 #include "types.hpp"
 
 namespace tiff {
@@ -81,31 +83,40 @@ public:
     [[nodiscard]] Result<void> update_from_metadata(
         const ExtractedTags<TagSpec>& metadata) noexcept {
         
-        // Extract required fields
-        auto width_val = extract_tag_value<TagCode::ImageWidth, TagSpec>(metadata);
-        auto height_val = extract_tag_value<TagCode::ImageLength, TagSpec>(metadata);
-        auto bits_per_sample_val = extract_tag_value<TagCode::BitsPerSample, TagSpec>(metadata);
+        // Extract needed fields
+        const auto width_val = metadata.template get<TagCode::ImageWidth>();
+        const auto height_val = metadata.template get<TagCode::ImageLength>();
+        const auto bits_per_sample_val = metadata.template get<TagCode::BitsPerSample>();
         
         // Validation
-        if (!is_value_present(width_val)) {
+        if (!optional::is_value_present(width_val)) {
             return Err(Error::Code::InvalidTag, "ImageWidth tag not found or invalid");
         }
-        if (!is_value_present(height_val)) {
+        if (!optional::is_value_present(height_val)) {
             return Err(Error::Code::InvalidTag, "ImageLength tag not found or invalid");
         }
-        if (!is_value_present(bits_per_sample_val)) {
+        if (!optional::is_value_present(bits_per_sample_val)) {
             return Err(Error::Code::InvalidTag, "BitsPerSample tag not found or invalid");
         }
         
         // Extract scalar values
-        image_width_ = unwrap_value(width_val);
-        image_height_ = unwrap_value(height_val);
-        bits_per_sample_ = unwrap_value(bits_per_sample_val);
+        image_width_ = optional::unwrap_value(width_val);
+        image_height_ = optional::unwrap_value(height_val);
+        const auto& bits_per_sample_array = optional::unwrap_value(bits_per_sample_val);
+        if (bits_per_sample_array.empty()) {
+            return Err(Error::Code::InvalidTag, "BitsPerSample tag is empty");
+        }
+        bits_per_sample_ = bits_per_sample_array[0];
+        for (const auto& bps : bits_per_sample_array) {
+            if (bps != bits_per_sample_) {
+                return Err(Error::Code::UnsupportedFeature, "All samples must have the same BitsPerSample");
+            }
+        }
         
         // Extract 3D information (optional)
         image_depth_ = 1;
         if constexpr (TagSpec::template has_tag<TagCode::ImageDepth>()) {
-            image_depth_ = extract_tag_or<TagCode::ImageDepth, TagSpec>(
+            image_depth_ = optional::extract_tag_or<TagCode::ImageDepth, TagSpec>(
                 metadata, uint32_t{1}
             );
         }
@@ -113,14 +124,19 @@ public:
         // Extract multi-channel information
         samples_per_pixel_ = 1;
         if constexpr (TagSpec::template has_tag<TagCode::SamplesPerPixel>()) {
-            samples_per_pixel_ = extract_tag_or<TagCode::SamplesPerPixel, TagSpec>(
+            samples_per_pixel_ = optional::extract_tag_or<TagCode::SamplesPerPixel, TagSpec>(
                 metadata, uint16_t{1}
             );
+        }
+
+        if (bits_per_sample_array.size() != samples_per_pixel_) {
+            return Err(Error::Code::UnsupportedFeature, 
+                       "BitsPerSample array size does not match SamplesPerPixel");
         }
         
         planar_configuration_ = PlanarConfiguration::Chunky;
         if constexpr (TagSpec::template has_tag<TagCode::PlanarConfiguration>()) {
-            auto planar_val = extract_tag_or<TagCode::PlanarConfiguration, TagSpec>(
+            auto planar_val = optional::extract_tag_or<TagCode::PlanarConfiguration, TagSpec>(
                 metadata, uint16_t{1}
             );
             planar_configuration_ = static_cast<PlanarConfiguration>(planar_val);
@@ -129,7 +145,7 @@ public:
         // Extract sample format
         sample_format_ = SampleFormat::UnsignedInt;
         if constexpr (TagSpec::template has_tag<TagCode::SampleFormat>()) {
-            sample_format_ = extract_tag_or<TagCode::SampleFormat, TagSpec>(
+            sample_format_ = optional::extract_tag_or<TagCode::SampleFormat, TagSpec>(
                 metadata, SampleFormat::UnsignedInt
             );
         }

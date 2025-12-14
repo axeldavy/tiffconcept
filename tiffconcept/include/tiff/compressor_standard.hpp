@@ -141,6 +141,10 @@ public:
             
             // If we found a run of 2 or more, encode as replicated run
             if (run_length >= 2) {
+                if (out_pos + 2 > output.size()) {
+                    return Err(Error::Code::OutOfBounds,
+                               "Output buffer too small during PackBits compression");
+                }
                 // Replicated run: encode as (1-n) followed by the byte
                 output[out_pos++] = static_cast<std::byte>(1 - static_cast<int8_t>(run_length));
                 output[out_pos++] = input[in_pos];
@@ -167,7 +171,10 @@ public:
                     
                     ++literal_length;
                 }
-                
+                if (out_pos + 1 + literal_length > output.size()) {
+                    return Err(Error::Code::OutOfBounds,
+                               "Output buffer too small during PackBits compression");
+                }
                 // Encode literal run
                 output[out_pos++] = static_cast<std::byte>(literal_length - 1);
                 std::memcpy(&output[out_pos], &input[literal_start], literal_length);

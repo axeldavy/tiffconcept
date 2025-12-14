@@ -190,6 +190,8 @@ template <typename TagDesc, typename Reader, TiffFormatType TiffFormat, std::end
     using ElemType = typename TagDesc::element_type;
     using RefType = typename TagDesc::reference_type;
     const std::size_t tag_count = static_cast<std::size_t>(tag.template get_count<std::endian::native>());
+
+    std::cerr << "Debug: Parsing rational tag with count " << tag_count << std::endl;
     
     // Handle vector (dynamic size)
     if constexpr (requires { ContainerType{}.resize(tag_count); }) {
