@@ -19,7 +19,7 @@
 #include "../tiffconcept/include/tiff/tag_extraction.hpp"
 #include "../tiffconcept/include/tiff/tag_spec.hpp"
 
-using namespace tiff;
+using namespace tiffconcept;
 
 // ============================================================================
 // Helper Functions

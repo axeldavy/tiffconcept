@@ -16,7 +16,7 @@
 /// ```cpp
 /// #include <tiff/tiff.hpp>
 /// 
-/// using namespace tiff;
+/// using namespace tiffconcept;
 /// 
 /// // Define your tag specification
 /// using MySpec = TagSpec<

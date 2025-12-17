@@ -23,7 +23,7 @@
 #include "../tiffconcept/include/tiff/tiling.hpp"
 #include "../tiffconcept/include/tiff/strips.hpp"
 
-using namespace tiff;
+using namespace tiffconcept;
 namespace fs = std::filesystem;
 
 // ============================================================================
@@ -104,7 +104,7 @@ TEST(TiffFileRoundtrip, ClassicTIFF_Uint8_NoCompression_LittleEndian) {
     auto original_data = generate_test_image<PixelType>(width, height, 1, samples_per_pixel, 12345);
     
     // Create minimal tag set
-    using TagSpec = tiff::TagSpec<
+    using TagSpec = TagSpec<
         ImageWidthTag,
         ImageLengthTag,
         BitsPerSampleTag,
@@ -206,7 +206,7 @@ TEST(TiffFileRoundtrip, ClassicTIFF_Uint16_ZSTD_BigEndian) {
     
     auto original_data = generate_test_image<PixelType>(width, height, 1, samples_per_pixel, 54321);
     
-    using TagSpec = tiff::TagSpec<
+    using TagSpec = TagSpec<
         ImageWidthTag,
         ImageLengthTag,
         BitsPerSampleTag,
@@ -303,7 +303,7 @@ TEST(TiffFileRoundtrip, ClassicTIFF_Float_Predictor) {
     
     auto original_data = generate_test_image<PixelType>(width, height, 1, samples_per_pixel, 99999);
     
-    using TagSpec = tiff::TagSpec<
+    using TagSpec = TagSpec<
         ImageWidthTag,
         ImageLengthTag,
         BitsPerSampleTag,
@@ -398,7 +398,7 @@ TEST(TiffFileRoundtrip, ClassicTIFF_MultiChannel_Chunky) {
     
     auto original_data = generate_test_image<PixelType>(width, height, 1, samples_per_pixel, 11111);
     
-    using TagSpec = tiff::TagSpec<
+    using TagSpec = TagSpec<
         ImageWidthTag,
         ImageLengthTag,
         BitsPerSampleTag,
@@ -489,7 +489,7 @@ TEST(TiffFileRoundtrip, ClassicTIFF_MultiChannel_Planar) {
     
     auto original_data = generate_test_image<PixelType>(width, height, 1, samples_per_pixel, 22222);
     
-    using TagSpec = tiff::TagSpec<
+    using TagSpec = TagSpec<
         ImageWidthTag,
         ImageLengthTag,
         BitsPerSampleTag,
@@ -583,7 +583,7 @@ TEST(TiffFileRoundtrip, ClassicTIFF_Stripped_Uint8) {
     
     auto original_data = generate_test_image<PixelType>(width, height, 1, samples_per_pixel, 33333);
     
-    using TagSpec = tiff::TagSpec<
+    using TagSpec = TagSpec<
         ImageWidthTag,
         ImageLengthTag,
         BitsPerSampleTag,
@@ -676,7 +676,7 @@ TEST(TiffFileRoundtrip, BigTIFF_Uint16_LittleEndian) {
     
     auto original_data = generate_test_image<PixelType>(width, height, 1, samples_per_pixel, 44444);
     
-    using TagSpec = tiff::TagSpec<
+    using TagSpec = TagSpec<
         ImageWidthTag,
         ImageLengthTag,
         BitsPerSampleTag,
@@ -767,7 +767,7 @@ TEST(TiffFileRoundtrip, BigTIFF_Uint32_ZSTD_BigEndian) {
     
     auto original_data = generate_test_image<PixelType>(width, height, 1, samples_per_pixel, 55555);
     
-    using TagSpec = tiff::TagSpec<
+    using TagSpec = TagSpec<
         ImageWidthTag,
         ImageLengthTag,
         BitsPerSampleTag,
@@ -883,7 +883,7 @@ TEST(TiffFileRoundtrip, ErrorTruncatedFile) {
     const uint32_t height = 64;
     auto original_data = generate_test_image<PixelType>(width, height, 1, 1, 66666);
     
-    using TagSpec = tiff::TagSpec<
+    using TagSpec = TagSpec<
         ImageWidthTag,
         ImageLengthTag,
         BitsPerSampleTag,

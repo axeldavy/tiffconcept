@@ -10,7 +10,7 @@
 #include "tag_writing.hpp"
 #include "types.hpp"
 
-namespace tiff {
+namespace tiffconcept {
 
 // Forward declarations
 template <typename... Tags>
@@ -109,14 +109,14 @@ template <typename Reader, TiffFormatType TiffFormat, std::endian SourceEndian, 
                     );
                     
                     if (value_result) [[likely]] {
-                        std::cerr << "Debug: Parsed optional tag " 
-                                  << static_cast<uint16_t>(TagDesc::code) << std::endl;
+                        //std::cerr << "Debug: Parsed optional tag " 
+                        //          << static_cast<uint16_t>(TagDesc::code) << std::endl;
                         std::get<SpecIdx>(values) = std::move(value_result.value());
                         ++file_idx;
                     } else {
-                        std::cerr << "Warning: Failed to parse optional tag " 
-                                  << static_cast<uint16_t>(TagDesc::code) 
-                                  << ": " << value_result.error().message << std::endl;
+                        //std::cerr << "Warning: Failed to parse optional tag " 
+                        //          << static_cast<uint16_t>(TagDesc::code) 
+                        //          << ": " << value_result.error().message << std::endl;
                         std::get<SpecIdx>(values) = std::nullopt;
                     }
                 } else {
@@ -141,8 +141,8 @@ template <typename Reader, TiffFormatType TiffFormat, std::endian SourceEndian, 
                     last_error = value_result.error();
                     return;
                 }
-                std::cerr << "Debug: Parsed required tag " 
-                          << static_cast<uint16_t>(TagDesc::code) << std::endl;
+                //std::cerr << "Debug: Parsed required tag " 
+                //          << static_cast<uint16_t>(TagDesc::code) << std::endl;
                 
                 std::get<SpecIdx>(values) = std::move(value_result.value());
                 ++file_idx;
@@ -576,4 +576,4 @@ namespace optional {
     }
 } // namespace optional
 
-} // namespace tiff
+} // namespace tiffconcept

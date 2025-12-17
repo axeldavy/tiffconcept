@@ -7,7 +7,7 @@
 #include "result.hpp"
 #include "types.hpp"
 
-namespace tiff {
+namespace tiffconcept {
 
 // Forward declarations
 struct ChunkWriteInfo;
@@ -566,4 +566,4 @@ using EditInPlaceConfig = WriteConfig<
     ImmediateOffsets
 >;
 
-} // namespace tiff
+} // namespace tiffconcept

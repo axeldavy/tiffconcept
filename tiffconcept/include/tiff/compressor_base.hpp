@@ -11,7 +11,7 @@
 #include "result.hpp"
 #include "types.hpp"
 
-namespace tiff {
+namespace tiffconcept {
 
 /// Concept for a compressor implementation
 template<typename T>
@@ -269,4 +269,4 @@ private:
     }
 };
 
-} // namespace tiff
+} // namespace tiffconcept

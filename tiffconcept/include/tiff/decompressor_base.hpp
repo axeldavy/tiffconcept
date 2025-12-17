@@ -11,7 +11,7 @@
 #include "result.hpp"
 #include "types.hpp"
 
-namespace tiff {
+namespace tiffconcept {
 
 /// Concept for a decompressor implementation
 template<typename T>
@@ -237,4 +237,4 @@ public:
     }
 };
 
-} // namespace tiff
+} // namespace tiffconcept

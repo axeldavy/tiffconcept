@@ -20,7 +20,7 @@
 #include "../tiffconcept/include/tiff/reader_buffer.hpp"
 #include "../tiffconcept/include/tiff/types.hpp"
 
-using namespace tiff;
+using namespace tiffconcept;
 namespace fs = std::filesystem;
 
 // ============================================================================
@@ -547,9 +547,6 @@ TEST(ErrorHandling, BoundaryCondition_MaxTagCount) {
         reader
     );
 
-    if (!result.is_ok()) {
-        FAIL() << "Failed to get IFD offset: " << result.error().message;
-    }
     EXPECT_TRUE(result.is_ok());
 
     auto ifd_offset = result.value();

@@ -10,7 +10,7 @@
 #include "../tiffconcept/include/tiff/reader_buffer.hpp"
 #include "../tiffconcept/include/tiff/types.hpp"
 
-using namespace tiff;
+using namespace tiffconcept;
 
 // ============================================================================
 // Helper Functions
@@ -123,12 +123,12 @@ TEST(ExtractedTags, GetByTagCode) {
     // Set values directly
     std::get<0>(tags.values) = 1024;
     std::get<1>(tags.values) = 768;
-    std::get<2>(tags.values) = tiff::CompressionScheme::ZSTD;
+    std::get<2>(tags.values) = CompressionScheme::ZSTD;
     
     // Access by tag code
     EXPECT_EQ(tags.get<TagCode::ImageWidth>(), 1024);
     EXPECT_EQ(tags.get<TagCode::ImageLength>(), 768);
-    EXPECT_EQ(tags.get<TagCode::Compression>(), tiff::CompressionScheme::ZSTD);
+    EXPECT_EQ(tags.get<TagCode::Compression>(), CompressionScheme::ZSTD);
 }
 
 TEST(ExtractedTags, GetByTagCodeConst) {
@@ -136,13 +136,13 @@ TEST(ExtractedTags, GetByTagCodeConst) {
     
     std::get<0>(tags.values) = 1024;
     std::get<1>(tags.values) = 768;
-    std::get<2>(tags.values) = tiff::CompressionScheme::ZSTD;
+    std::get<2>(tags.values) = CompressionScheme::ZSTD;
     
     const auto& const_tags = tags;
     
     EXPECT_EQ(const_tags.get<TagCode::ImageWidth>(), 1024);
     EXPECT_EQ(const_tags.get<TagCode::ImageLength>(), 768);
-    EXPECT_EQ(const_tags.get<TagCode::Compression>(), tiff::CompressionScheme::ZSTD);
+    EXPECT_EQ(const_tags.get<TagCode::Compression>(), CompressionScheme::ZSTD);
 }
 
 TEST(ExtractedTags, OptionalTagsDefault) {
@@ -176,7 +176,7 @@ TEST(ExtractedTags, ClearRequiredTags) {
     
     tags.get<TagCode::ImageWidth>() = 1024;
     tags.get<TagCode::ImageLength>() = 768;
-    tags.get<TagCode::Compression>() = tiff::CompressionScheme::LZW;
+    tags.get<TagCode::Compression>() = CompressionScheme::LZW;
     
     tags.clear();
     
@@ -245,7 +245,7 @@ TEST(ExtractedTags, ExtractSortedTagsAllRequired) {
         reader, std::span(tag_buffer));
     
     ASSERT_TRUE(result);
-    EXPECT_EQ(tags.get<TagCode::Compression>(), tiff::CompressionScheme::None);
+    EXPECT_EQ(tags.get<TagCode::Compression>(), CompressionScheme::None);
     EXPECT_EQ(tags.get<TagCode::ImageLength>(), 768);
     EXPECT_EQ(tags.get<TagCode::ImageWidth>(), 1024);
 }
@@ -275,7 +275,7 @@ TEST(ExtractedTags, ExtractUnsortedTags) {
         reader, std::span(tag_buffer));
     
     ASSERT_TRUE(result);
-    EXPECT_EQ(tags.get<TagCode::Compression>(), tiff::CompressionScheme::None);
+    EXPECT_EQ(tags.get<TagCode::Compression>(), CompressionScheme::None);
     EXPECT_EQ(tags.get<TagCode::ImageLength>(), 768);
     EXPECT_EQ(tags.get<TagCode::ImageWidth>(), 1024);
 }
@@ -306,7 +306,7 @@ TEST(ExtractedTags, ExtractWithOptionalTagsPresent) {
         reader, std::span(tag_buffer));
     
     ASSERT_TRUE(result);
-    EXPECT_EQ(tags.get<TagCode::Compression>(), tiff::CompressionScheme::LZW);
+    EXPECT_EQ(tags.get<TagCode::Compression>(), CompressionScheme::LZW);
     EXPECT_EQ(tags.get<TagCode::ImageWidth>(), 2048);
     ASSERT_TRUE(tags.get<TagCode::Software>().has_value());
     EXPECT_EQ(tags.get<TagCode::Software>().value(), "TiffConcept v1.0");
@@ -333,7 +333,7 @@ TEST(ExtractedTags, ExtractWithOptionalTagsMissing) {
         reader, std::span(tag_buffer));
     
     ASSERT_TRUE(result);
-    EXPECT_EQ(tags.get<TagCode::Compression>(), tiff::CompressionScheme::LZW);
+    EXPECT_EQ(tags.get<TagCode::Compression>(), CompressionScheme::LZW);
     EXPECT_EQ(tags.get<TagCode::ImageWidth>(), 2048);
     EXPECT_FALSE(tags.get<TagCode::Software>().has_value());
 }
@@ -436,7 +436,7 @@ TEST(ExtractedTags, ExtractStrictWithSortedTags) {
         reader, std::span(tag_buffer));
     
     ASSERT_TRUE(result);
-    EXPECT_EQ(tags.get<TagCode::Compression>(), tiff::CompressionScheme::None);
+    EXPECT_EQ(tags.get<TagCode::Compression>(), CompressionScheme::None);
     EXPECT_EQ(tags.get<TagCode::ImageLength>(), 768);
     EXPECT_EQ(tags.get<TagCode::ImageWidth>(), 1024);
 }
@@ -621,7 +621,7 @@ TEST(ExtractedTags, TagExtraByteSizeInline) {
     ExtractedTags<ImageWidthTag, CompressionTag> tags;
     
     tags.get<TagCode::ImageWidth>() = 1024;
-    tags.get<TagCode::Compression>() = tiff::CompressionScheme::LZW;
+    tags.get<TagCode::Compression>() = CompressionScheme::LZW;
     
     // Both are scalar values that fit inline (4 bytes for Long, 2 bytes for Short)
     EXPECT_EQ(tags.tag_extra_byte_size<TagCode::ImageWidth>(), 0);
@@ -822,7 +822,7 @@ TEST(ExtractedTags, RoundTripExtractAndWrite) {
         reader, std::span(tag_buffer));
     
     ASSERT_TRUE(extract_result);
-    EXPECT_EQ(tags.get<TagCode::Compression>(), tiff::CompressionScheme::LZW);
+    EXPECT_EQ(tags.get<TagCode::Compression>(), CompressionScheme::LZW);
     EXPECT_EQ(tags.get<TagCode::ImageWidth>(), 1024);
     EXPECT_EQ(tags.get<TagCode::StripOffsets>().size(), 3);
     
@@ -927,7 +927,7 @@ TEST(ExtractedTags, ExtractBigTIFFFormat) {
     
     ASSERT_TRUE(result);
     EXPECT_EQ(tags.get<TagCode::ImageWidth>(), 4096);
-    EXPECT_EQ(tags.get<TagCode::Compression>(), tiff::CompressionScheme::LZW);
+    EXPECT_EQ(tags.get<TagCode::Compression>(), CompressionScheme::LZW);
 }
 
 TEST(ExtractedTags, TagExtraByteSizeBigTIFFInlineLimit) {
@@ -989,7 +989,7 @@ TEST(ExtractedTags, ExtractWithBigEndianSource) {
     
     ASSERT_TRUE(result);
     EXPECT_EQ(tags.get<TagCode::ImageWidth>(), 1024);
-    EXPECT_EQ(tags.get<TagCode::Compression>(), tiff::CompressionScheme::LZW);
+    EXPECT_EQ(tags.get<TagCode::Compression>(), CompressionScheme::LZW);
 }
 
 TEST(ExtractedTags, ExtractWithLittleEndianSource) {
@@ -1014,7 +1014,7 @@ TEST(ExtractedTags, ExtractWithLittleEndianSource) {
     
     ASSERT_TRUE(result);
     EXPECT_EQ(tags.get<TagCode::ImageWidth>(), 2048);
-    EXPECT_EQ(tags.get<TagCode::Compression>(), tiff::CompressionScheme::None);
+    EXPECT_EQ(tags.get<TagCode::Compression>(), CompressionScheme::None);
 }
 
 TEST(ExtractedTags, TagWriteExternalDataBigEndian) {
@@ -1160,7 +1160,7 @@ TEST(ExtractedTags, ExtractAlreadySortedOptimization) {
         reader, std::span(tag_buffer));
     
     ASSERT_TRUE(result);
-    EXPECT_EQ(tags.get<TagCode::Compression>(), tiff::CompressionScheme::None);
+    EXPECT_EQ(tags.get<TagCode::Compression>(), CompressionScheme::None);
     EXPECT_EQ(tags.get<TagCode::ImageLength>(), 768);
     EXPECT_EQ(tags.get<TagCode::ImageWidth>(), 1024);
 }
@@ -1185,7 +1185,7 @@ TEST(ExtractedTags, ExtractStrictAlreadySorted) {
         reader, std::span(tag_buffer));
     
     ASSERT_TRUE(result);
-    EXPECT_EQ(tags.get<TagCode::Compression>(), tiff::CompressionScheme::LZW);
+    EXPECT_EQ(tags.get<TagCode::Compression>(), CompressionScheme::LZW);
     EXPECT_EQ(tags.get<TagCode::ImageWidth>(), 1280);
 }
 

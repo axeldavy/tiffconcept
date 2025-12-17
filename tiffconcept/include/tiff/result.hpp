@@ -5,7 +5,7 @@
 #include <utility>
 #include <variant>
 
-namespace tiff {
+namespace tiffconcept {
 
 /// Error type for TIFF operations
 struct Error {
@@ -260,4 +260,4 @@ constexpr decltype(auto) unwrap_value(T&& value) noexcept {
     }
 }
 
-} // namespace tiff
+} // namespace tiffconcept

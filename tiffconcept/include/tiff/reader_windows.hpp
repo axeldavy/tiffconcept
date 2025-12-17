@@ -13,7 +13,7 @@
 #include <string_view>
 #include "reader_base.hpp"
 
-namespace tiff {
+namespace tiffconcept {
 namespace windows_impl {
 
 /// Read-only view that owns allocated buffer
@@ -380,4 +380,4 @@ using WindowsFileReadWriter = WindowsFileBase<windows_impl::detail::ReadWriteAcc
 static_assert(RawReader<WindowsFileReadWriter>, "WindowsFileReadWriter must satisfy RawReader concept");
 static_assert(RawWriter<WindowsFileReadWriter>, "WindowsFileReadWriter must satisfy RawWriter concept");
 
-} // namespace tiff
+} // namespace tiffconcept

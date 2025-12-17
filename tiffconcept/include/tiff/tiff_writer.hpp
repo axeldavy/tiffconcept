@@ -14,7 +14,7 @@
 #include "types.hpp"
 #include "write_strategy.hpp"
 
-namespace tiff {
+namespace tiffconcept {
 
 /// Complete TIFF file writer
 /// Orchestrates header, IFD, and image data writing
@@ -366,12 +366,12 @@ private:
                     dst_tags.template get<TagCode::BitsPerSample>().emplace();
                 }
                 auto &bps_vec = dst_tags.template get<TagCode::BitsPerSample>().value();
-                std::cerr << "Debug: Filling BitsPerSample tag with " << samples_per_pixel << " samples." << std::endl;
+                //std::cerr << "Debug: Filling BitsPerSample tag with " << samples_per_pixel << " samples." << std::endl;
                 bps_vec.resize(samples_per_pixel);
                 // Fill
                 for (std::size_t i = 0; i < samples_per_pixel; ++i) {
                     bps_vec[i] = sizeof(PixelType) * 8;
-                    std::cerr << "Debug: BitsPerSample[" << i << "] = " << bps_vec[i] << std::endl;
+                    //std::cerr << "Debug: BitsPerSample[" << i << "] = " << bps_vec[i] << std::endl;
                 }
             } else {
                 // Reset tag to enable memory reuse
@@ -714,6 +714,42 @@ public:
             additional_tags
         );
     }
+
+    /// Write a complete single-image TIFF file
+    /// This is the main high-level API for writing a TIFF image
+    template <OutputSpec InputSpec, typename Writer, typename... TagArgs>
+        requires RawWriter<Writer>
+    [[nodiscard]] Result<void> write_single_image(
+        Writer& writer,
+        std::span<const PixelType> image_data,
+        uint32_t image_width,
+        uint32_t image_height,
+        uint32_t image_depth,
+        uint32_t tile_width,
+        uint32_t tile_height,
+        uint32_t tile_depth,
+        uint16_t samples_per_pixel,
+        PlanarConfiguration planar_config,
+        CompressionScheme compression,
+        Predictor predictor,
+        const ExtractedTags<TagArgs...>& additional_tags = ExtractedTags<TagArgs...>{}) noexcept {
+        return write_image_impl<InputSpec>(
+            writer,
+            image_data,
+            image_width,
+            image_height,
+            image_depth,
+            tile_width,
+            tile_height,
+            tile_depth,
+            true, // is_tiled
+            samples_per_pixel,
+            planar_config,
+            compression,
+            predictor,
+            additional_tags
+        );
+    }
     
     /// Write a stripped image (convenience wrapper)
     template <OutputSpec InputSpec, typename Writer, typename... TagArgs>
@@ -759,4 +795,4 @@ public:
     }
 };
 
-} // namespace tiff
+} // namespace tiffconcept

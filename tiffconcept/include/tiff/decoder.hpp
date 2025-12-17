@@ -8,7 +8,7 @@
 #include "result.hpp"
 #include "types.hpp"
 
-namespace tiff {
+namespace tiffconcept {
 
 /// Chunk decoder - handles decompression and predictor decoding for tiles and strips
 /// NOT thread-safe - only one thread should use it at a time.
@@ -146,4 +146,4 @@ public:
     }
 };
 
-} // namespace tiff
+} // namespace tiffconcept

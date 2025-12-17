@@ -13,7 +13,7 @@
 #include "result.hpp"
 #include "types.hpp"
 
-namespace tiff {
+namespace tiffconcept {
 
 /// Decoded chunk ready for copying to output buffer\n/// References data in a shared buffer (no per-chunk allocation)
 template <typename PixelType>
@@ -436,4 +436,4 @@ public:
     }
 };
 
-} // namespace tiff
+} // namespace tiffconcept

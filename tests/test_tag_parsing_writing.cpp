@@ -10,7 +10,7 @@
 #include "../tiffconcept/include/tiff/reader_buffer.hpp"
 #include "../tiffconcept/include/tiff/types.hpp"
 
-using namespace tiff;
+using namespace tiffconcept;
 
 // ============================================================================
 // Helper Functions

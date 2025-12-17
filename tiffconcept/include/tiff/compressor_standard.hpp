@@ -8,7 +8,7 @@
 #include "compressor_base.hpp"
 #include "result.hpp"
 
-namespace tiff {
+namespace tiffconcept {
 
 /// No compression - simple copy
 class NoneCompressor {
@@ -193,4 +193,4 @@ using PackBitsCompressorDesc = CompressorDescriptor<
     CompressionScheme::PackBits
 >;
 
-} // namespace tiff
+} // namespace tiffconcept

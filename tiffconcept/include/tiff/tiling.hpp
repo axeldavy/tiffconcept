@@ -8,7 +8,7 @@
 #include "result.hpp"
 #include "types.hpp"
 
-namespace tiff {
+namespace tiffconcept {
 
 namespace detail {
 
@@ -1055,4 +1055,4 @@ public:
     }
 };
 
-} // namespace tiff
+} // namespace tiffconcept

@@ -6,7 +6,7 @@
 #include "result.hpp"
 #include "types.hpp"
 
-namespace tiff {
+namespace tiffconcept {
 
 /// Information about a single strip
 struct StripInfo {
@@ -150,4 +150,4 @@ public:
     }
 };
 
-} // namespace tiff
+} // namespace tiffconcept

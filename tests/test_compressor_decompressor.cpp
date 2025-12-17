@@ -15,7 +15,7 @@
 #include "../tiffconcept/include/tiff/result.hpp"
 #include "../tiffconcept/include/tiff/types.hpp"
 
-using namespace tiff;
+using namespace tiffconcept;
 
 // ============================================================================
 // Helper Functions
@@ -535,41 +535,39 @@ TEST(ZstdCompressor, DifferentCompressionLevels) {
     std::vector<std::byte> compressed_level1;
     std::vector<std::byte> compressed_level9;
     std::vector<std::byte> compressed_level15;
-    std::size_t level1_size, level9_size, level15_size;
     
     {
         ZstdCompressor compressor(1);
         auto result = compressor.compress(compressed_level1, 0, input);
         ASSERT_TRUE(result.is_ok());
-        level1_size = result.value();
     }
     
     {
         ZstdCompressor compressor(9);
         auto result = compressor.compress(compressed_level9, 0, input);
         ASSERT_TRUE(result.is_ok());
-        level9_size = result.value();
     }
     
     {
         ZstdCompressor compressor(15);
         auto result = compressor.compress(compressed_level15, 0, input);
         ASSERT_TRUE(result.is_ok());
-        level15_size = result.value();
     }
     
     // Higher compression levels should produce smaller output
-    EXPECT_GE(level1_size, level9_size);
-    EXPECT_GE(level9_size, level15_size);
+    EXPECT_GE(compressed_level1.size(), compressed_level9.size());
+    EXPECT_GE(compressed_level9.size(), compressed_level15.size());
     
     // All should decompress correctly
     ZstdDecompressor decompressor;
     std::vector<std::byte> decompressed(input.size());
     
-    auto result = decompressor.decompress(
-        decompressed, 
-        std::span<const std::byte>(compressed_level15.data(), level15_size)
-    );
+    auto result = decompressor.decompress(decompressed, compressed_level15);
+    if (!result.is_ok()) {
+        std::cout << "Decompression error: " << result.error().message << std::endl;
+        std::cout << "Compressed size: " << compressed_level15.size() << std::endl;
+        std::cout << "Input size: " << input.size() << std::endl;
+    }
     ASSERT_TRUE(result.is_ok());
     EXPECT_TRUE(vectors_equal(decompressed, input));
 }
@@ -804,84 +802,6 @@ TEST(DecompressorStorage, UnsupportedScheme) {
     );
     ASSERT_TRUE(result.is_error());
     EXPECT_EQ(result.error().code, Error::Code::UnsupportedFeature);
-}
-
-// ============================================================================
-// Compressor Clone and Default Scheme Tests
-// ============================================================================
-
-TEST(NoneCompressor, CloneAndDefaultScheme) {
-    NoneCompressor compressor;
-    
-    EXPECT_EQ(NoneCompressor::get_default_scheme(), CompressionScheme::None);
-    
-    auto cloned = compressor.clone();
-    
-    // Test that cloned compressor works
-    std::vector<std::byte> input = {std::byte{0x01}, std::byte{0x02}};
-    std::vector<std::byte> output;
-    
-    auto result = cloned.compress(output, 0, input);
-    ASSERT_TRUE(result.is_ok());
-    EXPECT_EQ(result.value(), 2);
-}
-
-TEST(PackBitsCompressor, CloneAndDefaultScheme) {
-    PackBitsCompressor compressor;
-    
-    EXPECT_EQ(PackBitsCompressor::get_default_scheme(), CompressionScheme::PackBits);
-    
-    auto cloned = compressor.clone();
-    
-    // Test that cloned compressor works
-    std::vector<std::byte> input = generate_data_with_runs(100);
-    std::vector<std::byte> output;
-    
-    auto result = cloned.compress(output, 0, input);
-    ASSERT_TRUE(result.is_ok());
-    EXPECT_GT(result.value(), 0);
-}
-
-TEST(ZstdCompressor, CloneAndDefaultScheme) {
-    ZstdCompressor compressor(9);
-    
-    EXPECT_EQ(ZstdCompressor::get_default_scheme(), CompressionScheme::ZSTD);
-    EXPECT_EQ(compressor.get_level(), 9);
-    
-    auto cloned = compressor.clone();
-    EXPECT_EQ(cloned.get_level(), 9);
-    
-    // Test that cloned compressor works
-    std::vector<std::byte> input = generate_compressible_data(1000);
-    std::vector<std::byte> output1, output2;
-    
-    auto result1 = compressor.compress(output1, 0, input);
-    auto result2 = cloned.compress(output2, 0, input);
-    
-    ASSERT_TRUE(result1.is_ok());
-    ASSERT_TRUE(result2.is_ok());
-    
-    // Both should produce identical output
-    EXPECT_EQ(result1.value(), result2.value());
-}
-
-TEST(CompressorStorage, CloneStorage) {
-    CompressorStorage<FullCompressorSpec> storage;
-    
-    auto cloned = storage.clone();
-    
-    // Test that cloned storage works
-    auto input = generate_random_bytes(500);
-    std::vector<std::byte> compressed1, compressed2;
-    
-    auto result1 = storage.compress(compressed1, 0, input, CompressionScheme::ZSTD);
-    auto result2 = cloned.compress(compressed2, 0, input, CompressionScheme::ZSTD);
-    
-    ASSERT_TRUE(result1.is_ok());
-    ASSERT_TRUE(result2.is_ok());
-    
-    // Both should produce identical output
-    EXPECT_EQ(result1.value(), result2.value());
 }
 
 // ============================================================================

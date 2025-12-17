@@ -6,7 +6,7 @@
 #include <span>
 #include "types.hpp"
 
-namespace tiff {
+namespace tiffconcept {
 
 namespace predictor {
 
@@ -546,4 +546,4 @@ inline void delta_encode_floating_point(
 
 } // namespace predictor
 
-} // namespace tiff
+} // namespace tiffconcept

@@ -14,7 +14,7 @@
 #include "strips.hpp"
 #include "tiling.hpp"
 
-namespace tiff {
+namespace tiffconcept {
 
 /// Chunk processor that decodes and copies chunks to output buffer
 /// Thread-safe processor with internal decoder and mutex
@@ -428,4 +428,4 @@ private:
     }
 };
 
-} // namespace tiff
+} // namespace tiffconcept

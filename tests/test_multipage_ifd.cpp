@@ -13,7 +13,7 @@
 #include "../tiffconcept/include/tiff/reader_buffer.hpp"
 #include "../tiffconcept/include/tiff/types.hpp"
 
-using namespace tiff;
+using namespace tiffconcept;
 
 // ============================================================================
 // Helper Functions
@@ -46,7 +46,7 @@ std::vector<T> generate_test_data(std::size_t count, uint64_t seed = 42) {
 // ============================================================================
 
 TEST(MultiPageTIFF, ReadIFDChain_TwoPages) {
-    using TagSpec = tiff::TagSpec<
+    using TagSpec = TagSpec<
         ImageWidthTag,
         ImageLengthTag,
         BitsPerSampleTag
@@ -149,7 +149,7 @@ TEST(MultiPageTIFF, ReadIFDChain_TwoPages) {
 }
 
 TEST(MultiPageTIFF, ReadIFDChain_MultiplePages) {
-    using TagSpec = tiff::TagSpec<
+    using TagSpec = TagSpec<
         ImageWidthTag,
         PageNumberTag
     >;
@@ -241,7 +241,7 @@ TEST(MultiPageTIFF, ReadIFDChain_MultiplePages) {
 }
 
 TEST(MultiPageTIFF, BigTIFF_IFDChain) {
-    using TagSpec = tiff::TagSpec<
+    using TagSpec = TagSpec<
         ImageWidthTag,
         ImageLengthTag
     >;
@@ -337,7 +337,7 @@ TEST(MultiPageTIFF, BigTIFF_IFDChain) {
 // ============================================================================
 
 TEST(MultiPageTIFF, ErrorDetection_CircularReference) {
-    using TagSpec = tiff::TagSpec<
+    using TagSpec = TagSpec<
         ImageWidthTag
     >;
     
@@ -409,7 +409,7 @@ TEST(MultiPageTIFF, ErrorDetection_CircularReference) {
 }
 
 TEST(MultiPageTIFF, ErrorDetection_InvalidNextOffset) {
-    using TagSpec = tiff::TagSpec<
+    using TagSpec = TagSpec<
         ImageWidthTag
     >;
     
@@ -497,12 +497,12 @@ TEST(MultiPageTIFF, ErrorDetection_ZeroTagCount) {
 // ============================================================================
 
 TEST(MultiPageTIFF, SubIFD_BasicReadWrite) {
-    using MainTagSpec = tiff::TagSpec<
+    using MainTagSpec = TagSpec<
         ImageWidthTag,
         SubIFDTag
     >;
     
-    using SubTagSpec = tiff::TagSpec<
+    using SubTagSpec = TagSpec<
         ImageWidthTag,
         ImageLengthTag
     >;
@@ -583,12 +583,12 @@ TEST(MultiPageTIFF, SubIFD_BasicReadWrite) {
 }
 
 TEST(MultiPageTIFF, SubIFD_MultipleThumbnails) {
-    using MainTagSpec = tiff::TagSpec<
+    using MainTagSpec = TagSpec<
         ImageWidthTag,
         SubIFDTag
     >;
     
-    using SubTagSpec = tiff::TagSpec<
+    using SubTagSpec = TagSpec<
         ImageWidthTag,
         ImageLengthTag
     >;
@@ -689,7 +689,7 @@ TEST(MultiPageTIFF, SubIFD_MultipleThumbnails) {
 // ============================================================================
 
 TEST(MultiPageTIFF, PageNavigation_RandomAccess) {
-    using TagSpec = tiff::TagSpec<
+    using TagSpec = TagSpec<
         ImageWidthTag,
         PageNumberTag
     >;

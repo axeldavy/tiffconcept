@@ -14,7 +14,7 @@
 #include <type_traits>
 #include "reader_base.hpp"
 
-namespace tiff {
+namespace tiffconcept {
 namespace mmap_impl {
 
 namespace detail {
@@ -230,7 +230,7 @@ public:
         auto* base = static_cast<const std::byte*>(mmap_handle_.get());
         std::span<const std::byte> data_span(base + offset, bytes_to_read);
         
-        return Ok(tiff::mmap_impl::MmapReadView(data_span, mmap_handle_));
+        return Ok(mmap_impl::MmapReadView(data_span, mmap_handle_));
     }
     
     /// Zero-copy write (only available if can_write is true)
@@ -249,7 +249,7 @@ public:
         auto* base = static_cast<std::byte*>(mmap_handle_.get());
         std::span<std::byte> data_span(base + offset, bytes_to_write);
         
-        return Ok(tiff::mmap_impl::MmapWriteView<AccessPolicy>(data_span, mmap_handle_));
+        return Ok(mmap_impl::MmapWriteView<AccessPolicy>(data_span, mmap_handle_));
     }
     
     [[nodiscard]] Result<std::size_t> size() const noexcept {
@@ -326,4 +326,4 @@ using MmapFileReadWriter = MmapFileBase<mmap_impl::detail::ReadWriteAccess>;
 static_assert(RawReader<MmapFileReadWriter>, "MmapFileReadWriter must satisfy RawReader concept");
 static_assert(RawWriter<MmapFileReadWriter>, "MmapFileReadWriter must satisfy RawWriter concept");
 
-} // namespace tiff
+} // namespace tiffconcept

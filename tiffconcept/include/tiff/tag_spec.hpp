@@ -10,7 +10,7 @@
 #include <vector>
 #include "types.hpp"
 
-namespace tiff {
+namespace tiffconcept {
 
 /// Helpers for tag spec validation
 namespace detail {
@@ -637,4 +637,4 @@ using MinImageSpec = TagSpec<
     OptTag_t<ICCProfileTag> // Embedded ICC color profile
 >;
 
-} // namespace tiff
+} // namespace tiffconcept

@@ -9,7 +9,7 @@
 #include "result.hpp"
 #include "types.hpp"
 
-namespace tiff {
+namespace tiffconcept {
 
 /// Information about a chunk (tile or strip) to be read
 struct ChunkInfo {
@@ -196,4 +196,4 @@ inline Result<void> create_batches(
     return Ok();
 }
 
-} // namespace tiff
+} // namespace tiffconcept

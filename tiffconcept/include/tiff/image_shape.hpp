@@ -7,7 +7,7 @@
 #include "tag_spec.hpp"
 #include "types.hpp"
 
-namespace tiff {
+namespace tiffconcept {
 
 /// Represents a rectangular region in an image
 struct ImageRegion {
@@ -279,4 +279,4 @@ public:
     }
 };
 
-} // namespace tiff
+} // namespace tiffconcept

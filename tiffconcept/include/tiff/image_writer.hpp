@@ -13,7 +13,7 @@
 #include "types.hpp"
 #include "write_strategy.hpp"
 
-namespace tiff {
+namespace tiffconcept {
 
 /// Information returned after writing image data
 struct WrittenImageInfo {
@@ -329,4 +329,4 @@ public:
     }
 };
 
-} // namespace tiff
+} // namespace tiffconcept

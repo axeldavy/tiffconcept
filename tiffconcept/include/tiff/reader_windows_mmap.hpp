@@ -13,7 +13,7 @@
 #include <string_view>
 #include "reader_base.hpp"
 
-namespace tiff {
+namespace tiffconcept {
 namespace windows_mmap_impl {
 
 namespace detail {
@@ -464,4 +464,4 @@ using WindowsMmapFileReadWriter = WindowsMmapFileBase<windows_mmap_impl::detail:
 static_assert(RawReader<WindowsMmapFileReadWriter>, "WindowsMmapFileReadWriter must satisfy RawReader concept");
 static_assert(RawWriter<WindowsMmapFileReadWriter>, "WindowsMmapFileReadWriter must satisfy RawWriter concept");
 
-} // namespace tiff
+} // namespace tiffconcept

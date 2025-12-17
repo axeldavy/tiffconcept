@@ -7,7 +7,7 @@
 #include "tag_spec.hpp"
 #include "types.hpp"
 
-namespace tiff {
+namespace tiffconcept {
 
 namespace tag_writing {
 
@@ -121,4 +121,4 @@ template <typename TagDesc, typename ValueType>
 
 } // namespace tag_writing
 
-} // namespace tiff
+} // namespace tiffconcept

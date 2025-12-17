@@ -5,7 +5,7 @@
 #include <span>
 #include "result.hpp"
 
-namespace tiff {
+namespace tiffconcept {
 
 /// Concept for a read-only view into data with RAII lifetime management
 /// Only one thread at a time should access the view
@@ -108,4 +108,4 @@ concept RawWriter = requires(T writer, std::size_t offset, std::size_t size) {
     { writer.is_valid() } -> std::same_as<bool>;
 };
 
-} // namespace tiff
+} // namespace tiffconcept

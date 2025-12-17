@@ -10,8 +10,8 @@
 #include "../tiffconcept/include/tiff/predictor.hpp"
 #include "../tiffconcept/include/tiff/types.hpp"
 
-using namespace tiff;
-using namespace tiff::predictor;
+using namespace tiffconcept;
+using namespace tiffconcept::predictor;
 
 // ============================================================================
 // Helper Functions

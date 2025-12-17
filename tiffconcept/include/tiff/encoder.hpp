@@ -9,7 +9,7 @@
 #include "types.hpp"
 #include "write_strategy.hpp"
 
-namespace tiff {
+namespace tiffconcept {
 
 /// Chunk encoder - handles predictor encoding and compression for tiles and strips
 /// NOT thread-safe - only one thread should use it at a time.
@@ -239,4 +239,4 @@ public:
     }
 };
 
-} // namespace tiff
+} // namespace tiffconcept

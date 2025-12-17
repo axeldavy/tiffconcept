@@ -17,7 +17,7 @@
 #include "../tiffconcept/include/tiff/result.hpp"
 #include "../tiffconcept/include/tiff/types.hpp"
 
-using namespace tiff;
+using namespace tiffconcept;
 
 // ============================================================================
 // Helper Functions

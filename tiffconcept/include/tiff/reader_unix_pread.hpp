@@ -12,7 +12,7 @@
 #include <unistd.h>
 #include "reader_base.hpp"
 
-namespace tiff {
+namespace tiffconcept {
 namespace pread_impl {
 
 /// Read-only view that owns allocated buffer
@@ -330,4 +330,4 @@ using PreadFileReadWriter = PreadFileBase<pread_impl::detail::ReadWriteAccess>;
 static_assert(RawReader<PreadFileReadWriter>, "PreadFileReadWriter must satisfy RawReader concept");
 static_assert(RawWriter<PreadFileReadWriter>, "PreadFileReadWriter must satisfy RawWriter concept");
 
-} // namespace tiff
+} // namespace tiffconcept

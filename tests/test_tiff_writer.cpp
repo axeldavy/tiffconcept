@@ -18,7 +18,7 @@
 #include "../tiffconcept/include/tiff/tiling.hpp"
 #include "../tiffconcept/include/tiff/strips.hpp"
 
-using namespace tiff;
+using namespace tiffconcept;
 
 // ============================================================================
 // Helper Functions

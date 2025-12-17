@@ -28,7 +28,7 @@ extern "C" {
 }
 #endif
 
-namespace tiff {
+namespace tiffconcept {
 
 /// RAII wrapper for ZSTD decompression context
 /// Context is allocated lazily on first use
@@ -128,4 +128,4 @@ using ZstdDecompressorDesc = DecompressorDescriptor<
     CompressionScheme::ZSTD_Alt
 >;
 
-} // namespace tiff
+} // namespace tiffconcept

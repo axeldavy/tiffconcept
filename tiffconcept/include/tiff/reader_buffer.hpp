@@ -7,7 +7,7 @@
 #include <vector>
 #include "reader_base.hpp"
 
-namespace tiff {
+namespace tiffconcept {
 namespace buffer_impl {
 
 /// Read-only view for borrowed buffer data (zero-copy)
@@ -374,4 +374,4 @@ using BufferReadWriter = BufferBase<buffer_impl::detail::ReadWriteAccess>;
 static_assert(RawReader<BufferReadWriter>, "BufferReadWriter must satisfy RawReader concept");
 static_assert(RawWriter<BufferReadWriter>, "BufferReadWriter must satisfy RawWriter concept");
 
-} // namespace tiff
+} // namespace tiffconcept

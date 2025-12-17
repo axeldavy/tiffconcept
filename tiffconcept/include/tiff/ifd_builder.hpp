@@ -14,7 +14,7 @@
 #include "types.hpp"
 #include "write_strategy.hpp"
 
-namespace tiff {
+namespace tiffconcept {
 
 /// Builds an IFD from ExtractedTags and computed arrays (like TileOffsets, TileByteCounts)
 /// Handles inline vs external data placement and offset allocation
@@ -74,10 +74,10 @@ private:
         } else {  // BigTIFF
             tag.template set_count<std::endian::native>(static_cast<uint64_t>(count));
         }
-        std::cerr << "Debug: Creating tag " 
-                  << static_cast<uint16_t>(TagDesc::code) 
-                  << " with count " << count 
-                  << " and byte size " << byte_size << std::endl;
+        //std::cerr << "Debug: Creating tag " 
+        //          << static_cast<uint16_t>(TagDesc::code) 
+        //          << " with count " << count 
+        //          << " and byte size " << byte_size << std::endl;
         
         // Inline or external data?
         if (byte_size <= inline_limit) {
@@ -380,4 +380,4 @@ public:
     }
 };
 
-} // namespace tiff
+} // namespace tiffconcept

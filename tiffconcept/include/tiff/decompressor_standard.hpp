@@ -6,7 +6,7 @@
 #include "decompressor_base.hpp"
 #include "result.hpp"
 
-namespace tiff {
+namespace tiffconcept {
 
 /// No compression - simple copy
 class NoneDecompressor {
@@ -137,4 +137,4 @@ using PackBitsDecompressorDesc = DecompressorDescriptor<
 // The spec also makes mandatory support for CCITT compression schemes (1D, Group 3, Group 4)
 // We will leave it as an exercise for the reader...
 
-} // namespace tiff
+} // namespace tiffconcept

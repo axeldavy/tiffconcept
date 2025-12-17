@@ -10,7 +10,7 @@
 #include <string_view>
 #include "reader_base.hpp"
 
-namespace tiff {
+namespace tiffconcept {
 namespace stream_impl {
 
 /// Read-only view that owns allocated buffer
@@ -382,4 +382,4 @@ using StreamFileReadWriter = StreamFileBase<stream_impl::detail::ReadWriteAccess
 static_assert(RawReader<StreamFileReadWriter>, "StreamFileReadWriter must satisfy RawReader concept");
 static_assert(RawWriter<StreamFileReadWriter>, "StreamFileReadWriter must satisfy RawWriter concept");
 
-} // namespace tiff
+} // namespace tiffconcept

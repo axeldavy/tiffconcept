@@ -7,7 +7,7 @@
 #include "tiff/metadata.hpp"
 #include "tiff/tag_spec.hpp"
 
-namespace tiff::examples {
+namespace tiffconcept::examples {
 
 /// Example 1: Fast local storage reading
 /// Best for: SSD, fast local disks, small files
@@ -237,4 +237,4 @@ void example_stripped_image(const Reader& file_reader) {
     );
 }
 
-} // namespace tiff::examples
+} // namespace tiffconcept::examples

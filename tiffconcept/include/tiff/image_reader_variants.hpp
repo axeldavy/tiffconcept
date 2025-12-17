@@ -5,7 +5,7 @@
 #include "image_reader.hpp"
 #include "read_strategy.hpp"
 
-namespace tiff {
+namespace tiffconcept {
 
 /// Default decompressor spec with standard compression schemes
 using StandardDecompSpec = DecompressorSpec<NoneDecompressorDesc, PackBitsDecompressorDesc>;
@@ -84,4 +84,4 @@ make_custom_reader(ReadStrat read_strategy) noexcept {
     return ImageReader<PixelType, DecompSpec, ReadStrat>(std::move(read_strategy));
 }
 
-} // namespace tiff
+} // namespace tiffconcept

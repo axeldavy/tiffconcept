@@ -12,7 +12,7 @@
 #include "reader_base.hpp"
 #include "result.hpp"
 
-namespace tiff {
+namespace tiffconcept {
 
 /// Data for a single chunk read from file
 /// References data in a shared buffer (no per-chunk allocation)
@@ -378,4 +378,4 @@ public:
     }
 };
 
-} // namespace tiff
+} // namespace tiffconcept

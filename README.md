@@ -59,7 +59,7 @@ template based library can generate optimized code for your use-case.
 
 For instance this library wishes to allow:
 - Quickly read a subset of tags
-- Direct use of your custom interface for reading the file (memory mapped file, custom IO, etc). Default file/buffer readers are provided.
+- Direct use of your custom interface for reading/writing the file (memory mapped file, custom IO, etc). Default file/buffer readers are provided.
 - Reading entire images, portions of images, subpages, 3D images, etc.
 - Specify at compile time the pixel type you want to read (uint8_t, uint16_t, etc)
 - Add your tag specifications easily
@@ -72,8 +72,6 @@ For instance this library wishes to allow:
 
 While this library could be made compatible with older C++ standards, this library
 makes extensive use of C++20 concepts to ensure strong typing and correctness at compile time.
-
-A modern, header-only C++ library for reading TIFF files with compile-time tag specification and strong typing.
 
 ## Why monads
 
@@ -121,12 +119,37 @@ My disatisfaction with the existing libraries led me to write a custom TIFF read
 
 The library has been for me both a way to experiment with modern C++ features, and to extend the speed of my custom TIFF reader to more use-cases.
 
+## Testing and Benchmarks
+
+The library includes comprehensive test coverage using Google Test and performance benchmarks using Google Benchmark.
+
+### Running Tests
+```bash
+cd tests
+mkdir build && cd build
+cmake ..
+make -j
+ctest
+```
+
+### Running Benchmarks
+```bash
+cd benchmarks
+mkdir build && cd build
+cmake ..
+make -j
+./tiff_benchmarks
+```
+
+See `benchmarks/README.md` for detailed information about available benchmarks and performance comparisons with libtiff.
+
 ## Roadmap
 
 - [Mostly done] BigTIFF, Endianness, parsing metadata
 - [Mostly done] Reading a tile/strip, raw or with ZSTD decompression, predictor decoding, 2D/3D, single channel or multi-channel (any number of channels)
-- [Not begun] Writing TIFF files, with various schemes for ordering IFDs (packing page information at the beginning may be more cache efficient when walking through TIFF pages)
-- [WIP] Reading an image region efficiently, single-thread vs multi-thread
+- [Done] Writing TIFF files, with various schemes for ordering IFDs (packing page information at the beginning may be more cache efficient when walking through TIFF pages)
+- [Done] Reading an image region efficiently, single-thread vs multi-thread
+- [Done] Comprehensive test suite and benchmarks
 
 - [Not planned] support for non-standard integer and floating points (Palette images, 16-bit floats, etc)
 - [Not planned] support for compression schemes other than ZSTD

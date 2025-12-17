@@ -70,7 +70,7 @@
 // Automatic platform selection (opt-in with TIFF_AUTO_READER)
 #ifdef TIFF_AUTO_READER
 
-namespace tiff {
+namespace tiffconcept {
 
 // FileReader alias - automatically selects the best reader for the platform
 #if defined(__linux__) || defined(__unix__) || defined(__APPLE__)
@@ -89,7 +89,7 @@ namespace tiff {
     using DefaultFileReader = StreamFileReader;
 #endif
 
-} // namespace tiff
+} // namespace tiffconcept
 
 #endif // TIFF_AUTO_READER
 

@@ -11,7 +11,7 @@
 #include "tag_spec.hpp"
 #include "types.hpp"
 
-namespace tiff {
+namespace tiffconcept {
 
 namespace ifd {
 
@@ -343,4 +343,4 @@ template <RawReader Reader, TiffFormatType TiffFormat = TiffFormatType::Classic,
 
 } // namespace ifd
 
-} // namespace tiff
+} // namespace tiffconcept

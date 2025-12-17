@@ -7,7 +7,7 @@
 #include <cstring>
 #include <span>
 
-namespace tiff {
+namespace tiffconcept {
 
 /// Rational number representation (unsigned)
 struct Rational {
@@ -928,4 +928,4 @@ enum class OutputSpec {
 // channels are strongly correlated, PlanarConfiguration::Planar
 // is generally preferred for better compression ratios.
 
-} // namespace tiff
+} // namespace tiffconcept

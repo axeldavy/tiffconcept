@@ -10,7 +10,7 @@
 #include "../tiffconcept/include/tiff/write_strategy.hpp"
 
 
-using namespace tiff;
+using namespace tiffconcept;
 
 // ============================================================================
 // Helper Functions

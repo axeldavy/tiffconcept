@@ -20,6 +20,7 @@
 #endif
 
 namespace fs = std::filesystem;
+using namespace tiffconcept;
 
 // Helper function to create a test file with known content
 fs::path create_test_file(const std::string& filename, const std::vector<std::byte>& content) {
@@ -73,62 +74,62 @@ protected:
 
 // Specialization for BufferViewReader (borrowed buffer)
 template <>
-tiff::BufferViewReader RawReaderTest<tiff::BufferViewReader>::create_reader() {
-    return tiff::BufferViewReader(std::span<const std::byte>(test_data));
+BufferViewReader RawReaderTest<BufferViewReader>::create_reader() {
+    return BufferViewReader(std::span<const std::byte>(test_data));
 }
 
 // Specialization for BufferReader (owned buffer)
 template <>
-tiff::BufferReader RawReaderTest<tiff::BufferReader>::create_reader() {
-    return tiff::BufferReader(std::span<const std::byte>(test_data));
+BufferReader RawReaderTest<BufferReader>::create_reader() {
+    return BufferReader(std::span<const std::byte>(test_data));
 }
 
 // Specialization for StreamFileReader
 template <>
-tiff::StreamFileReader RawReaderTest<tiff::StreamFileReader>::create_reader() {
-    return tiff::StreamFileReader(test_file_path.string());
+StreamFileReader RawReaderTest<StreamFileReader>::create_reader() {
+    return StreamFileReader(test_file_path.string());
 }
 
 #ifdef __unix__
 // Specialization for PreadFileReader
 template <>
-tiff::PreadFileReader RawReaderTest<tiff::PreadFileReader>::create_reader() {
-    return tiff::PreadFileReader(test_file_path.string());
+PreadFileReader RawReaderTest<PreadFileReader>::create_reader() {
+    return PreadFileReader(test_file_path.string());
 }
 
 // Specialization for MmapFileReader
 template <>
-tiff::MmapFileReader RawReaderTest<tiff::MmapFileReader>::create_reader() {
-    return tiff::MmapFileReader(test_file_path.string());
+MmapFileReader RawReaderTest<MmapFileReader>::create_reader() {
+    return MmapFileReader(test_file_path.string());
 }
 #endif
 
 #ifdef _WIN32
 // Specialization for WindowsFileReader
 template <>
-tiff::WindowsFileReader RawReaderTest<tiff::WindowsFileReader>::create_reader() {
-    return tiff::WindowsFileReader(test_file_path.string());
+WindowsFileReader RawReaderTest<WindowsFileReader>::create_reader() {
+    return WindowsFileReader(test_file_path.string());
 }
 
 // Specialization for WindowsMmapFileReader
 template <>
-tiff::WindowsMmapFileReader RawReaderTest<tiff::WindowsMmapFileReader>::create_reader() {
-    return tiff::WindowsMmapFileReader(test_file_path.string());
+WindowsMmapFileReader RawReaderTest<WindowsMmapFileReader>::create_reader() {
+    return WindowsMmapFileReader(test_file_path.string());
 }
 #endif
 
 // Define test types
 using ReaderTypes = ::testing::Types<
-    tiff::BufferViewReader,  // Borrowed buffer view
-    tiff::BufferReader,      // Owned buffer
-    tiff::StreamFileReader
+    BufferViewReader,  // Borrowed buffer view
+    BufferReader,      // Owned buffer
+    StreamFileReader
 #ifdef __unix__
-    , tiff::PreadFileReader
-    , tiff::MmapFileReader
+    , PreadFileReader
+    , MmapFileReader
 #endif
 #ifdef _WIN32
-    , tiff::WindowsFileReader
-    , tiff::WindowsMmapFileReader
+    , WindowsFileReader
+    , WindowsMmapFileReader
 #endif
 >;
 
@@ -190,7 +191,7 @@ TYPED_TEST(RawReaderTest, ReadBeyondEOFReturnsError) {
     auto read_result = reader.read(this->test_data.size() + 100, 10);
     
     ASSERT_TRUE(read_result.is_error());
-    EXPECT_EQ(read_result.error().code, tiff::Error::Code::OutOfBounds);
+    EXPECT_EQ(read_result.error().code, Error::Code::OutOfBounds);
 }
 
 TYPED_TEST(RawReaderTest, ReadMoreThanAvailableTruncates) {
@@ -266,21 +267,21 @@ protected:
 
 // Specialization for BufferViewWriter (borrowed buffer)
 template <>
-tiff::BufferViewWriter RawWriterTest<tiff::BufferViewWriter>::create_writer(size_t initial_size) {
+BufferViewWriter RawWriterTest<BufferViewWriter>::create_writer(size_t initial_size) {
     static std::vector<std::byte> buffer;
     buffer.resize(initial_size);
-    return tiff::BufferViewWriter(std::span<std::byte>(buffer));
+    return BufferViewWriter(std::span<std::byte>(buffer));
 }
 
 // Specialization for BufferWriter (owned buffer)
 template <>
-tiff::BufferWriter RawWriterTest<tiff::BufferWriter>::create_writer(size_t initial_size) {
-    return tiff::BufferWriter(initial_size);
+BufferWriter RawWriterTest<BufferWriter>::create_writer(size_t initial_size) {
+    return BufferWriter(initial_size);
 }
 
 // Specialization for StreamFileWriter
 template <>
-tiff::StreamFileWriter RawWriterTest<tiff::StreamFileWriter>::create_writer(size_t initial_size) {
+StreamFileWriter RawWriterTest<StreamFileWriter>::create_writer(size_t initial_size) {
     // Create empty file first
     std::ofstream file(test_file_path, std::ios::binary);
     if (initial_size > 0) {
@@ -289,13 +290,13 @@ tiff::StreamFileWriter RawWriterTest<tiff::StreamFileWriter>::create_writer(size
     }
     file.close();
     
-    return tiff::StreamFileWriter(test_file_path.string());
+    return StreamFileWriter(test_file_path.string());
 }
 
 #ifdef __unix__
 // Specialization for PwriteFileWriter
 template <>
-tiff::PwriteFileWriter RawWriterTest<tiff::PwriteFileWriter>::create_writer(size_t initial_size) {
+PwriteFileWriter RawWriterTest<PwriteFileWriter>::create_writer(size_t initial_size) {
     // Create empty file first
     std::ofstream file(test_file_path, std::ios::binary);
     if (initial_size > 0) {
@@ -304,7 +305,7 @@ tiff::PwriteFileWriter RawWriterTest<tiff::PwriteFileWriter>::create_writer(size
     }
     file.close();
     
-    tiff::PwriteFileWriter writer(test_file_path.string());
+    PwriteFileWriter writer(test_file_path.string());
     return writer;
 }
 
@@ -313,7 +314,7 @@ tiff::PwriteFileWriter RawWriterTest<tiff::PwriteFileWriter>::create_writer(size
 #ifdef _WIN32
 // Specialization for WindowsFileWriter
 template <>
-tiff::WindowsFileWriter RawWriterTest<tiff::WindowsFileWriter>::create_writer(size_t initial_size) {
+WindowsFileWriter RawWriterTest<WindowsFileWriter>::create_writer(size_t initial_size) {
     std::ofstream file(test_file_path, std::ios::binary);
     if (initial_size > 0) {
         std::vector<std::byte> zeros(initial_size, std::byte{0});
@@ -321,21 +322,21 @@ tiff::WindowsFileWriter RawWriterTest<tiff::WindowsFileWriter>::create_writer(si
     }
     file.close();
     
-    return tiff::WindowsFileWriter(test_file_path.string());
+    return WindowsFileWriter(test_file_path.string());
 }
 
 #endif
 
 // Define test types for writers
 using WriterTypes = ::testing::Types<
-    tiff::BufferViewWriter,  // Borrowed buffer view
-    tiff::BufferWriter,      // Owned buffer
-    tiff::StreamFileWriter
+    BufferViewWriter,  // Borrowed buffer view
+    BufferWriter,      // Owned buffer
+    StreamFileWriter
 #ifdef __unix__
-    , tiff::PwriteFileWriter
+    , PwriteFileWriter
 #endif
 #ifdef _WIN32
-    , tiff::WindowsFileWriter
+    , WindowsFileWriter
 #endif
 >;
 
@@ -392,7 +393,7 @@ TYPED_TEST(RawWriterTest, WriteBeyondSizeReturnsError) {
     auto write_result = writer.write(200, 10);
     
     ASSERT_TRUE(write_result.is_error());
-    EXPECT_EQ(write_result.error().code, tiff::Error::Code::OutOfBounds);
+    EXPECT_EQ(write_result.error().code, Error::Code::OutOfBounds);
 }
 
 TYPED_TEST(RawWriterTest, ResizeIncreases) {
@@ -496,21 +497,21 @@ protected:
 
 // Specialization for BufferViewReadWriter (borrowed buffer)
 template <>
-tiff::BufferViewReadWriter RawReadWriterTest<tiff::BufferViewReadWriter>::create_readwriter(size_t initial_size) {
+BufferViewReadWriter RawReadWriterTest<BufferViewReadWriter>::create_readwriter(size_t initial_size) {
     static std::vector<std::byte> buffer;
     buffer.resize(initial_size);
-    return tiff::BufferViewReadWriter(std::span<std::byte>(buffer));
+    return BufferViewReadWriter(std::span<std::byte>(buffer));
 }
 
 // Specialization for BufferReadWriter (owned buffer)
 template <>
-tiff::BufferReadWriter RawReadWriterTest<tiff::BufferReadWriter>::create_readwriter(size_t initial_size) {
-    return tiff::BufferReadWriter(initial_size);
+BufferReadWriter RawReadWriterTest<BufferReadWriter>::create_readwriter(size_t initial_size) {
+    return BufferReadWriter(initial_size);
 }
 
 // Specialization for StreamFileReadWriter
 template <>
-tiff::StreamFileReadWriter RawReadWriterTest<tiff::StreamFileReadWriter>::create_readwriter(size_t initial_size) {
+StreamFileReadWriter RawReadWriterTest<StreamFileReadWriter>::create_readwriter(size_t initial_size) {
     std::ofstream file(test_file_path, std::ios::binary);
     if (initial_size > 0) {
         std::vector<std::byte> zeros(initial_size, std::byte{0});
@@ -518,12 +519,12 @@ tiff::StreamFileReadWriter RawReadWriterTest<tiff::StreamFileReadWriter>::create
     }
     file.close();
     
-    return tiff::StreamFileReadWriter(test_file_path.string());
+    return StreamFileReadWriter(test_file_path.string());
 }
 
 #ifdef __unix__
 template <>
-tiff::PreadFileReadWriter RawReadWriterTest<tiff::PreadFileReadWriter>::create_readwriter(size_t initial_size) {
+PreadFileReadWriter RawReadWriterTest<PreadFileReadWriter>::create_readwriter(size_t initial_size) {
     std::ofstream file(test_file_path, std::ios::binary);
     if (initial_size > 0) {
         std::vector<std::byte> zeros(initial_size, std::byte{0});
@@ -531,11 +532,11 @@ tiff::PreadFileReadWriter RawReadWriterTest<tiff::PreadFileReadWriter>::create_r
     }
     file.close();
     
-    return tiff::PreadFileReadWriter(test_file_path.string());
+    return PreadFileReadWriter(test_file_path.string());
 }
 
 template <>
-tiff::MmapFileReadWriter RawReadWriterTest<tiff::MmapFileReadWriter>::create_readwriter(size_t initial_size) {
+MmapFileReadWriter RawReadWriterTest<MmapFileReadWriter>::create_readwriter(size_t initial_size) {
     std::ofstream file(test_file_path, std::ios::binary);
     if (initial_size > 0) {
         std::vector<std::byte> zeros(initial_size, std::byte{0});
@@ -543,13 +544,13 @@ tiff::MmapFileReadWriter RawReadWriterTest<tiff::MmapFileReadWriter>::create_rea
     }
     file.close();
     
-    return tiff::MmapFileReadWriter(test_file_path.string());
+    return MmapFileReadWriter(test_file_path.string());
 }
 #endif
 
 #ifdef _WIN32
 template <>
-tiff::WindowsFileReadWriter RawReadWriterTest<tiff::WindowsFileReadWriter>::create_readwriter(size_t initial_size) {
+WindowsFileReadWriter RawReadWriterTest<WindowsFileReadWriter>::create_readwriter(size_t initial_size) {
     std::ofstream file(test_file_path, std::ios::binary);
     if (initial_size > 0) {
         std::vector<std::byte> zeros(initial_size, std::byte{0});
@@ -557,11 +558,11 @@ tiff::WindowsFileReadWriter RawReadWriterTest<tiff::WindowsFileReadWriter>::crea
     }
     file.close();
     
-    return tiff::WindowsFileReadWriter(test_file_path.string());
+    return WindowsFileReadWriter(test_file_path.string());
 }
 
 template <>
-tiff::WindowsMmapFileReadWriter RawReadWriterTest<tiff::WindowsMmapFileReadWriter>::create_readwriter(size_t initial_size) {
+WindowsMmapFileReadWriter RawReadWriterTest<WindowsMmapFileReadWriter>::create_readwriter(size_t initial_size) {
     std::ofstream file(test_file_path, std::ios::binary);
     if (initial_size > 0) {
         std::vector<std::byte> zeros(initial_size, std::byte{0});
@@ -569,21 +570,21 @@ tiff::WindowsMmapFileReadWriter RawReadWriterTest<tiff::WindowsMmapFileReadWrite
     }
     file.close();
     
-    return tiff::WindowsMmapFileReadWriter(test_file_path.string());
+    return WindowsMmapFileReadWriter(test_file_path.string());
 }
 #endif
 
 using ReadWriterTypes = ::testing::Types<
-    tiff::BufferViewReadWriter,  // Borrowed buffer view
-    tiff::BufferReadWriter,      // Owned buffer
-    tiff::StreamFileReadWriter
+    BufferViewReadWriter,  // Borrowed buffer view
+    BufferReadWriter,      // Owned buffer
+    StreamFileReadWriter
 #ifdef __unix__
-    , tiff::PreadFileReadWriter
-    , tiff::MmapFileReadWriter
+    , PreadFileReadWriter
+    , MmapFileReadWriter
 #endif
 #ifdef _WIN32
-    , tiff::WindowsFileReadWriter
-    , tiff::WindowsMmapFileReadWriter
+    , WindowsFileReadWriter
+    , WindowsMmapFileReadWriter
 #endif
 >;
 
@@ -654,7 +655,7 @@ TYPED_TEST(RawReadWriterTest, NonOverlappingReadWriteSimultaneous) {
 
 TEST(CornerCases, EmptyBufferReader) {
     std::vector<std::byte> empty_buffer;
-    tiff::BufferViewReader reader{std::span<const std::byte>(empty_buffer)};
+    BufferViewReader reader{std::span<const std::byte>(empty_buffer)};
     
     EXPECT_TRUE(reader.is_valid());
     EXPECT_EQ(reader.size().value(), 0);
@@ -663,7 +664,7 @@ TEST(CornerCases, EmptyBufferReader) {
 
 TEST(CornerCases, ReadZeroBytes) {
     std::vector<std::byte> buffer(100, std::byte{0});
-    tiff::BufferViewReader reader{std::span<const std::byte>(buffer)};
+    BufferViewReader reader{std::span<const std::byte>(buffer)};
     
     auto view = std::move(reader.read(0, 0).value());
     EXPECT_EQ(view.size(), 0);
@@ -671,13 +672,13 @@ TEST(CornerCases, ReadZeroBytes) {
 }
 
 TEST(CornerCases, NonExistentFile) {
-    tiff::StreamFileReader reader("/nonexistent/path/to/file.bin");
+    StreamFileReader reader("/nonexistent/path/to/file.bin");
     EXPECT_FALSE(reader.is_valid());
 }
 
 TEST(CornerCases, WriteZeroBytes) {
     std::vector<std::byte> buffer(100, std::byte{0});
-    tiff::BufferViewWriter writer{std::span<std::byte>(buffer)};
+    BufferViewWriter writer{std::span<std::byte>(buffer)};
     
     auto view = std::move(writer.write(0, 0).value());
     EXPECT_EQ(view.size(), 0);
@@ -694,7 +695,7 @@ TEST(CornerCases, ResizeToZero) {
         file.write(reinterpret_cast<const char*>(data.data()), data.size());
     }
     
-    tiff::StreamFileWriter writer(temp_file.string());
+    StreamFileWriter writer(temp_file.string());
     auto resize_result = writer.resize(0);
     
     if (resize_result.is_ok()) {
@@ -706,7 +707,7 @@ TEST(CornerCases, ResizeToZero) {
 
 TEST(CornerCases, BorrowedBufferResizeBehavior) {
     std::vector<std::byte> buffer(100, std::byte{0});
-    tiff::BufferViewWriter writer{std::span<std::byte>(buffer)};
+    BufferViewWriter writer{std::span<std::byte>(buffer)};
     
     // Resizing borrowed buffer to different size may fail
     auto resize_result = writer.resize(200);
@@ -717,7 +718,7 @@ TEST(CornerCases, BorrowedBufferResizeBehavior) {
 }
 
 TEST(CornerCases, OwnedBufferResize) {
-    tiff::BufferWriter writer(100);
+    BufferWriter writer(100);
     EXPECT_EQ(writer.size().value(), 100);
     
     // Owned buffers should support resize
@@ -737,7 +738,7 @@ TEST(CornerCases, OwnedBufferResize) {
 TEST(ViewTests, BorrowedBufferReadView) {
     std::array<std::byte, 100> data;
     std::span<const std::byte> span{data};
-    tiff::buffer_impl::BorrowedBufferReadView view{span};
+    buffer_impl::BorrowedBufferReadView view{span};
     
     EXPECT_EQ(view.size(), 100);
     EXPECT_FALSE(view.empty());
@@ -747,7 +748,7 @@ TEST(ViewTests, BorrowedBufferReadView) {
 TEST(ViewTests, BorrowedBufferWriteView) {
     std::array<std::byte, 100> data;
     std::span<std::byte> span{data};
-    tiff::buffer_impl::BorrowedBufferWriteView view{span};
+    buffer_impl::BorrowedBufferWriteView view{span};
     
     EXPECT_EQ(view.size(), 100);
     EXPECT_FALSE(view.empty());
@@ -767,7 +768,7 @@ TEST(ViewTests, BorrowedBufferWriteView) {
 TEST(ViewTests, OwnedBufferReadView) {
     auto buffer = std::shared_ptr<std::byte[]>(new std::byte[100]);
     std::span<const std::byte> span{buffer.get(), 100};
-    tiff::stream_impl::OwnedBufferReadView view{span, buffer};
+    stream_impl::OwnedBufferReadView view{span, buffer};
     
     EXPECT_EQ(view.size(), 100);
     EXPECT_FALSE(view.empty());
@@ -787,7 +788,7 @@ TEST(ViewTests, OwnedBufferWriteViewFlushOnDestruction) {
             buffer[i] = static_cast<std::byte>(i);
         }
         
-        tiff::pread_impl::OwnedBufferWriteView view(std::span<std::byte>(buffer.get(), 50), buffer, fd, 0);
+        pread_impl::OwnedBufferWriteView view(std::span<std::byte>(buffer.get(), 50), buffer, fd, 0);
     }
     
     std::array<std::byte, 50> verify;
@@ -804,7 +805,7 @@ TEST(ViewTests, OwnedBufferWriteViewFlushOnDestruction) {
 }
 
 TEST(ViewTests, EmptyView) {
-    tiff::buffer_impl::BorrowedBufferReadView view;
+    buffer_impl::BorrowedBufferReadView view;
     EXPECT_EQ(view.size(), 0);
     EXPECT_TRUE(view.empty());
 }
@@ -821,7 +822,7 @@ TEST(StressTests, LargeFileRead) {
     }
     
     fs::path large_file = create_test_file("large_test.bin", large_data);
-    tiff::StreamFileReader reader(large_file.string());
+    StreamFileReader reader(large_file.string());
     ASSERT_TRUE(reader.is_valid());
     
     const size_t chunk_size = 64 * 1024;
@@ -844,7 +845,7 @@ TEST(StressTests, ManySmallWrites) {
         file.write(reinterpret_cast<const char*>(zeros.data()), zeros.size());
     }
     
-    tiff::StreamFileWriter writer(temp_file.string());
+    StreamFileWriter writer(temp_file.string());
     ASSERT_TRUE(writer.is_valid());
     
     for (size_t i = 0; i < 1000; ++i) {
