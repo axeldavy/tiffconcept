@@ -5,23 +5,58 @@
 #include <fstream>
 #include <cstring>
 
-#include "../tiffconcept/include/tiff/compressor_base.hpp"
-#include "../tiffconcept/include/tiff/compressor_standard.hpp"
-#include "../tiffconcept/include/tiff/compressor_zstd.hpp"
-#include "../tiffconcept/include/tiff/decompressor_base.hpp"
-#include "../tiffconcept/include/tiff/decompressor_standard.hpp"
-#include "../tiffconcept/include/tiff/decompressor_zstd.hpp"
-#include "../tiffconcept/include/tiff/encoder.hpp"
-#include "../tiffconcept/include/tiff/decoder.hpp"
-#include "../tiffconcept/include/tiff/parsing.hpp"
-#include "../tiffconcept/include/tiff/tag_extraction.hpp"
-#include "../tiffconcept/include/tiff/tag_spec.hpp"
-#include "../tiffconcept/include/tiff/image_shape.hpp"
-#include "../tiffconcept/include/tiff/reader_buffer.hpp"
-#include "../tiffconcept/include/tiff/types.hpp"
+#include "../tiffconcept/include/tiffconcept/compressor_base.hpp"
+#include "../tiffconcept/include/tiffconcept/compressors/compressor_standard.hpp"
+#include "../tiffconcept/include/tiffconcept/compressors/compressor_zstd.hpp"
+#include "../tiffconcept/include/tiffconcept/decompressor_base.hpp"
+#include "../tiffconcept/include/tiffconcept/decompressors/decompressor_standard.hpp"
+#include "../tiffconcept/include/tiffconcept/decompressors/decompressor_zstd.hpp"
+#include "../tiffconcept/include/tiffconcept/encoder.hpp"
+#include "../tiffconcept/include/tiffconcept/decoder.hpp"
+#include "../tiffconcept/include/tiffconcept/parsing.hpp"
+#include "../tiffconcept/include/tiffconcept/tag_extraction.hpp"
+#include "../tiffconcept/include/tiffconcept/tag_spec.hpp"
+#include "../tiffconcept/include/tiffconcept/image_shape.hpp"
+#include "../tiffconcept/include/tiffconcept/readers/reader_buffer.hpp"
+#include "../tiffconcept/include/tiffconcept/types.hpp"
 
 using namespace tiffconcept;
 namespace fs = std::filesystem;
+
+/*
+Errors Not Covered by Tests
+From result.hpp - Unused Error Codes:
+FileNotFound - No tests for file not found scenarios
+WriteError - No tests for write failures
+InvalidPageIndex - No tests for multi-page TIFF access errors
+IOError - Alias for ReadError, not tested
+From Compression/Decompression:
+MemoryError - ZSTD and standard compressors/decompressors can return this (e.g., compressor_zstd.hpp line 53, 114)
+InvalidFormat - Used extensively in decompressors but only tested for ZSTD, not for:
+PackBits output buffer too small scenarios
+None/uncompressed decompressor output buffer too small
+From Parsing (parsing_impl.hpp):
+InvalidTagType - Lines 474, 482, 594 - Type mismatch during tag parsing (no test coverage)
+Type promotion errors when reading tags with alternate types
+From ImageShape (image_shape_impl.hpp):
+UnsupportedFeature - Lines 90, 111 for unsupported BitsPerSample configurations
+InvalidFormat - Lines 150-195 for various pixel format validation errors (partially tested)
+From Tag Extraction (tag_extraction_impl.hpp):
+Missing required tags during extraction (lines 345, 353, 363)
+From Image Writer (image_writer_impl.hpp):
+UnsupportedFeature - Line 287 for rows_per_strip validation
+From Tiling (tiling_impl.hpp):
+Missing tile/strip metadata tags (lines 901, 904, 907, 910, 1096, 1099, 1102)
+Tile/strip coordinate bounds checking (lines 1011, 1023, 1032, 1167, 1175)
+Endianness Edge Cases:
+Mixed endianness scenarios beyond simple byte order marker mismatch
+BigTIFF vs Classic TIFF format mismatches
+Boundary Conditions Missing:
+Maximum array sizes for tag values
+Overflow scenarios in offset calculations
+Zero-dimensional images (commented out test at line 503)
+Very large rational values or denominator overflow
+*/
 
 // ============================================================================
 // Test Helper Functions
@@ -203,7 +238,7 @@ TEST(ErrorHandling, PackBits_InvalidControlByte) {
     std::vector<std::byte> output(100);
     auto result = decompressor.decompress(output, invalid_input, CompressionScheme::PackBits);
     EXPECT_FALSE(result.is_ok());
-    EXPECT_EQ(result.error().code, Error::Code::UnexpectedEndOfFile);
+    EXPECT_EQ(result.error().code, Error::Code::InvalidFormat);
 }
 
 TEST(ErrorHandling, ZSTD_CorruptedData) {
@@ -221,7 +256,7 @@ TEST(ErrorHandling, ZSTD_CorruptedData) {
     std::vector<std::byte> output(1000);
     auto result = decompressor.decompress(output, corrupted, CompressionScheme::ZSTD);
     EXPECT_FALSE(result.is_ok());
-    EXPECT_EQ(result.error().code, Error::Code::CompressionError);
+    EXPECT_EQ(result.error().code, Error::Code::InvalidFormat);
 }
 
 TEST(ErrorHandling, UnsupportedCompressionScheme) {
@@ -363,6 +398,7 @@ TEST(ErrorHandling, ParseIFD_OffsetBeyondBuffer) {
     );
     
     EXPECT_FALSE(result.is_ok());
+    EXPECT_EQ(result.error().code, Error::Code::OutOfBounds);
 }
 
 TEST(ErrorHandling, ParseIFD_TruncatedTagData) {
@@ -378,13 +414,14 @@ TEST(ErrorHandling, ParseIFD_TruncatedTagData) {
         reader, ifd::IFDOffset(0)
     );
 
-    EXPECT_TRUE(result.is_ok());
+    ASSERT_TRUE(result.is_ok());
 
     auto ifd_desc = result.value();
     std::vector<parsing::TagType<TiffFormatType::Classic, std::endian::little>> tags;
     auto next_ifd = ifd::read_ifd_tags<BufferViewReader, TiffFormatType::Classic, std::endian::little>(reader, ifd_desc, tags);
     
-    EXPECT_FALSE(next_ifd.is_ok());
+    ASSERT_FALSE(next_ifd.is_ok());
+    EXPECT_EQ(next_ifd.error().code, Error::Code::UnexpectedEndOfFile);
 }
 
 // ============================================================================
@@ -394,12 +431,12 @@ TEST(ErrorHandling, ParseIFD_TruncatedTagData) {
 TEST(ErrorHandling, TagExtraction_MissingRequiredTag) {
 
     // Create tags but only set ImageWidth, not ImageLength
-    ExtractedTags<ImageWidthTag, ImageLengthTag> tags;
+    ExtractedTags<OptTag_t<ImageWidthTag>, OptTag_t<ImageLengthTag>> tags;
     tags.template get<TagCode::ImageWidth>() = uint32_t{100};
     
     // Try to get the missing tag
     auto result = tags.template get<TagCode::ImageLength>();
-    EXPECT_FALSE(is_value_present(result));
+    EXPECT_FALSE(optional::is_value_present(result));
 }
 
 TEST(ErrorHandling, TagExtraction_ExternalDataOffsetInvalid) {
@@ -432,7 +469,7 @@ TEST(ErrorHandling, ImageShape_InconsistentBitsPerSample) {
     std::vector<uint16_t> bits_per_sample = {8, 8};  // Should have 3 elements!
     auto shape_result = create_test_image_shape(100, 100, bits_per_sample, 1, 3); 
     EXPECT_FALSE(shape_result.is_ok());
-    EXPECT_EQ(shape_result.error().code, Error::Code::InvalidTag);
+    EXPECT_EQ(shape_result.error().code, Error::Code::UnsupportedFeature);
 }
 
 TEST(ErrorHandling, ImageShape_InvalidRegion_OutOfBounds) {
@@ -458,6 +495,7 @@ TEST(ErrorHandling, ImageShape_InvalidRegion_ZeroDimension) {
     
     auto result = shape.validate_region(region);
     EXPECT_FALSE(result.is_ok());
+    EXPECT_EQ(result.error().code, Error::Code::OutOfBounds);
 }
 
 TEST(ErrorHandling, ImageShape_InvalidRegion_InvalidChannels) {
@@ -483,7 +521,7 @@ TEST(ErrorHandling, ImageShape_InvalidPixelType_WrongBitDepth) {
     auto result = shape.validate_pixel_type<uint8_t>();
     
     EXPECT_FALSE(result.is_ok());
-    EXPECT_EQ(result.error().code, Error::Code::InvalidTag);
+    EXPECT_EQ(result.error().code, Error::Code::InvalidFormat);
 }
 
 TEST(ErrorHandling, ImageShape_InvalidPixelType_WrongSampleFormat) {
@@ -496,7 +534,7 @@ TEST(ErrorHandling, ImageShape_InvalidPixelType_WrongSampleFormat) {
     auto result = shape.validate_pixel_type<float>();
     
     EXPECT_FALSE(result.is_ok());
-    EXPECT_EQ(result.error().code, Error::Code::InvalidTag);
+    EXPECT_EQ(result.error().code, Error::Code::InvalidFormat);
 }
 
 #if 0
@@ -547,15 +585,16 @@ TEST(ErrorHandling, BoundaryCondition_MaxTagCount) {
         reader
     );
 
-    EXPECT_TRUE(result.is_ok());
+    ASSERT_TRUE(result.is_ok());
 
     auto ifd_offset = result.value();
-    auto ifd_result = ifd::read_ifd_header<BufferViewReader, TiffFormatType::Classic, std::endian::little>(
+    auto ifd_result = ifd::read_ifd<BufferViewReader, TiffFormatType::Classic, std::endian::little>(
         reader, ifd_offset
     );
     
     // Should fail due to buffer too small for claimed tag count
-    EXPECT_FALSE(ifd_result.is_ok());
+    ASSERT_FALSE(ifd_result.is_ok());
+    EXPECT_EQ(ifd_result.error().code, Error::Code::UnexpectedEndOfFile);
 }
 
 TEST(ErrorHandling, BoundaryCondition_SinglePixelImage) {

@@ -4,19 +4,18 @@
 #include <cstring>
 #include <cmath>
 
-#include "../tiffconcept/include/tiff/image_writer.hpp"
-#include "../tiffconcept/include/tiff/image_reader.hpp"
-#include "../tiffconcept/include/tiff/encoder.hpp"
-#include "../tiffconcept/include/tiff/decoder.hpp"
-#include "../tiffconcept/include/tiff/compressor_standard.hpp"
-#include "../tiffconcept/include/tiff/compressor_zstd.hpp"
-#include "../tiffconcept/include/tiff/decompressor_standard.hpp"
-#include "../tiffconcept/include/tiff/decompressor_zstd.hpp"
-#include "../tiffconcept/include/tiff/write_strategy.hpp"
-#include "../tiffconcept/include/tiff/read_strategy.hpp"
-#include "../tiffconcept/include/tiff/reader_buffer.hpp"
-#include "../tiffconcept/include/tiff/tiling.hpp"
-#include "../tiffconcept/include/tiff/strips.hpp"
+#include "../tiffconcept/include/tiffconcept/image_writer.hpp"
+#include "../tiffconcept/include/tiffconcept/image_reader.hpp"
+#include "../tiffconcept/include/tiffconcept/encoder.hpp"
+#include "../tiffconcept/include/tiffconcept/decoder.hpp"
+#include "../tiffconcept/include/tiffconcept/compressors/compressor_standard.hpp"
+#include "../tiffconcept/include/tiffconcept/compressors/compressor_zstd.hpp"
+#include "../tiffconcept/include/tiffconcept/decompressors/decompressor_standard.hpp"
+#include "../tiffconcept/include/tiffconcept/decompressors/decompressor_zstd.hpp"
+#include "../tiffconcept/include/tiffconcept/strategy/write_strategy.hpp"
+#include "../tiffconcept/include/tiffconcept/strategy/read_strategy.hpp"
+#include "../tiffconcept/include/tiffconcept/readers/reader_buffer.hpp"
+#include "../tiffconcept/include/tiffconcept/tiling.hpp"
 
 using namespace tiffconcept;
 
@@ -298,7 +297,7 @@ TEST(ImageWriter, WritesTilesCorrectly) {
     const uint16_t channels = 1;
     auto image = generate_test_image<uint8_t>(width, height, 1, channels);
     
-    auto result = writer.write_image<OutputSpec::DHWC>(
+    auto result = writer.write_image<ImageLayoutSpec::DHWC>(
         file_writer, std::span<const uint8_t>(image),
         width, height, 1, 64, 64, 1, channels,
         PlanarConfiguration::Chunky,
@@ -331,7 +330,7 @@ TEST(ImageWriter, WritesStripsCorrectly) {
     const uint16_t channels = 3;
     auto image = generate_test_image<uint8_t>(width, height, 1, channels);
     
-    auto result = writer.write_stripped_image<OutputSpec::DHWC>(
+    auto result = writer.write_stripped_image<ImageLayoutSpec::DHWC>(
         file_writer, std::span<const uint8_t>(image),
         width, height, 50, channels,
         PlanarConfiguration::Chunky,
@@ -363,7 +362,7 @@ TEST(ImageWriter, DifferentStrategiesProduceSameData) {
         ImageWriter<uint8_t, CompSpec, Config> writer;
         BufferReadWriter file_writer;
         
-        auto result = writer.write_image<OutputSpec::DHWC>(
+        auto result = writer.write_image<ImageLayoutSpec::DHWC>(
             file_writer, std::span<const uint8_t>(original),
             width, height, 1, 64, 64, 1, channels,
             PlanarConfiguration::Chunky,
@@ -379,7 +378,7 @@ TEST(ImageWriter, DifferentStrategiesProduceSameData) {
         ImageWriter<uint8_t, CompSpec, Config> writer;
         BufferReadWriter file_writer;
         
-        auto result = writer.write_image<OutputSpec::DHWC>(
+        auto result = writer.write_image<ImageLayoutSpec::DHWC>(
             file_writer, std::span<const uint8_t>(original),
             width, height, 1, 64, 64, 1, channels,
             PlanarConfiguration::Chunky,
@@ -395,7 +394,7 @@ TEST(ImageWriter, DifferentStrategiesProduceSameData) {
         ImageWriter<uint8_t, CompSpec, Config> writer;
         BufferReadWriter file_writer;
         
-        auto result = writer.write_image<OutputSpec::DHWC>(
+        auto result = writer.write_image<ImageLayoutSpec::DHWC>(
             file_writer, std::span<const uint8_t>(original),
             width, height, 1, 64, 64, 1, channels,
             PlanarConfiguration::Chunky,
@@ -431,7 +430,7 @@ TEST(ImageWriter, HandlesLargeImageWithManyTiles) {
     const uint32_t height = 512;
     auto image = generate_test_image<uint8_t>(width, height, 1, 1);
     
-    auto result = writer.write_image<OutputSpec::DHWC>(
+    auto result = writer.write_image<ImageLayoutSpec::DHWC>(
         file_writer, std::span<const uint8_t>(image),
         width, height, 1, 16, 16, 1, 1,
         PlanarConfiguration::Chunky,

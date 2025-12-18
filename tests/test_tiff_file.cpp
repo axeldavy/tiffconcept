@@ -6,22 +6,21 @@
 #include <cstring>
 #include <cmath>
 
-#include "../tiffconcept/include/tiff/tiff_writer.hpp"
-#include "../tiffconcept/include/tiff/image_reader.hpp"
-#include "../tiffconcept/include/tiff/tag_extraction.hpp"
-#include "../tiffconcept/include/tiff/tag_spec.hpp"
-#include "../tiffconcept/include/tiff/tag_writing.hpp"
-#include "../tiffconcept/include/tiff/parsing.hpp"
-#include "../tiffconcept/include/tiff/compressor_standard.hpp"
-#include "../tiffconcept/include/tiff/compressor_zstd.hpp"
-#include "../tiffconcept/include/tiff/decompressor_standard.hpp"
-#include "../tiffconcept/include/tiff/decompressor_zstd.hpp"
-#include "../tiffconcept/include/tiff/write_strategy.hpp"
-#include "../tiffconcept/include/tiff/read_strategy.hpp"
-#include "../tiffconcept/include/tiff/reader_buffer.hpp"
-#include "../tiffconcept/include/tiff/reader_stream.hpp"
-#include "../tiffconcept/include/tiff/tiling.hpp"
-#include "../tiffconcept/include/tiff/strips.hpp"
+#include "../tiffconcept/include/tiffconcept/tiff_writer.hpp"
+#include "../tiffconcept/include/tiffconcept/image_reader.hpp"
+#include "../tiffconcept/include/tiffconcept/tag_extraction.hpp"
+#include "../tiffconcept/include/tiffconcept/tag_spec.hpp"
+#include "../tiffconcept/include/tiffconcept/tag_writing.hpp"
+#include "../tiffconcept/include/tiffconcept/parsing.hpp"
+#include "../tiffconcept/include/tiffconcept/compressors/compressor_standard.hpp"
+#include "../tiffconcept/include/tiffconcept/compressors/compressor_zstd.hpp"
+#include "../tiffconcept/include/tiffconcept/decompressors/decompressor_standard.hpp"
+#include "../tiffconcept/include/tiffconcept/decompressors/decompressor_zstd.hpp"
+#include "../tiffconcept/include/tiffconcept/strategy/write_strategy.hpp"
+#include "../tiffconcept/include/tiffconcept/strategy/read_strategy.hpp"
+#include "../tiffconcept/include/tiffconcept/readers/reader_buffer.hpp"
+#include "../tiffconcept/include/tiffconcept/readers/reader_stream.hpp"
+#include "../tiffconcept/include/tiffconcept/tiling.hpp"
 
 using namespace tiffconcept;
 namespace fs = std::filesystem;
@@ -136,7 +135,7 @@ TEST(TiffFileRoundtrip, ClassicTIFF_Uint8_NoCompression_LittleEndian) {
     WriterType tiff_writer;
     StreamFileWriter file_writer(filepath.string());
     
-    auto write_result = tiff_writer.template write_single_image<OutputSpec::DHWC>(
+    auto write_result = tiff_writer.template write_single_image<ImageLayoutSpec::DHWC>(
         file_writer,
         original_data,
         width, height,
@@ -180,7 +179,7 @@ TEST(TiffFileRoundtrip, ClassicTIFF_Uint8_NoCompression_LittleEndian) {
     auto region = image_info.shape().full_region();
     std::vector<PixelType> read_data(region.num_samples());
     
-    auto read_result = image_reader.read_region<OutputSpec::DHWC>(
+    auto read_result = image_reader.read_region<ImageLayoutSpec::DHWC>(
         file_reader, image_info, read_data, region
     );
     ASSERT_TRUE(read_result.is_ok());
@@ -239,7 +238,7 @@ TEST(TiffFileRoundtrip, ClassicTIFF_Uint16_ZSTD_BigEndian) {
     WriterType tiff_writer;
     StreamFileWriter file_writer(filepath.string());
     
-    auto write_result = tiff_writer.template write_single_image<OutputSpec::DHWC>(
+    auto write_result = tiff_writer.template write_single_image<ImageLayoutSpec::DHWC>(
         file_writer,
         original_data,
         width, height,
@@ -278,7 +277,7 @@ TEST(TiffFileRoundtrip, ClassicTIFF_Uint16_ZSTD_BigEndian) {
     auto region = image_info.shape().full_region();
     std::vector<PixelType> read_data(region.num_samples());
     
-    auto read_result = image_reader.read_region<OutputSpec::DHWC>(
+    auto read_result = image_reader.read_region<ImageLayoutSpec::DHWC>(
         file_reader, image_info, read_data, region
     );
     ASSERT_TRUE(read_result.is_ok());
@@ -338,7 +337,7 @@ TEST(TiffFileRoundtrip, ClassicTIFF_Float_Predictor) {
     WriterType tiff_writer;
     StreamFileWriter file_writer(filepath.string());
     
-    auto write_result = tiff_writer.template write_single_image<OutputSpec::DHWC>(
+    auto write_result = tiff_writer.template write_single_image<ImageLayoutSpec::DHWC>(
         file_writer,
         original_data,
         width, height,
@@ -373,7 +372,7 @@ TEST(TiffFileRoundtrip, ClassicTIFF_Float_Predictor) {
     auto region = image_info.shape().full_region();
     std::vector<PixelType> read_data(region.num_samples());
     
-    auto read_result = image_reader.read_region<OutputSpec::DHWC>(
+    auto read_result = image_reader.read_region<ImageLayoutSpec::DHWC>(
         file_reader, image_info, read_data, region
     );
     ASSERT_TRUE(read_result.is_ok());
@@ -429,7 +428,7 @@ TEST(TiffFileRoundtrip, ClassicTIFF_MultiChannel_Chunky) {
     WriterType tiff_writer;
     StreamFileWriter file_writer(filepath.string());
     
-    auto write_result = tiff_writer.template write_single_image<OutputSpec::DHWC>(
+    auto write_result = tiff_writer.template write_single_image<ImageLayoutSpec::DHWC>(
         file_writer,
         original_data,
         width, height,
@@ -464,7 +463,7 @@ TEST(TiffFileRoundtrip, ClassicTIFF_MultiChannel_Chunky) {
     auto region = image_info.shape().full_region();
     std::vector<PixelType> read_data(region.num_samples());
     
-    auto read_result = image_reader.read_region<OutputSpec::DHWC>(
+    auto read_result = image_reader.read_region<ImageLayoutSpec::DHWC>(
         file_reader, image_info, read_data, region
     );
     ASSERT_TRUE(read_result.is_ok());
@@ -520,7 +519,7 @@ TEST(TiffFileRoundtrip, ClassicTIFF_MultiChannel_Planar) {
     WriterType tiff_writer;
     StreamFileWriter file_writer(filepath.string());
     
-    auto write_result = tiff_writer.template write_single_image<OutputSpec::DHWC>(
+    auto write_result = tiff_writer.template write_single_image<ImageLayoutSpec::DHWC>(
         file_writer,
         original_data,
         width, height,
@@ -555,7 +554,7 @@ TEST(TiffFileRoundtrip, ClassicTIFF_MultiChannel_Planar) {
     auto region = image_info.shape().full_region();
     std::vector<PixelType> read_data(region.num_samples());
     
-    auto read_result = image_reader.read_region<OutputSpec::DHWC>(
+    auto read_result = image_reader.read_region<ImageLayoutSpec::DHWC>(
         file_reader, image_info, read_data, region
     );
     ASSERT_TRUE(read_result.is_ok());
@@ -612,7 +611,7 @@ TEST(TiffFileRoundtrip, ClassicTIFF_Stripped_Uint8) {
     WriterType tiff_writer;
     StreamFileWriter file_writer(filepath.string());
     
-    auto write_result = tiff_writer.template write_stripped_image<OutputSpec::DHWC>(
+    auto write_result = tiff_writer.template write_stripped_image<ImageLayoutSpec::DHWC>(
         file_writer,
         original_data,
         width, height,
@@ -647,7 +646,7 @@ TEST(TiffFileRoundtrip, ClassicTIFF_Stripped_Uint8) {
     auto region = image_info.shape().full_region();
     std::vector<PixelType> read_data(region.num_samples());
     
-    auto read_result = image_reader.read_region<OutputSpec::DHWC>(
+    auto read_result = image_reader.read_region<ImageLayoutSpec::DHWC>(
         file_reader, image_info, read_data, region
     );
     ASSERT_TRUE(read_result.is_ok());
@@ -707,7 +706,7 @@ TEST(TiffFileRoundtrip, BigTIFF_Uint16_LittleEndian) {
     WriterType tiff_writer;
     StreamFileWriter file_writer(filepath.string());
     
-    auto write_result = tiff_writer.template write_single_image<OutputSpec::DHWC>(
+    auto write_result = tiff_writer.template write_single_image<ImageLayoutSpec::DHWC>(
         file_writer,
         original_data,
         width, height,
@@ -742,7 +741,7 @@ TEST(TiffFileRoundtrip, BigTIFF_Uint16_LittleEndian) {
     auto region = image_info.shape().full_region();
     std::vector<PixelType> read_data(region.num_samples());
     
-    auto read_result = image_reader.read_region<OutputSpec::DHWC>(
+    auto read_result = image_reader.read_region<ImageLayoutSpec::DHWC>(
         file_reader, image_info, read_data, region
     );
     ASSERT_TRUE(read_result.is_ok());
@@ -800,7 +799,7 @@ TEST(TiffFileRoundtrip, BigTIFF_Uint32_ZSTD_BigEndian) {
     WriterType tiff_writer;
     StreamFileWriter file_writer(filepath.string());
     
-    auto write_result = tiff_writer.template write_single_image<OutputSpec::DHWC>(
+    auto write_result = tiff_writer.template write_single_image<ImageLayoutSpec::DHWC>(
         file_writer,
         original_data,
         width, height,
@@ -835,7 +834,7 @@ TEST(TiffFileRoundtrip, BigTIFF_Uint32_ZSTD_BigEndian) {
     auto region = image_info.shape().full_region();
     std::vector<PixelType> read_data(region.num_samples());
     
-    auto read_result = image_reader.read_region<OutputSpec::DHWC>(
+    auto read_result = image_reader.read_region<ImageLayoutSpec::DHWC>(
         file_reader, image_info, read_data, region
     );
     ASSERT_TRUE(read_result.is_ok());
@@ -914,7 +913,7 @@ TEST(TiffFileRoundtrip, ErrorTruncatedFile) {
     WriterType tiff_writer;
     StreamFileWriter file_writer(filepath.string());
     
-    auto write_result = tiff_writer.template write_single_image<OutputSpec::DHWC>(
+    auto write_result = tiff_writer.template write_single_image<ImageLayoutSpec::DHWC>(
         file_writer, original_data, width, height, 32, 32, 1,
         PlanarConfiguration::Chunky, CompressionScheme::None, Predictor::None, tags
     );

@@ -4,11 +4,11 @@
 #include <cstring>
 #include <vector>
 
-#include "../tiffconcept/include/tiff/tag_extraction.hpp"
-#include "../tiffconcept/include/tiff/tag_spec.hpp"
-#include "../tiffconcept/include/tiff/parsing.hpp"
-#include "../tiffconcept/include/tiff/reader_buffer.hpp"
-#include "../tiffconcept/include/tiff/types.hpp"
+#include "../tiffconcept/include/tiffconcept/tag_extraction.hpp"
+#include "../tiffconcept/include/tiffconcept/tag_spec.hpp"
+#include "../tiffconcept/include/tiffconcept/parsing.hpp"
+#include "../tiffconcept/include/tiffconcept/readers/reader_buffer.hpp"
+#include "../tiffconcept/include/tiffconcept/types.hpp"
 
 using namespace tiffconcept;
 

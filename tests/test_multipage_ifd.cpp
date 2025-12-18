@@ -4,14 +4,14 @@
 #include <cstring>
 #include <algorithm>
 
-#include "../tiffconcept/include/tiff/parsing.hpp"
-#include "../tiffconcept/include/tiff/ifd.hpp"
-#include "../tiffconcept/include/tiff/ifd_builder.hpp"
-#include "../tiffconcept/include/tiff/tag_extraction.hpp"
-#include "../tiffconcept/include/tiff/tag_spec.hpp"
-#include "../tiffconcept/include/tiff/tag_writing.hpp"
-#include "../tiffconcept/include/tiff/reader_buffer.hpp"
-#include "../tiffconcept/include/tiff/types.hpp"
+#include "../tiffconcept/include/tiffconcept/parsing.hpp"
+#include "../tiffconcept/include/tiffconcept/ifd.hpp"
+#include "../tiffconcept/include/tiffconcept/ifd_builder.hpp"
+#include "../tiffconcept/include/tiffconcept/tag_extraction.hpp"
+#include "../tiffconcept/include/tiffconcept/tag_spec.hpp"
+#include "../tiffconcept/include/tiffconcept/tag_writing.hpp"
+#include "../tiffconcept/include/tiffconcept/readers/reader_buffer.hpp"
+#include "../tiffconcept/include/tiffconcept/types.hpp"
 
 using namespace tiffconcept;
 

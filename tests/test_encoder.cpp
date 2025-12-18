@@ -6,16 +6,16 @@
 #include <algorithm>
 #include <span>
 
-#include "../tiffconcept/include/tiff/compressor_base.hpp"
-#include "../tiffconcept/include/tiff/compressor_standard.hpp"
-#include "../tiffconcept/include/tiff/compressor_zstd.hpp"
-#include "../tiffconcept/include/tiff/decoder.hpp"
-#include "../tiffconcept/include/tiff/decompressor_base.hpp"
-#include "../tiffconcept/include/tiff/decompressor_standard.hpp"
-#include "../tiffconcept/include/tiff/decompressor_zstd.hpp"
-#include "../tiffconcept/include/tiff/encoder.hpp"
-#include "../tiffconcept/include/tiff/result.hpp"
-#include "../tiffconcept/include/tiff/types.hpp"
+#include "../tiffconcept/include/tiffconcept/compressor_base.hpp"
+#include "../tiffconcept/include/tiffconcept/compressors/compressor_standard.hpp"
+#include "../tiffconcept/include/tiffconcept/compressors/compressor_zstd.hpp"
+#include "../tiffconcept/include/tiffconcept/decoder.hpp"
+#include "../tiffconcept/include/tiffconcept/decompressor_base.hpp"
+#include "../tiffconcept/include/tiffconcept/decompressors/decompressor_standard.hpp"
+#include "../tiffconcept/include/tiffconcept/decompressors/decompressor_zstd.hpp"
+#include "../tiffconcept/include/tiffconcept/encoder.hpp"
+#include "../tiffconcept/include/tiffconcept/result.hpp"
+#include "../tiffconcept/include/tiffconcept/types.hpp"
 
 using namespace tiffconcept;
 

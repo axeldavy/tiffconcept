@@ -6,14 +6,14 @@
 #include <algorithm>
 #include <span>
 
-#include "../tiffconcept/include/tiff/compressor_base.hpp"
-#include "../tiffconcept/include/tiff/compressor_standard.hpp"
-#include "../tiffconcept/include/tiff/compressor_zstd.hpp"
-#include "../tiffconcept/include/tiff/decompressor_base.hpp"
-#include "../tiffconcept/include/tiff/decompressor_standard.hpp"
-#include "../tiffconcept/include/tiff/decompressor_zstd.hpp"
-#include "../tiffconcept/include/tiff/result.hpp"
-#include "../tiffconcept/include/tiff/types.hpp"
+#include "../tiffconcept/include/tiffconcept/compressor_base.hpp"
+#include "../tiffconcept/include/tiffconcept/compressors/compressor_standard.hpp"
+#include "../tiffconcept/include/tiffconcept/compressors/compressor_zstd.hpp"
+#include "../tiffconcept/include/tiffconcept/decompressor_base.hpp"
+#include "../tiffconcept/include/tiffconcept/decompressors/decompressor_standard.hpp"
+#include "../tiffconcept/include/tiffconcept/decompressors/decompressor_zstd.hpp"
+#include "../tiffconcept/include/tiffconcept/result.hpp"
+#include "../tiffconcept/include/tiffconcept/types.hpp"
 
 using namespace tiffconcept;
 
@@ -538,31 +538,29 @@ TEST(ZstdCompressor, DifferentCompressionLevels) {
     
     {
         ZstdCompressor compressor(1);
-        auto result = compressor.compress(compressed_level1, 0, input);
-        ASSERT_TRUE(result.is_ok());
+        auto result1 = compressor.compress(compressed_level1, 0, input);
+        ASSERT_TRUE(result1.is_ok());
     }
     
     {
         ZstdCompressor compressor(9);
-        auto result = compressor.compress(compressed_level9, 0, input);
-        ASSERT_TRUE(result.is_ok());
+        auto result9 = compressor.compress(compressed_level9, 0, input);
+        ASSERT_TRUE(result9.is_ok());
     }
     
-    {
-        ZstdCompressor compressor(15);
-        auto result = compressor.compress(compressed_level15, 0, input);
-        ASSERT_TRUE(result.is_ok());
-    }
+    ZstdCompressor compressor(15);
+    auto result15 = compressor.compress(compressed_level15, 0, input);
+    ASSERT_TRUE(result15.is_ok());
     
     // Higher compression levels should produce smaller output
     EXPECT_GE(compressed_level1.size(), compressed_level9.size());
     EXPECT_GE(compressed_level9.size(), compressed_level15.size());
     
-    // All should decompress correctly
+    // Should decompress correctly
     ZstdDecompressor decompressor;
     std::vector<std::byte> decompressed(input.size());
     
-    auto result = decompressor.decompress(decompressed, compressed_level15);
+    auto result = decompressor.decompress(decompressed, std::span<const std::byte>(compressed_level15.data(), result15.value()));
     if (!result.is_ok()) {
         std::cout << "Decompression error: " << result.error().message << std::endl;
         std::cout << "Compressed size: " << compressed_level15.size() << std::endl;

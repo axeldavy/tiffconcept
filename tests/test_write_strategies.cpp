@@ -2,9 +2,9 @@
 #include <vector>
 #include <algorithm>
 
-#include "../tiffconcept/include/tiff/reader_buffer.hpp"
-#include "../tiffconcept/include/tiff/result.hpp"
-#include "../tiffconcept/include/tiff/write_strategy.hpp"
+#include "../tiffconcept/include/tiffconcept/readers/reader_buffer.hpp"
+#include "../tiffconcept/include/tiffconcept/result.hpp"
+#include "../tiffconcept/include/tiffconcept/strategy/write_strategy.hpp"
 
 using namespace tiffconcept;
 

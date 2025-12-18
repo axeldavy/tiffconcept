@@ -4,20 +4,19 @@
 #include <cstring>
 #include <cmath>
 
-#include "../tiffconcept/include/tiff/image_reader.hpp"
-#include "../tiffconcept/include/tiff/tiff_writer.hpp"
-#include "../tiffconcept/include/tiff/compressor_standard.hpp"
-#include "../tiffconcept/include/tiff/compressor_zstd.hpp"
-#include "../tiffconcept/include/tiff/decompressor_standard.hpp"
-#include "../tiffconcept/include/tiff/decompressor_zstd.hpp"
-#include "../tiffconcept/include/tiff/write_strategy.hpp"
-#include "../tiffconcept/include/tiff/read_strategy.hpp"
-#include "../tiffconcept/include/tiff/reader_buffer.hpp"
-#include "../tiffconcept/include/tiff/tiling.hpp"
-#include "../tiffconcept/include/tiff/strips.hpp"
-#include "../tiffconcept/include/tiff/ifd.hpp"
-#include "../tiffconcept/include/tiff/tag_extraction.hpp"
-#include "../tiffconcept/include/tiff/tag_spec.hpp"
+#include "../tiffconcept/include/tiffconcept/image_reader.hpp"
+#include "../tiffconcept/include/tiffconcept/tiff_writer.hpp"
+#include "../tiffconcept/include/tiffconcept/compressors/compressor_standard.hpp"
+#include "../tiffconcept/include/tiffconcept/compressors/compressor_zstd.hpp"
+#include "../tiffconcept/include/tiffconcept/decompressors/decompressor_standard.hpp"
+#include "../tiffconcept/include/tiffconcept/decompressors/decompressor_zstd.hpp"
+#include "../tiffconcept/include/tiffconcept/strategy/write_strategy.hpp"
+#include "../tiffconcept/include/tiffconcept/strategy/read_strategy.hpp"
+#include "../tiffconcept/include/tiffconcept/readers/reader_buffer.hpp"
+#include "../tiffconcept/include/tiffconcept/tiling.hpp"
+#include "../tiffconcept/include/tiffconcept/ifd.hpp"
+#include "../tiffconcept/include/tiffconcept/tag_extraction.hpp"
+#include "../tiffconcept/include/tiffconcept/tag_spec.hpp"
 
 using namespace tiffconcept;
 
@@ -91,7 +90,7 @@ TEST(ImageReaderTest, ReadTiledImage_Uint8_NoCompression) {
     BufferWriter buffer_writer;
     TiffWriter<PixelType, CompSpec, WriteConfig> writer;
     
-    auto write_result = writer.write_single_image<OutputSpec::DHWC>(
+    auto write_result = writer.write_single_image<ImageLayoutSpec::DHWC>(
         buffer_writer, original_data,
         width, height, tile_width, tile_height, samples_per_pixel,
         PlanarConfiguration::Chunky, CompressionScheme::None, Predictor::None
@@ -135,7 +134,7 @@ TEST(ImageReaderTest, ReadTiledImage_Uint8_NoCompression) {
     std::vector<PixelType> output_data(original_data.size());
     auto region = image_info.shape().full_region();
     
-    auto read_result = image_reader.read_region<OutputSpec::DHWC>(
+    auto read_result = image_reader.read_region<ImageLayoutSpec::DHWC>(
         reader, image_info, output_data, region);
     ASSERT_TRUE(read_result.is_ok());
     
@@ -159,7 +158,7 @@ TEST(ImageReaderTest, ReadTiledImage_Uint16_PackBits) {
     BufferWriter buffer_writer;
     TiffWriter<PixelType, CompSpec, WriteConfig> writer;
     
-    auto write_result = writer.write_single_image<OutputSpec::DHWC>(
+    auto write_result = writer.write_single_image<ImageLayoutSpec::DHWC>(
         buffer_writer, original_data,
         width, height, tile_width, tile_height, samples_per_pixel,
         PlanarConfiguration::Chunky, CompressionScheme::PackBits, Predictor::None
@@ -192,7 +191,7 @@ TEST(ImageReaderTest, ReadTiledImage_Uint16_PackBits) {
     std::vector<PixelType> output_data(original_data.size());
     auto region = image_info.shape().full_region();
     
-    auto read_result = image_reader.read_region<OutputSpec::DHWC>(
+    auto read_result = image_reader.read_region<ImageLayoutSpec::DHWC>(
         reader, image_info, output_data, region);
     ASSERT_TRUE(read_result.is_ok());
     
@@ -215,7 +214,7 @@ TEST(ImageReaderTest, ReadTiledImage_Float_NoCompression) {
     BufferWriter buffer_writer;
     TiffWriter<PixelType, CompSpec, WriteConfig> writer;
     
-    auto write_result = writer.write_single_image<OutputSpec::DHWC>(
+    auto write_result = writer.write_single_image<ImageLayoutSpec::DHWC>(
         buffer_writer, original_data,
         width, height, tile_width, tile_height, samples_per_pixel,
         PlanarConfiguration::Chunky, CompressionScheme::None, Predictor::None
@@ -248,7 +247,7 @@ TEST(ImageReaderTest, ReadTiledImage_Float_NoCompression) {
     std::vector<PixelType> output_data(original_data.size());
     auto region = image_info.shape().full_region();
     
-    auto read_result = image_reader.read_region<OutputSpec::DHWC>(
+    auto read_result = image_reader.read_region<ImageLayoutSpec::DHWC>(
         reader, image_info, output_data, region);
     ASSERT_TRUE(read_result.is_ok());
     
@@ -276,7 +275,7 @@ TEST(ImageReaderTest, ReadStrippedImage_Uint8_NoCompression) {
     BufferWriter buffer_writer;
     TiffWriter<PixelType, CompSpec, WriteConfig> writer;
     
-    auto write_result = writer.write_stripped_image<OutputSpec::DHWC>(
+    auto write_result = writer.write_stripped_image<ImageLayoutSpec::DHWC>(
         buffer_writer, original_data,
         width, height, rows_per_strip, samples_per_pixel,
         PlanarConfiguration::Chunky, CompressionScheme::None, Predictor::None
@@ -313,7 +312,7 @@ TEST(ImageReaderTest, ReadStrippedImage_Uint8_NoCompression) {
     std::vector<PixelType> output_data(original_data.size());
     auto region = image_info.shape().full_region();
     
-    auto read_result = image_reader.read_region<OutputSpec::DHWC>(
+    auto read_result = image_reader.read_region<ImageLayoutSpec::DHWC>(
         reader, image_info, output_data, region);
     ASSERT_TRUE(read_result.is_ok());
     
@@ -340,7 +339,7 @@ TEST(ImageReaderTest, ReadTiledImage_RGB_Uint8) {
     BufferWriter buffer_writer;
     TiffWriter<PixelType, CompSpec, WriteConfig> writer;
     
-    auto write_result = writer.write_single_image<OutputSpec::DHWC>(
+    auto write_result = writer.write_single_image<ImageLayoutSpec::DHWC>(
         buffer_writer, original_data,
         width, height, tile_width, tile_height, samples_per_pixel,
         PlanarConfiguration::Chunky, CompressionScheme::None, Predictor::None
@@ -373,7 +372,7 @@ TEST(ImageReaderTest, ReadTiledImage_RGB_Uint8) {
     std::vector<PixelType> output_data(original_data.size());
     auto region = image_info.shape().full_region();
     
-    auto read_result = image_reader.read_region<OutputSpec::DHWC>(
+    auto read_result = image_reader.read_region<ImageLayoutSpec::DHWC>(
         reader, image_info, output_data, region);
     ASSERT_TRUE(read_result.is_ok());
     
@@ -400,7 +399,7 @@ TEST(ImageReaderTest, ReadPartialRegion_Tiled) {
     BufferWriter buffer_writer;
     TiffWriter<PixelType, CompSpec, WriteConfig> writer;
     
-    auto write_result = writer.write_single_image<OutputSpec::DHWC>(
+    auto write_result = writer.write_single_image<ImageLayoutSpec::DHWC>(
         buffer_writer, original_data,
         width, height, tile_width, tile_height, samples_per_pixel,
         PlanarConfiguration::Chunky, CompressionScheme::None, Predictor::None
@@ -430,12 +429,15 @@ TEST(ImageReaderTest, ReadPartialRegion_Tiled) {
     ASSERT_TRUE(update_result.is_ok());
     
     // Read a 64x64 region starting at (100, 100)
-    ImageRegion region(100, 100, 0, 0, samples_per_pixel, 1, 64, 64);
+    ImageRegion region(0, 0, 100, 100, samples_per_pixel, 1, 64, 64);
     std::vector<PixelType> output_data(64 * 64 * samples_per_pixel);
     
     ImageReader<PixelType, DecompSpec, ReadStrat> image_reader;
-    auto read_result = image_reader.read_region<OutputSpec::DHWC>(
+    auto read_result = image_reader.read_region<ImageLayoutSpec::DHWC>(
         reader, image_info, output_data, region);
+    if (!read_result.is_ok()) {
+        std::cerr << "Partial region read failed: " << read_result.error().message << std::endl;
+    }
     ASSERT_TRUE(read_result.is_ok());
     
     // Verify by comparing with expected region from original data

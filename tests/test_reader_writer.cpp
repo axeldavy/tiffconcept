@@ -6,17 +6,17 @@
 #include <array>
 #include <cstring>
 
-#include "../tiffconcept/include/tiff/reader_buffer.hpp"
-#include "../tiffconcept/include/tiff/reader_stream.hpp"
+#include "../tiffconcept/include/tiffconcept/readers/reader_buffer.hpp"
+#include "../tiffconcept/include/tiffconcept/readers/reader_stream.hpp"
 
 #ifdef __unix__
-#include "../tiffconcept/include/tiff/reader_unix_pread.hpp"
-#include "../tiffconcept/include/tiff/reader_unix_mmap.hpp"
+#include "../tiffconcept/include/tiffconcept/readers/reader_unix_pread.hpp"
+#include "../tiffconcept/include/tiffconcept/readers/reader_unix_mmap.hpp"
 #endif
 
 #ifdef _WIN32
-#include "../tiffconcept/include/tiff/reader_windows.hpp"
-#include "../tiffconcept/include/tiff/reader_windows_mmap.hpp"
+#include "../tiffconcept/include/tiffconcept/readers/reader_windows.hpp"
+#include "../tiffconcept/include/tiffconcept/readers/reader_windows_mmap.hpp"
 #endif
 
 namespace fs = std::filesystem;
