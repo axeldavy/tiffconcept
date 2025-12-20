@@ -55,7 +55,7 @@ template <ImageLayoutSpec OutSpec, typename PixelType, typename DecompSpec, type
             samples_per_pixel_
         );
         
-        if (decode_result.is_error()) {
+        if (decode_result.is_error()) [[unlikely]] {
             return decode_result.error();
         }
         
@@ -66,7 +66,7 @@ template <ImageLayoutSpec OutSpec, typename PixelType, typename DecompSpec, type
             info, decoded_span
         );
         
-        if (copy_result.is_error()) {
+        if (copy_result.is_error()) [[unlikely]] {
             return copy_result.error();
         }
     }
@@ -247,7 +247,7 @@ template <ImageLayoutSpec OutSpec, typename Reader>
     const ImageRegion& region) noexcept {
     
     // Strips don't support 3D
-    if (region.start_z != 0 || region.depth != 1) {
+    if (region.start_z != 0 || region.depth != 1) [[unlikely]] {
         return Err(Error::Code::UnsupportedFeature, "Stripped images do not support 3D regions");
     }
     
@@ -298,13 +298,13 @@ template <ImageLayoutSpec OutSpec, typename Reader, typename ImageInfo>
     
     // Validate region bounds
     auto validation = image_info.shape().validate_region(region);
-    if (!validation) {
+    if (validation.is_error()) [[unlikely]] {
         return validation;
     }
     
     // Validate output buffer size
     std::size_t expected_size = region.num_samples();
-    if (output_buffer.size() < expected_size) {
+    if (output_buffer.size() < expected_size) [[unlikely]] {
         return Err(Error::Code::OutOfBounds, "Output buffer too small");
     }
     
@@ -312,7 +312,7 @@ template <ImageLayoutSpec OutSpec, typename Reader, typename ImageInfo>
     chunk_list_.clear();
     collect_chunks_for_region(image_info, region, chunk_list_);
     
-    if (chunk_list_.empty()) {
+    if (chunk_list_.empty()) [[unlikely]] {
         return Ok();  // Nothing to read
     }
 

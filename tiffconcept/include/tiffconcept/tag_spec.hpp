@@ -606,6 +606,35 @@ using MinTiledSpec = TagSpec<
     OptTag_t<SampleFormatTag> // Default: 1 (unsigned)
 >;
 
+// Minimal set for parsing simple strip-based images (BigTiff)
+using MinBigStrippedSpec = TagSpec<
+    ImageWidthTag,
+    ImageLengthTag,
+    BitsPerSampleTag,
+    CompressionTag,
+    StripOffsetsTag_BigTIFF,
+    OptTag_t<SamplesPerPixelTag> ,// Default: 1
+    RowsPerStripTag,
+    StripByteCountsTag_BigTIFF,
+    OptTag_t<PredictorTag>, // Default: 1 (no predictor)
+    OptTag_t<SampleFormatTag> // Default: 1 (unsigned)
+>;
+
+// Minimal set for parsing simple tile-based images
+using MinBigTiledSpec = TagSpec<
+    ImageWidthTag,
+    ImageLengthTag,
+    BitsPerSampleTag,
+    CompressionTag,
+    OptTag_t<SamplesPerPixelTag>, // Default: 1
+    OptTag_t<PredictorTag>, // Default: 1 (no predictor)
+    TileWidthTag,
+    TileLengthTag,
+    TileOffsetsTag_BigTIFF,
+    TileByteCountsTag_BigTIFF,
+    OptTag_t<SampleFormatTag> // Default: 1 (unsigned)
+>;
+
 // extended minimal set to cover most image types
 using MinImageSpec = TagSpec<
     ImageWidthTag,

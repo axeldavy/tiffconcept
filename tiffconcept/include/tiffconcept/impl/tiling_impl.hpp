@@ -880,13 +880,13 @@ Result<void> TiledImageInfo<PixelType>::update_from_metadata(
     
     // Extract common image shape first
     auto shape_result = shape_.update_from_metadata(metadata);
-    if (!shape_result) {
+    if (shape_result.is_error()) [[unlikely]] {
         return shape_result;
     }
 
     // Validate pixel type
     auto format_validation = shape_.validate_pixel_type<PixelType>();
-    if (!format_validation) {
+    if (format_validation.is_error()) [[unlikely]] {
         return format_validation;
     }
     
@@ -897,16 +897,16 @@ Result<void> TiledImageInfo<PixelType>::update_from_metadata(
     auto tile_byte_counts_val = metadata.template get<TagCode::TileByteCounts>();
     
     // Validation
-    if (!optional::is_value_present(tile_width_val)) {
+    if (!optional::is_value_present(tile_width_val)) [[unlikely]] {
         return Err(Error::Code::InvalidTag, "TileWidth tag not found");
     }
-    if (!optional::is_value_present(tile_length_val)) {
+    if (!optional::is_value_present(tile_length_val)) [[unlikely]] {
         return Err(Error::Code::InvalidTag, "TileLength tag not found");
     }
-    if (!optional::is_value_present(tile_offsets_val)) {
+    if (!optional::is_value_present(tile_offsets_val)) [[unlikely]] {
         return Err(Error::Code::InvalidTag, "TileOffsets tag not found");
     }
-    if (!optional::is_value_present(tile_byte_counts_val)) {
+    if (!optional::is_value_present(tile_byte_counts_val)) [[unlikely]] {
         return Err(Error::Code::InvalidTag, "TileByteCounts tag not found");
     }
     
@@ -1007,7 +1007,7 @@ template <typename PixelType>
 Result<TileInfo> TiledImageInfo<PixelType>::get_tile_info_3d(
     uint32_t tile_x, uint32_t tile_y, uint32_t tile_z, uint32_t plane) const noexcept {
     
-    if (tile_x >= tiles_across_ || tile_y >= tiles_down_ || tile_z >= tiles_deep_) {
+    if (tile_x >= tiles_across_ || tile_y >= tiles_down_ || tile_z >= tiles_deep_) [[unlikely]] {
         return Err(Error::Code::OutOfBounds, "Tile coordinates out of bounds");
     }
     
@@ -1019,7 +1019,7 @@ Result<TileInfo> TiledImageInfo<PixelType>::get_tile_info_3d(
     uint32_t tile_index;
     
     if (shape_.planar_configuration() == PlanarConfiguration::Planar) {
-        if (plane >= shape_.samples_per_pixel()) {
+        if (plane >= shape_.samples_per_pixel()) [[unlikely]] {
             return Err(Error::Code::OutOfBounds, "Plane index out of bounds");
         }
         tile_index = plane * tiles_per_plane + tile_z * tiles_per_slice + tile_y * tiles_across_ + tile_x;
@@ -1028,7 +1028,7 @@ Result<TileInfo> TiledImageInfo<PixelType>::get_tile_info_3d(
         tile_index = tile_z * tiles_per_slice + tile_y * tiles_across_ + tile_x;
     }
     
-    if (tile_index >= tile_offsets_.size()) {
+    if (tile_index >= tile_offsets_.size()) [[unlikely]] {
         return Err(Error::Code::OutOfBounds, "Tile index out of bounds");
     }
     
@@ -1076,13 +1076,13 @@ Result<void> StrippedImageInfo<PixelType>::update_from_metadata(
     
     // Extract common image shape first
     auto shape_result = shape_.update_from_metadata(metadata);
-    if (!shape_result) {
+    if (shape_result.is_error()) [[unlikely]] {
         return shape_result;
     }
 
     // Validate pixel type
     auto format_validation = shape_.validate_pixel_type<PixelType>();
-    if (!format_validation) {
+    if (format_validation.is_error()) [[unlikely]] {
         return format_validation;
     }
     
@@ -1092,13 +1092,13 @@ Result<void> StrippedImageInfo<PixelType>::update_from_metadata(
     auto strip_byte_counts_val = metadata.template get<TagCode::StripByteCounts>();
     
     // Validation
-    if (!optional::is_value_present(rows_per_strip_val)) {
+    if (!optional::is_value_present(rows_per_strip_val)) [[unlikely]] {
         return Err(Error::Code::InvalidTag, "RowsPerStrip tag not found");
     }
-    if (!optional::is_value_present(strip_offsets_val)) {
+    if (!optional::is_value_present(strip_offsets_val)) [[unlikely]] {
         return Err(Error::Code::InvalidTag, "StripOffsets tag not found");
     }
-    if (!optional::is_value_present(strip_byte_counts_val)) {
+    if (!optional::is_value_present(strip_byte_counts_val)) [[unlikely]] {
         return Err(Error::Code::InvalidTag, "StripByteCounts tag not found");
     }
     
@@ -1163,7 +1163,7 @@ Result<StripInfo> StrippedImageInfo<PixelType>::get_strip_info(
     uint32_t actual_strip_index;
     
     if (shape_.planar_configuration() == PlanarConfiguration::Planar) {
-        if (plane >= shape_.samples_per_pixel()) {
+        if (plane >= shape_.samples_per_pixel()) [[unlikely]] {
             return Err(Error::Code::OutOfBounds, "Plane index out of bounds");
         }
         actual_strip_index = plane * strips_per_plane + strip_index;
@@ -1171,7 +1171,7 @@ Result<StripInfo> StrippedImageInfo<PixelType>::get_strip_info(
         actual_strip_index = strip_index;
     }
     
-    if (actual_strip_index >= num_strips_) {
+    if (actual_strip_index >= num_strips_) [[unlikely]] {
         return Err(Error::Code::OutOfBounds, "Strip index out of bounds");
     }
     

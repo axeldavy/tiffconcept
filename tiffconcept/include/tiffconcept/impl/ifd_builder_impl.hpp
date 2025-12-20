@@ -99,7 +99,7 @@ IFDBuilder<TiffFormat, TargetEndian, IFDPlacement>::create_tag_entry(
             value, inline_buffer, byte_size
         );
         
-        if (write_result.is_error()) {
+        if (write_result.is_error()) [[unlikely]] {
             return write_result.error();
         }
     } else {
@@ -123,7 +123,7 @@ IFDBuilder<TiffFormat, TargetEndian, IFDPlacement>::create_tag_entry(
             value, external_buffer, byte_size
         );
         
-        if (write_result.is_error()) {
+        if (write_result.is_error()) [[unlikely]] {
             return write_result.error();
         }
         
@@ -170,7 +170,7 @@ Result<void> IFDBuilder<TiffFormat, TargetEndian, IFDPlacement>::add_tags(
                     const auto& value = value_storage.value();
                     
                     auto tag_result = create_tag_entry<TagDesc>(value, current_external_offset);
-                    if (tag_result.is_error()) {
+                    if (tag_result.is_error()) [[unlikely]] {
                         success = false;
                         last_error = tag_result.error();
                         return;
@@ -178,7 +178,7 @@ Result<void> IFDBuilder<TiffFormat, TargetEndian, IFDPlacement>::add_tags(
                     tags_.push_back(tag_result.value());
                 } else {
                     auto tag_result = create_tag_entry<TagDesc>(value_storage, current_external_offset);
-                    if (tag_result.is_error()) {
+                    if (tag_result.is_error()) [[unlikely]] {
                         success = false;
                         last_error = tag_result.error();
                         return;
@@ -191,7 +191,7 @@ Result<void> IFDBuilder<TiffFormat, TargetEndian, IFDPlacement>::add_tags(
         }(std::index_sequence_for<Tags...>{});
     }(static_cast<Spec*>(nullptr));
     
-    if (!success) {
+    if (!success) [[unlikely]] {
         return last_error;
     }
 
@@ -220,7 +220,7 @@ Result<void> IFDBuilder<TiffFormat, TargetEndian, IFDPlacement>::add_tag(
     std::size_t current_external_offset = external_data_offset_;
     auto tag_result = create_tag_entry<TagDesc>(value, current_external_offset);
     
-    if (tag_result.is_error()) {
+    if (tag_result.is_error()) [[unlikely]] {
         return tag_result.error();
     }
     
@@ -317,13 +317,13 @@ Result<ifd::IFDOffset> IFDBuilder<TiffFormat, TargetEndian, IFDPlacement>::write
     
     // Resize writer if needed
     auto size_result = writer.size();
-    if (size_result.is_error()) {
+    if (size_result.is_error()) [[unlikely]] {
         return Err(size_result.error().code, "Failed to get writer size: " + size_result.error().message);
     }
     
     if (size_result.value() < max_offset) {
         auto resize_result = writer.resize(max_offset);
-        if (resize_result.is_error()) {
+        if (resize_result.is_error()) [[unlikely]] {
             return Err(resize_result.error().code, "Failed to resize writer: " + resize_result.error().message);
         }
     }
@@ -361,7 +361,7 @@ Result<ifd::IFDOffset> IFDBuilder<TiffFormat, TargetEndian, IFDPlacement>::write
     
     // Build IFD (this moves tags_)
     auto ifd_result = build(ifd::IFDOffset(ifd_offset));
-    if (ifd_result.is_error()) {
+    if (ifd_result.is_error()) [[unlikely]] {
         return ifd_result.error();
     }
     
@@ -370,28 +370,28 @@ Result<ifd::IFDOffset> IFDBuilder<TiffFormat, TargetEndian, IFDPlacement>::write
     // Write IFD
     auto ifd_bytes = ifd.write();
     auto ifd_view_result = writer.write(ifd_offset, ifd_bytes.size());
-    if (ifd_view_result.is_error()) {
+    if (ifd_view_result.is_error()) [[unlikely]] {
         return Err(ifd_view_result.error().code, "Failed to write IFD: " + ifd_view_result.error().message);
     }
     
     auto ifd_view = std::move(ifd_view_result.value());
     std::memcpy(ifd_view.data().data(), ifd_bytes.data(), ifd_bytes.size());
     auto ifd_flush = ifd_view.flush();
-    if (ifd_flush.is_error()) {
+    if (ifd_flush.is_error()) [[unlikely]] {
         return Err(ifd_flush.error().code, "Failed to flush IFD: " + ifd_flush.error().message);
     }
     
     // Write external data if any
     if (!external_data_.empty()) {
         auto external_view_result = writer.write(external_offset, external_data_.size());
-        if (external_view_result.is_error()) {
+        if (external_view_result.is_error()) [[unlikely]] {
             return Err(external_view_result.error().code, "Failed to write external data: " + external_view_result.error().message);
         }
         
         auto external_view = std::move(external_view_result.value());
         std::memcpy(external_view.data().data(), external_data_.data(), external_data_.size());
         auto external_flush = external_view.flush();
-        if (external_flush.is_error()) {
+        if (external_flush.is_error()) [[unlikely]] {
             return Err(external_flush.error().code, "Failed to flush external data: " + external_flush.error().message);
         }
     }

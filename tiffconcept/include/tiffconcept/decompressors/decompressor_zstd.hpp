@@ -107,11 +107,11 @@ public:
         constexpr unsigned long long CONTENTSIZE_UNKNOWN = 0xFFFFFFFFFFFFFFFFULL;
         constexpr unsigned long long CONTENTSIZE_ERROR = 0xFFFFFFFFFFFFFFFEULL;
         
-        if (size == CONTENTSIZE_ERROR) {
+        if (size == CONTENTSIZE_ERROR) [[unlikely]] {
             return Err(Error::Code::InvalidFormat, "Invalid ZSTD frame header");
         }
         
-        if (size == CONTENTSIZE_UNKNOWN) {
+        if (size == CONTENTSIZE_UNKNOWN) [[unlikely]] {
             return Err(Error::Code::UnsupportedFeature, 
                        "Decompressed size not available in frame");
         }

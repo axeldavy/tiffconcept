@@ -1,9 +1,9 @@
 #pragma once
 
 #include "decompressor_base.hpp"
-#include "decompressor_standard.hpp"
+#include "decompressors/decompressor_standard.hpp"
 #include "image_reader.hpp"
-#include "read_strategy.hpp"
+#include "strategy/read_strategy.hpp"
 
 namespace tiffconcept {
 

@@ -67,13 +67,13 @@ inline Result<void> ImageShape::update_from_metadata(
     const auto bits_per_sample_val = metadata.template get<TagCode::BitsPerSample>();
     
     // Validation
-    if (!optional::is_value_present(width_val)) {
+    if (!optional::is_value_present(width_val)) [[unlikely]] {
         return Err(Error::Code::InvalidTag, "ImageWidth tag not found or invalid");
     }
-    if (!optional::is_value_present(height_val)) {
+    if (!optional::is_value_present(height_val)) [[unlikely]] {
         return Err(Error::Code::InvalidTag, "ImageLength tag not found or invalid");
     }
-    if (!optional::is_value_present(bits_per_sample_val)) {
+    if (!optional::is_value_present(bits_per_sample_val)) [[unlikely]] {
         return Err(Error::Code::InvalidTag, "BitsPerSample tag not found or invalid");
     }
     
@@ -81,12 +81,12 @@ inline Result<void> ImageShape::update_from_metadata(
     image_width_ = optional::unwrap_value(width_val);
     image_height_ = optional::unwrap_value(height_val);
     const auto& bits_per_sample_array = optional::unwrap_value(bits_per_sample_val);
-    if (bits_per_sample_array.empty()) {
+    if (bits_per_sample_array.empty()) [[unlikely]] {
         return Err(Error::Code::InvalidTag, "BitsPerSample tag is empty");
     }
     bits_per_sample_ = bits_per_sample_array[0];
     for (const auto& bps : bits_per_sample_array) {
-        if (bps != bits_per_sample_) {
+        if (bps != bits_per_sample_) [[unlikely]] {
             return Err(Error::Code::UnsupportedFeature, "All samples must have the same BitsPerSample");
         }
     }
@@ -107,7 +107,7 @@ inline Result<void> ImageShape::update_from_metadata(
         );
     }
 
-    if (bits_per_sample_array.size() != samples_per_pixel_) {
+    if (bits_per_sample_array.size() != samples_per_pixel_) [[unlikely]] {
         return Err(Error::Code::UnsupportedFeature, 
                     "BitsPerSample array size does not match SamplesPerPixel");
     }
@@ -146,52 +146,52 @@ requires (std::is_same_v<PixelType, uint8_t> ||
             std::is_same_v<PixelType, double>)
 inline Result<void> ImageShape::validate_pixel_type() const noexcept {
     if constexpr (std::is_same_v<PixelType, uint8_t>) {
-        if (bits_per_sample_ != 8 || sample_format_ != SampleFormat::UnsignedInt) {
+        if (bits_per_sample_ != 8 || sample_format_ != SampleFormat::UnsignedInt) [[unlikely]] {
             return Err(Error::Code::InvalidFormat, 
                         "Pixel type uint8_t requires 8-bit unsigned integer format");
         }
     } else if constexpr (std::is_same_v<PixelType, uint16_t>) {
-        if (bits_per_sample_ != 16 || sample_format_ != SampleFormat::UnsignedInt) {
+        if (bits_per_sample_ != 16 || sample_format_ != SampleFormat::UnsignedInt) [[unlikely]] {
             return Err(Error::Code::InvalidFormat, 
                         "Pixel type uint16_t requires 16-bit unsigned integer format");
         }
     } else if constexpr (std::is_same_v<PixelType, uint32_t>) {
-        if (bits_per_sample_ != 32 || sample_format_ != SampleFormat::UnsignedInt) {
+        if (bits_per_sample_ != 32 || sample_format_ != SampleFormat::UnsignedInt) [[unlikely]] {
             return Err(Error::Code::InvalidFormat, 
                         "Pixel type uint32_t requires 32-bit unsigned integer format");
         }
     } else if constexpr (std::is_same_v<PixelType, uint64_t>) {
-        if (bits_per_sample_ != 64 || sample_format_ != SampleFormat::UnsignedInt) {
+        if (bits_per_sample_ != 64 || sample_format_ != SampleFormat::UnsignedInt) [[unlikely]] {
             return Err(Error::Code::InvalidFormat, 
                         "Pixel type uint64_t requires 64-bit unsigned integer format");
         }
     } else if constexpr (std::is_same_v<PixelType, int8_t>) {
-        if (bits_per_sample_ != 8 || sample_format_ != SampleFormat::SignedInt) {
+        if (bits_per_sample_ != 8 || sample_format_ != SampleFormat::SignedInt) [[unlikely]] {
             return Err(Error::Code::InvalidFormat, 
                         "Pixel type int8_t requires 8-bit signed integer format");
         }
     } else if constexpr (std::is_same_v<PixelType, int16_t>) {
-        if (bits_per_sample_ != 16 || sample_format_ != SampleFormat::SignedInt) {
+        if (bits_per_sample_ != 16 || sample_format_ != SampleFormat::SignedInt) [[unlikely]] {
             return Err(Error::Code::InvalidFormat, 
                         "Pixel type int16_t requires 16-bit signed integer format");
         }
     } else if constexpr (std::is_same_v<PixelType, int32_t>) {
-        if (bits_per_sample_ != 32 || sample_format_ != SampleFormat::SignedInt) {
+        if (bits_per_sample_ != 32 || sample_format_ != SampleFormat::SignedInt) [[unlikely]] {
             return Err(Error::Code::InvalidFormat, 
                         "Pixel type int32_t requires 32-bit signed integer format");
         }
     } else if constexpr (std::is_same_v<PixelType, int64_t>) {
-        if (bits_per_sample_ != 64 || sample_format_ != SampleFormat::SignedInt) {
+        if (bits_per_sample_ != 64 || sample_format_ != SampleFormat::SignedInt) [[unlikely]] {
             return Err(Error::Code::InvalidFormat, 
                         "Pixel type int64_t requires 64-bit signed integer format");
         }
     } else if constexpr (std::is_same_v<PixelType, float>) {
-        if (bits_per_sample_ != 32 || sample_format_ != SampleFormat::IEEEFloat) {
+        if (bits_per_sample_ != 32 || sample_format_ != SampleFormat::IEEEFloat) [[unlikely]] {
             return Err(Error::Code::InvalidFormat, 
                         "Pixel type float requires 32-bit IEEE float format");
         }
     } else if constexpr (std::is_same_v<PixelType, double>) {
-        if (bits_per_sample_ != 64 || sample_format_ != SampleFormat::IEEEFloat) {
+        if (bits_per_sample_ != 64 || sample_format_ != SampleFormat::IEEEFloat) [[unlikely]] {
             return Err(Error::Code::InvalidFormat, 
                         "Pixel type double requires 64-bit IEEE float format");
         }
@@ -229,27 +229,27 @@ inline ImageRegion ImageShape::full_region() const noexcept {
 
 /// Validate that a region fits within the image bounds
 inline Result<void> ImageShape::validate_region(const ImageRegion& region) const noexcept {
-    if (region.is_empty()) {
+    if (region.is_empty()) [[unlikely]] {
         return Err(Error::Code::OutOfBounds, "Region is empty");
     }
     
-    if (region.end_x() > image_width_) {
+    if (region.end_x() > image_width_) [[unlikely]] {
         return Err(Error::Code::OutOfBounds, "Region exceeds image width");
     }
     
-    if (region.end_y() > image_height_) {
+    if (region.end_y() > image_height_) [[unlikely]] {
         return Err(Error::Code::OutOfBounds, "Region exceeds image height");
     }
     
-    if (region.end_z() > image_depth_) {
+    if (region.end_z() > image_depth_) [[unlikely]] {
         return Err(Error::Code::OutOfBounds, "Region exceeds image depth");
     }
 
-    if (region.start_channel >= samples_per_pixel_) {
+    if (region.start_channel >= samples_per_pixel_) [[unlikely]] {
         return Err(Error::Code::OutOfBounds, "Start channel exceeds available channels");
     }
 
-    if (region.end_channel() > samples_per_pixel_) {
+    if (region.end_channel() > samples_per_pixel_) [[unlikely]] {
         return Err(Error::Code::OutOfBounds, "Channel range exceeds available channels");
     }
     

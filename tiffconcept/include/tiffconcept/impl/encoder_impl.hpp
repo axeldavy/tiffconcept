@@ -97,13 +97,13 @@ template <typename PixelType, typename CompSpec>
     uint16_t samples_per_pixel) noexcept {
 
     // Validate dimensions are non-zero
-    if (width == 0 || height == 0 || depth == 0) {
+    if (width == 0 || height == 0 || depth == 0) [[unlikely]] {
         return Err(Error::Code::UnsupportedFeature,
                     "Empty chunk");
     }
     // Validate input size
     std::size_t expected_size = width * height * depth * samples_per_pixel;
-    if (input_data.size() < expected_size) {
+    if (input_data.size() < expected_size) [[unlikely]] {
         return Err(Error::Code::OutOfBounds, 
                     "Input data too small for chunk dimensions");
     }
@@ -119,8 +119,8 @@ template <typename PixelType, typename CompSpec>
         predictor, samples_per_pixel
     );
     
-    if (!predictor_result) {
-        return Err(predictor_result.error().code, predictor_result.error().message);
+    if (predictor_result.is_error()) [[unlikely]] {
+        return predictor_result.error();
     }
     
     std::span<const std::byte> encoded_data = predictor_result.value();
@@ -137,8 +137,8 @@ template <typename PixelType, typename CompSpec>
         compression
     );
     
-    if (!compress_result) {
-        return Err(compress_result.error().code, compress_result.error().message);
+    if (compress_result.is_error()) [[unlikely]] {
+        return compress_result.error();
     }
     
     std::size_t compressed_size = compress_result.value();

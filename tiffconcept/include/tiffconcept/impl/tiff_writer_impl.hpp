@@ -63,8 +63,8 @@ inline Result<void> TiffWriter<PixelType, CompSpec, WriteConfig_, TiffFormat, Ta
 
         // Write header
         auto view_result = writer.write(0, sizeof(HeaderType));
-        if (!view_result) {
-            return Err(view_result.error().code, "Failed to write TIFF header");
+        if (view_result.is_error()) [[unlikely]] {
+            return Err(view_result.error().code, "Failed to write TIFF header: " + view_result.error().message);
         }
 
         auto view = std::move(view_result.value());
@@ -106,8 +106,8 @@ inline Result<void> TiffWriter<PixelType, CompSpec, WriteConfig_, TiffFormat, Ta
 
         // Write header
         auto view_result = writer.write(0, sizeof(HeaderType));
-        if (!view_result) {
-            return Err(view_result.error().code, "Failed to write BigTIFF header");
+        if (view_result.is_error()) [[unlikely]] {
+            return Err(view_result.error().code, "Failed to write BigTIFF header: " + view_result.error().message);
         }
 
         auto view = std::move(view_result.value());
@@ -143,7 +143,7 @@ inline Result<void> TiffWriter<PixelType, CompSpec, WriteConfig_, TiffFormat, Ta
     DefaultType&& valid_value) noexcept {
     if constexpr (std::remove_cvref_t<decltype(src_tags)>::template has_tag<Code>()) {
         const auto& tag_opt = src_tags.template get<Code>();
-        if (optional::unwrap_value_or(tag_opt, valid_value) != valid_value) {
+        if (optional::unwrap_value_or(tag_opt, valid_value) != valid_value) [[unlikely]] {
             return Err(Error::Code::InvalidTag,
                         "User-provided tag " + std::to_string(static_cast<uint16_t>(Code)) +
                         " provides an incompatible override. Undefine the tag or provide the correct value.");
@@ -173,23 +173,29 @@ inline Result<void> TiffWriter<PixelType, CompSpec, WriteConfig_, TiffFormat, Ta
 
     // 1. ImageWidth
     auto res = validate_invalid_override<TagCode::ImageWidth>(src_tags, image_width);
-    if (!res) return res;
+    if (res.is_error()) [[unlikely]] {
+        return res;
+    }
+
     // 2. ImageLength
     res = validate_invalid_override<TagCode::ImageLength>(src_tags, image_height);
-    if (!res) return res;
+    if (res.is_error()) [[unlikely]] {
+        return res;
+    }
+
     // 3. BitsPerSample
     {
         if constexpr (std::remove_cvref_t<decltype(src_tags)>::template has_tag<TagCode::BitsPerSample>()) {
             const auto& bps_opt = src_tags.template get<TagCode::BitsPerSample>();
             if (optional::is_value_present(bps_opt)) {
                 const auto& bps_values = optional::unwrap_value(bps_opt);
-                if (bps_values.size() != samples_per_pixel) {
+                if (bps_values.size() != samples_per_pixel) [[unlikely]] {
                     return Err(Error::Code::InvalidTag,
                                 "User-provided BitsPerSample tag provides an incompatible override. "
                                 "Number of samples does not match SamplesPerPixel.");
                 }
                 for (const auto& bps : bps_values) {
-                    if (bps != sizeof(PixelType) * 8) {
+                    if (bps != sizeof(PixelType) * 8) [[unlikely]] {
                         return Err(Error::Code::InvalidTag,
                                     "User-provided BitsPerSample tag provides an incompatible override. "
                                     "BitsPerSample does not match PixelType size.");
@@ -204,26 +210,37 @@ inline Result<void> TiffWriter<PixelType, CompSpec, WriteConfig_, TiffFormat, Ta
     // We do not validate photometric interpretation as it may be something the user wants to override
     // 6. SamplesPerPixel
     res = validate_invalid_override<TagCode::SamplesPerPixel>(src_tags, samples_per_pixel);
-    if (!res) return res;
+    if (res.is_error()) [[unlikely]] {
+        return res;
+    }
+
     // 7. PlanarConfiguration
     res = validate_invalid_override<TagCode::PlanarConfiguration>(src_tags, static_cast<uint16_t>(planar_config));
-    if (!res) return res;
+    if (res.is_error()) [[unlikely]] {
+        return res;
+    }
+
     // 8. Predictor
     res = validate_invalid_override<TagCode::Predictor>(src_tags, predictor);
-    if (!res) return res;
+    if (res.is_error()) [[unlikely]] {
+        return res;
+    }
+
     // 9. SampleFormat
     {
         SampleFormat sf = SampleFormat::UnsignedInt;
         if constexpr (std::is_floating_point_v<PixelType>) sf = SampleFormat::IEEEFloat;
         else if constexpr (std::is_signed_v<PixelType>) sf = SampleFormat::SignedInt;
         res = validate_invalid_override<TagCode::SampleFormat>(src_tags, sf);
-        if (!res) return res;
+        if (res.is_error()) [[unlikely]] {
+            return res;
+        }
     }
     // 10. Strips/Tiles
     // Strips and tiles offsets and byte counts are generated during writing, thus must not be set
     if constexpr (std::remove_cvref_t<decltype(src_tags)>::template has_tag<TagCode::StripOffsets>()) {
         const auto& tag_opt = src_tags.template get<TagCode::StripOffsets>();
-        if (optional::is_value_present(tag_opt)) {
+        if (optional::is_value_present(tag_opt)) [[unlikely]] {
             return Err(Error::Code::InvalidTag,
                         "User-provided StripOffsets tag is not allowed. It will be generated during writing.");
         }
@@ -231,7 +248,7 @@ inline Result<void> TiffWriter<PixelType, CompSpec, WriteConfig_, TiffFormat, Ta
     }
     if constexpr (std::remove_cvref_t<decltype(src_tags)>::template has_tag<TagCode::StripByteCounts>()) {
         const auto& tag_opt = src_tags.template get<TagCode::StripByteCounts>();
-        if (optional::is_value_present(tag_opt)) {
+        if (optional::is_value_present(tag_opt)) [[unlikely]] {
             return Err(Error::Code::InvalidTag,
                         "User-provided StripByteCounts tag is not allowed. It will be generated during writing.");
         }
@@ -239,7 +256,7 @@ inline Result<void> TiffWriter<PixelType, CompSpec, WriteConfig_, TiffFormat, Ta
     }
     if constexpr (std::remove_cvref_t<decltype(src_tags)>::template has_tag<TagCode::TileOffsets>()) {
         const auto& tag_opt = src_tags.template get<TagCode::TileOffsets>();
-        if (optional::is_value_present(tag_opt)) {
+        if (optional::is_value_present(tag_opt)) [[unlikely]] {
             return Err(Error::Code::InvalidTag,
                         "User-provided TileOffsets tag is not allowed. It will be generated during writing.");
         }
@@ -247,7 +264,7 @@ inline Result<void> TiffWriter<PixelType, CompSpec, WriteConfig_, TiffFormat, Ta
     }
     if constexpr (std::remove_cvref_t<decltype(src_tags)>::template has_tag<TagCode::TileByteCounts>()) {
         const auto& tag_opt = src_tags.template get<TagCode::TileByteCounts>();
-        if (optional::is_value_present(tag_opt)) {
+        if (optional::is_value_present(tag_opt)) [[unlikely]] {
             return Err(Error::Code::InvalidTag,
                         "User-provided TileByteCounts tag is not allowed. It will be generated during writing.");
         }
@@ -257,25 +274,31 @@ inline Result<void> TiffWriter<PixelType, CompSpec, WriteConfig_, TiffFormat, Ta
         // RowsPerStrip
         if constexpr (std::remove_cvref_t<decltype(src_tags)>::template has_tag<TagCode::RowsPerStrip>()) {
             const auto& tag_opt = src_tags.template get<TagCode::RowsPerStrip>();
-            if (optional::is_value_present(tag_opt)) {
+            if (optional::is_value_present(tag_opt)) [[unlikely]] {
                 return Err(Error::Code::InvalidTag,
                             "User-provided RowsPerStrip tag is not allowed for tiled images.");
             }
         }
         // TileWidth
         res = validate_invalid_override<TagCode::TileWidth>(src_tags, tile_width);
-        if (!res) return res;
+        if (res.is_error()) [[unlikely]] {
+            return res;
+        }
         // TileLength
         res = validate_invalid_override<TagCode::TileLength>(src_tags, tile_height);
-        if (!res) return res;
+        if (res.is_error()) [[unlikely]] {
+            return res;
+        }
     } else {
         // RowsPerStrip
         res = validate_invalid_override<TagCode::RowsPerStrip>(src_tags, tile_height);
-        if (!res) return res;
+        if (res.is_error()) [[unlikely]] {
+            return res;
+        }
         // TileWidth
         if constexpr (std::remove_cvref_t<decltype(src_tags)>::template has_tag<TagCode::TileWidth>()) {
             const auto& tag_opt = src_tags.template get<TagCode::TileWidth>();
-            if (optional::is_value_present(tag_opt)) {
+            if (optional::is_value_present(tag_opt)) [[unlikely]] {
                 return Err(Error::Code::InvalidTag,
                             "User-provided TileWidth tag is not allowed for stripped images.");
             }
@@ -283,7 +306,7 @@ inline Result<void> TiffWriter<PixelType, CompSpec, WriteConfig_, TiffFormat, Ta
         // TileLength
         if constexpr (std::remove_cvref_t<decltype(src_tags)>::template has_tag<TagCode::TileLength>()) {
             const auto& tag_opt = src_tags.template get<TagCode::TileLength>();
-            if (optional::is_value_present(tag_opt)) {
+            if (optional::is_value_present(tag_opt)) [[unlikely]] {
                 return Err(Error::Code::InvalidTag,
                             "User-provided TileLength tag is not allowed for stripped images.");
             }
@@ -291,10 +314,14 @@ inline Result<void> TiffWriter<PixelType, CompSpec, WriteConfig_, TiffFormat, Ta
     }
     // 11. ImageDepth
     res = validate_invalid_override<TagCode::ImageDepth>(src_tags, image_depth);
-    if (!res) return res;
+    if (res.is_error()) [[unlikely]] {
+        return res;
+    }
     // 12. TileDepth
     res = validate_invalid_override<TagCode::TileDepth>(src_tags, tile_depth);
-    if (!res) return res;
+    if (res.is_error()) [[unlikely]] {
+        return res;
+    }
     return Ok();
 }
 
@@ -532,7 +559,9 @@ inline Result<void> TiffWriter<PixelType, CompSpec, WriteConfig_, TiffFormat, Ta
         additional_tags, image_width, image_height, image_depth,
         tile_width, tile_height, tile_depth,
         is_tiled, samples_per_pixel, planar_config, compression, predictor);
-    if (!validation_result) return validation_result;
+    if (validation_result.is_error()) [[unlikely]] {
+        return validation_result;
+    }
 
     // Create mandatory tags structure with zero-filled offsets/byte counts
     WritingTagsType mandatory_tags;
@@ -562,7 +591,9 @@ inline Result<void> TiffWriter<PixelType, CompSpec, WriteConfig_, TiffFormat, Ta
             current_file_pos
         );
         
-        if (!write_result) return Err(write_result.error().code, write_result.error().message);
+        if (write_result.is_error()) [[unlikely]] {
+            return write_result.error();
+        }
         
         WrittenImageInfo &image_info = write_result.value();
         current_file_pos += image_info.total_data_size;
@@ -577,14 +608,20 @@ inline Result<void> TiffWriter<PixelType, CompSpec, WriteConfig_, TiffFormat, Ta
         // Build IFD with actual tile offset/bytecount information
         ifd_builder_.clear();
         auto add_result = ifd_builder_.add_tags(mandatory_tags);
-        if (!add_result) return Err(add_result.error().code, add_result.error().message);
+        if (add_result.is_error()) [[unlikely]] {
+            return add_result;
+        }
 
         add_result = ifd_builder_.add_tags(additional_tags);
-        if (!add_result) return Err(add_result.error().code, add_result.error().message);
+        if (add_result.is_error()) [[unlikely]] {
+            return add_result;
+        }
         
         // Write IFD
         auto ifd_offset_result = ifd_builder_.write_to_file(writer, current_file_pos);
-        if (!ifd_offset_result) return Err(ifd_offset_result.error().code, ifd_offset_result.error().message);
+        if (ifd_offset_result.is_error()) [[unlikely]] {
+            return ifd_offset_result.error();
+        }
         
         first_ifd_offset = ifd_offset_result.value();
         
@@ -616,7 +653,9 @@ inline Result<void> TiffWriter<PixelType, CompSpec, WriteConfig_, TiffFormat, Ta
             current_file_pos
         );
         
-        if (!write_result) return Err(write_result.error().code, write_result.error().message);
+        if (write_result.is_error()) [[unlikely]] {
+            return write_result.error();
+        }
         
         WrittenImageInfo &image_info = write_result.value();
         
@@ -630,23 +669,31 @@ inline Result<void> TiffWriter<PixelType, CompSpec, WriteConfig_, TiffFormat, Ta
         // Now write IFD with actual tile information
         ifd_builder_.clear();
         auto add_result = ifd_builder_.add_tags(mandatory_tags);
-        if (!add_result) return Err(add_result.error().code, add_result.error().message);
+        if (add_result.is_error()) [[unlikely]] {
+            return add_result;
+        }
 
         add_result = ifd_builder_.add_tags(additional_tags);
-        if (!add_result) return Err(add_result.error().code, add_result.error().message);
+        if (add_result.is_error()) [[unlikely]] {
+            return add_result;
+        }
 
         assert(ifd_builder_.calculate_total_size() == estimated_ifd_size &&
                 "IFD size greater than estimated size reserved");
         // Write IFD at the reserved position
         auto ifd_offset_result = ifd_builder_.write_to_file(writer, ifd_start);
-        if (!ifd_offset_result) return Err(ifd_offset_result.error().code, ifd_offset_result.error().message);
+        if (ifd_offset_result.is_error()) [[unlikely]] {
+            return ifd_offset_result.error();
+        }
 
         first_ifd_offset = ifd_offset_result.value();
     }
     
     // Write header with first IFD offset
     auto header_result = write_header(writer, first_ifd_offset);
-    if (!header_result) return Err(header_result.error().code, header_result.error().message);
+    if (header_result.is_error()) [[unlikely]] {
+        return header_result;
+    }
     
     return writer.flush();
 }
@@ -743,7 +790,7 @@ inline Result<void> TiffWriter<PixelType, CompSpec, WriteConfig_, TiffFormat, Ta
     Predictor predictor,
     const ExtractedTags<TagArgs...>& additional_tags) noexcept {
 
-    if (image_height % rows_per_strip != 0) {
+    if (image_height % rows_per_strip != 0) [[unlikely]] {
         return Err(Error::Code::UnsupportedFeature, "Current limitation: rows per strip must evenly divide image height");
     }
 

@@ -141,7 +141,7 @@ public:
             
             // If we found a run of 2 or more, encode as replicated run
             if (run_length >= 2) {
-                if (out_pos + 2 > output.size()) {
+                if (out_pos + 2 > output.size()) [[unlikely]] {
                     return Err(Error::Code::OutOfBounds,
                                "Output buffer too small during PackBits compression");
                 }
@@ -171,7 +171,7 @@ public:
                     
                     ++literal_length;
                 }
-                if (out_pos + 1 + literal_length > output.size()) {
+                if (out_pos + 1 + literal_length > output.size()) [[unlikely]] {
                     return Err(Error::Code::OutOfBounds,
                                "Output buffer too small during PackBits compression");
                 }

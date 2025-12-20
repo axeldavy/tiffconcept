@@ -31,7 +31,7 @@ Result<void> IFD<TiffFormat, SourceEndian>::write(std::span<std::byte> buffer) c
     using OffsetType = typename IFDDescription<TiffFormat>::OffsetType;
     
     const std::size_t required_size = size_in_bytes();
-    if (buffer.size() < required_size) {
+    if (buffer.size() < required_size) [[unlikely]] {
         return Err(Error::Code::OutOfBounds, 
                   "Buffer too small for IFD: need " + std::to_string(required_size) + 
                   " bytes, got " + std::to_string(buffer.size()));
@@ -92,12 +92,12 @@ Result<IFDOffset> get_first_ifd_offset(const Reader& reader) noexcept {
     
     auto header_result = parsing::read_struct_no_endianness_conversion<Reader, HeaderType>(reader, 0);
 
-    if (header_result.is_error()) {
+    if (header_result.is_error()) [[unlikely]] {
         return header_result.error();
     }
 
     const auto& header = header_result.value();
-    if (!header.template is_valid<SourceEndian>()) {
+    if (!header.template is_valid<SourceEndian>()) [[unlikely]] {
         return Err(Error::Code::InvalidHeader, "TIFF header is not valid for the specified format");
     }
 
@@ -114,7 +114,7 @@ Result<IFDDescription<TiffFormat>> read_ifd_header(
     
     auto ifd_header_result = parsing::read_struct_no_endianness_conversion<Reader, IFDHeaderType>(reader, offset.value);
 
-    if (ifd_header_result.is_error()) {
+    if (ifd_header_result.is_error()) [[unlikely]] {
         return ifd_header_result.error();
     }
 
@@ -138,7 +138,7 @@ Result<IFDOffset> read_next_ifd_offset(
                                   ifd_desc.num_entries * sizeof(TagType);
     
     auto result = parsing::read_struct_no_endianness_conversion<Reader, OffsetType>(reader, next_offset_pos);
-    if (result.is_error()) {
+    if (result.is_error()) [[unlikely]] {
         return result.error();
     }
     
@@ -170,7 +170,7 @@ Result<IFDOffset> read_ifd_tags(
     auto tags_result = parsing::read_array<Reader, TagType, SourceEndian, SourceEndian>(
         reader, tags_offset, ifd_desc.num_entries);
     
-    if (tags_result.is_error()) {
+    if (tags_result.is_error()) [[unlikely]] {
         return tags_result.error();
     }
     
@@ -192,7 +192,7 @@ Result<void> read_ifd_into(
     
     // First, read just the header to know how many entries
     auto header_result = parsing::read_struct_no_endianness_conversion<Reader, IFDHeaderType>(reader, offset.value);
-    if (header_result.is_error()) {
+    if (header_result.is_error()) [[unlikely]] {
         return header_result.error();
     }
     
@@ -206,7 +206,7 @@ Result<void> read_ifd_into(
         
         // Read next IFD offset
         auto next_offset_result = read_next_ifd_offset<Reader, TiffFormat, SourceEndian>(reader, ifd.description);
-        if (next_offset_result.is_error()) {
+        if (next_offset_result.is_error()) [[unlikely]] {
             return next_offset_result.error();
         }
         
@@ -219,12 +219,12 @@ Result<void> read_ifd_into(
     std::size_t tags_offset = offset.value + sizeof(IFDHeaderType);
     
     auto data_result = reader.read(tags_offset, total_read_size);
-    if (data_result.is_error()) {
+    if (data_result.is_error()) [[unlikely]] {
         return Err(data_result.error().code, "Failed to read IFD tags and next offset: " + data_result.error().message);
     }
     
     const auto& view = data_result.value();
-    if (view.size() < total_read_size) {
+    if (view.size() < total_read_size) [[unlikely]] {
         return Err(Error::Code::UnexpectedEndOfFile, "Incomplete IFD read");
     }
     
@@ -252,7 +252,7 @@ Result<IFD<TiffFormat, SourceEndian>> read_ifd(
     IFD<TiffFormat, SourceEndian> ifd;
     auto result = read_ifd_into<Reader, TiffFormat, SourceEndian>(reader, offset, ifd);
     
-    if (result.is_error()) {
+    if (result.is_error()) [[unlikely]] {
         return result.error();
     }
     

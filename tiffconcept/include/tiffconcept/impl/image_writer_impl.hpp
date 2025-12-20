@@ -122,7 +122,7 @@ inline Result<WrittenImageInfo> ImageWriter<PixelType, CompSpec, WriteConfig_, T
     // Validate input size
     std::size_t expected_samples = static_cast<std::size_t>(image_width) * image_height * image_depth * samples_per_pixel;
     
-    if (input_data.size() < expected_samples) {
+    if (input_data.size() < expected_samples) [[unlikely]] {
         return Err(Error::Code::OutOfBounds, "Input data size too small for image dimensions");
     }
     
@@ -133,7 +133,7 @@ inline Result<WrittenImageInfo> ImageWriter<PixelType, CompSpec, WriteConfig_, T
         samples_per_pixel, planar_config
     );
     
-    if (layout_result.is_error()) {
+    if (layout_result.is_error()) [[unlikely]] {
         return layout_result.error();
     }
     
@@ -213,7 +213,7 @@ inline Result<WrittenImageInfo> ImageWriter<PixelType, CompSpec, WriteConfig_, T
             effective_samples
         );
         
-        if (encoded_result.is_error()) {
+        if (encoded_result.is_error()) [[unlikely]] {
             return encoded_result.error();
         }
         
@@ -241,7 +241,7 @@ inline Result<WrittenImageInfo> ImageWriter<PixelType, CompSpec, WriteConfig_, T
             std::span<const std::byte>(encoded_chunk.data)
         );
         
-        if (write_result.is_error()) {
+        if (write_result.is_error()) [[unlikely]] {
             return Err(write_result.error().code, "Failed to write chunk data: " + write_result.error().message);
         }
         
@@ -250,7 +250,7 @@ inline Result<WrittenImageInfo> ImageWriter<PixelType, CompSpec, WriteConfig_, T
     
     // Flush buffered data
     auto flush_result = buffering_strategy.flush(writer);
-    if (flush_result.is_error()) {
+    if (flush_result.is_error()) [[unlikely]] {
         return Err(flush_result.error().code, "Failed to flush buffered data: " + flush_result.error().message);
     }
     
@@ -283,7 +283,7 @@ inline Result<WrittenImageInfo> ImageWriter<PixelType, CompSpec, WriteConfig_, T
     Predictor predictor,
     std::size_t data_start_offset) noexcept {
 
-    if (image_height % rows_per_strip != 0) {
+    if (image_height % rows_per_strip != 0) [[unlikely]] {
         return Err(Error::Code::UnsupportedFeature, "Current limitation: rows per strip must evenly divide image height");
     }
     

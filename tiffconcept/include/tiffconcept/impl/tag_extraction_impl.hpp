@@ -92,7 +92,7 @@ template <typename Reader, TiffFormatType TiffFormat, std::endian SourceEndian, 
                                 file_tags[file_idx].template get_code<std::endian::native>() == target_code);
             
             if constexpr (TagDesc::is_optional) {
-                if (found) [[likely]] {
+                if (found) {
                     auto value_result = parsing::parse_tag<Reader, TagDesc, TiffFormat, std::endian::native, SourceEndian>(
                         reader, file_tags[file_idx]
                     );
@@ -102,7 +102,7 @@ template <typename Reader, TiffFormatType TiffFormat, std::endian SourceEndian, 
                         //          << static_cast<uint16_t>(TagDesc::code) << std::endl;
                         std::get<SpecIdx>(values) = std::move(value_result.value());
                         ++file_idx;
-                    } else {
+                    } else { // TODO: should we fail on parse error for optional tags?
                         //std::cerr << "Warning: Failed to parse optional tag " 
                         //          << static_cast<uint16_t>(TagDesc::code) 
                         //          << ": " << value_result.error().message << std::endl;
@@ -189,8 +189,24 @@ struct ExtractedTagsImpl<TagSpec<Tags...>> {
             // For types with a clear() method, call it to reuse allocated memory
             if constexpr (requires { value.clear(); }) {
                 value.clear();
-            } else {
-                // Otherwise, default-construct and assign
+            }
+            // For types with resize but not clear (e.g., some custom containers)
+            else if constexpr (requires { value.resize(0); }) {
+                value.resize(0);
+            }
+            // For fixed-size array types (std::array, C arrays)
+            else if constexpr (requires { std::tuple_size<ValueType>::value; }) {
+                using ElemType = std::remove_reference_t<decltype(value[0])>;
+                for (auto& elem : value) {
+                    if constexpr (requires { elem.clear(); }) {
+                        elem.clear();
+                    } else {
+                        elem = ElemType{};
+                    }
+                }
+            }
+            // Otherwise, default-construct and assign
+            else {
                 value = ValueType{};
             }
         }
@@ -213,12 +229,12 @@ struct ExtractedTagsImpl<TagSpec<Tags...>> {
         bool is_sorted = true;
         for (std::size_t i = 1; i < tag_buffer.size(); ++i) {
             if (tag_buffer[i-1].template get_code<std::endian::native>() > 
-                tag_buffer[i].template get_code<std::endian::native>()) {
+                tag_buffer[i].template get_code<std::endian::native>()) [[unlikely]] {
                 is_sorted = false;
                 break;
             }
         }
-        if (!is_sorted) {
+        if (!is_sorted) [[unlikely]] {
             std::sort(tag_buffer.begin(), tag_buffer.end(), 
                 [](const auto& a, const auto& b) {
                     return a.template get_code<std::endian::native>() < 
@@ -232,7 +248,7 @@ struct ExtractedTagsImpl<TagSpec<Tags...>> {
             values, reader, tag_buffer, last_error);
 
         if (!success) [[unlikely]] {
-            return Err(last_error.code, last_error.message);
+            return last_error;
         }
         
         return Ok();
@@ -249,7 +265,7 @@ struct ExtractedTagsImpl<TagSpec<Tags...>> {
             values, reader, tag_buffer, last_error);
 
         if (!success) [[unlikely]] {
-            return Err(last_error.code, last_error.message);
+            return last_error;
         }
         
         return Ok();

@@ -35,7 +35,7 @@ inline std::size_t write_rational(std::byte* dest, const RationalType& rational)
 /// Helper to write tag data to a buffer with proper type conversion and endianness
 template <typename TagDesc, std::endian TargetEndian, typename ValueType>
 [[nodiscard]] inline Result<void> write_tag_data(const ValueType& value, std::span<std::byte> buffer, std::size_t required_size) noexcept {
-    if (buffer.size() < required_size) {
+    if (buffer.size() < required_size) [[unlikely]] {
         return Err(Error::Code::OutOfBounds,
                   "Buffer too small: need " + std::to_string(required_size) + 
                   " bytes, got " + std::to_string(buffer.size()));
@@ -55,7 +55,7 @@ template <typename TagDesc, std::endian TargetEndian, typename ValueType>
 
         // (ASCII), spec mandates null terminator, included in the tag count.
         if constexpr (datatype == TiffDataType::Ascii) {
-            if (required_size != value.size() + 1) {
+            if (required_size != value.size() + 1) [[unlikely]] {
                 return Err(Error::Code::InvalidTag,
                           "String size mismatch: expected " + std::to_string(required_size - 1) + 
                           " characters + null terminator, got " + std::to_string(value.size()));
@@ -64,7 +64,7 @@ template <typename TagDesc, std::endian TargetEndian, typename ValueType>
             dest[value.size()] = std::byte{0}; // spec mandates null terminator, included in the tag count.
         } else {
             // Byte or Undefined: write raw bytes without null terminator
-            if (required_size != value.size()) {
+            if (required_size != value.size()) [[unlikely]] {
                 return Err(Error::Code::InvalidTag,
                           "String size mismatch: expected " + std::to_string(required_size) + 
                           " bytes, got " + std::to_string(value.size()));// TODO: maybe required_size should be checked for all paths

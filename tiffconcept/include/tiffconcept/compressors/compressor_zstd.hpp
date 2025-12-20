@@ -98,7 +98,7 @@ public:
         std::span<const std::byte> input) const noexcept {
         
         auto ctx_result = ensure_context();
-        if (!ctx_result) {
+        if (!ctx_result) [[unlikely]] {
             return Err(ctx_result.error().code, ctx_result.error().message);
         }
         
@@ -125,7 +125,7 @@ public:
             compression_level_
         );
         
-        if (ZSTD_isError(result)) {
+        if (ZSTD_isError(result)) [[unlikely]] {
             return Err(Error::Code::CompressionError,
                        std::string("ZSTD compression failed: ") + 
                        ZSTD_getErrorName(result));

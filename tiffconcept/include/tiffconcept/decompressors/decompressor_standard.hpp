@@ -28,7 +28,7 @@ public:
         std::span<std::byte> output,
         std::span<const std::byte> input) const noexcept {
         
-        if (input.size() > output.size()) {
+        if (input.size() > output.size()) [[unlikely]] {
             return Err(Error::Code::InvalidFormat,
                        "Output buffer too small for uncompressed data");
         }
@@ -74,7 +74,7 @@ public:
         std::size_t out_pos = 0;
         
         while (in_pos < input.size()) {
-            if (out_pos >= output.size()) {
+            if (out_pos >= output.size()) [[unlikely]] {
                 return Err(Error::Code::InvalidFormat,
                            "Output buffer too small for PackBits decompression");
             }
@@ -91,12 +91,12 @@ public:
                 // Literal run: copy next (n+1) bytes
                 std::size_t count = static_cast<std::size_t>(n) + 1;
                 
-                if (in_pos + count > input.size()) {
+                if (in_pos + count > input.size()) [[unlikely]] {
                     return Err(Error::Code::InvalidFormat,
                                "PackBits: unexpected end of input in literal run");
                 }
                 
-                if (out_pos + count > output.size()) {
+                if (out_pos + count > output.size()) [[unlikely]] {
                     return Err(Error::Code::InvalidFormat,
                                "PackBits: output buffer too small");
                 }
@@ -108,12 +108,12 @@ public:
                 // Replicated run: copy next byte (-n+1) times
                 std::size_t count = static_cast<std::size_t>(-n) + 1;
                 
-                if (in_pos >= input.size()) {
+                if (in_pos >= input.size()) [[unlikely]] {
                     return Err(Error::Code::InvalidFormat,
                                "PackBits: unexpected end of input in replicated run");
                 }
                 
-                if (out_pos + count > output.size()) {
+                if (out_pos + count > output.size()) [[unlikely]] {
                     return Err(Error::Code::InvalidFormat,
                                "PackBits: output buffer too small");
                 }

@@ -130,11 +130,11 @@ public:
     /// Zero-copy read (only available if can_read is true)
     [[nodiscard]] Result<ReadViewType> read(std::size_t offset, std::size_t size) const noexcept 
         requires (AccessPolicy::can_read) {
-        if (!is_valid()) {
+        if (!is_valid()) [[unlikely]] {
             return Err(Error::Code::ReadError, "Buffer not set");
         }
         
-        if (offset >= buffer_.size()) {
+        if (offset >= buffer_.size()) [[unlikely]] {
             return Err(Error::Code::OutOfBounds, "Read offset beyond buffer size");
         }
         
@@ -154,11 +154,11 @@ public:
     /// Zero-copy write (only available if can_write is true)
     [[nodiscard]] Result<WriteViewType> write(std::size_t offset, std::size_t size) noexcept 
         requires (AccessPolicy::can_write) {
-        if (!is_valid()) {
+        if (!is_valid()) [[unlikely]] {
             return Err(Error::Code::WriteError, "Buffer not set");
         }
         
-        if (offset >= buffer_.size()) {
+        if (offset >= buffer_.size()) [[unlikely]] {
             return Err(Error::Code::OutOfBounds, "Write offset beyond buffer size");
         }
         
@@ -169,7 +169,7 @@ public:
     }
     
     [[nodiscard]] Result<std::size_t> size() const noexcept {
-        if (!is_valid()) {
+        if (!is_valid()) [[unlikely]] {
             return Err(Error::Code::ReadError, "Buffer not set");
         }
         return Ok(buffer_.size());
@@ -179,7 +179,7 @@ public:
     /// For borrowed buffers, this can only "succeed" if the size matches
     [[nodiscard]] Result<void> resize(std::size_t new_size) noexcept 
         requires (AccessPolicy::can_write) {
-        if (new_size != buffer_.size()) {
+        if (new_size != buffer_.size()) [[unlikely]] {
             return Err(Error::Code::WriteError, "Cannot resize borrowed buffer");
         }
         return Ok();
@@ -277,11 +277,11 @@ public:
     /// Zero-copy read (only available if can_read is true)
     [[nodiscard]] Result<ReadViewType> read(std::size_t offset, std::size_t size) const noexcept 
         requires (AccessPolicy::can_read) {
-        if (!is_valid()) {
+        if (!is_valid()) [[unlikely]] {
             return Err(Error::Code::ReadError, "Buffer not initialized");
         }
         
-        if (offset >= buffer_.size()) {
+        if (offset >= buffer_.size()) [[unlikely]] {
             return Err(Error::Code::OutOfBounds, "Read offset beyond buffer size");
         }
         
@@ -294,11 +294,11 @@ public:
     /// Zero-copy write (only available if can_write is true)
     [[nodiscard]] Result<WriteViewType> write(std::size_t offset, std::size_t size) noexcept 
         requires (AccessPolicy::can_write) {
-        if (!is_valid()) {
+        if (!is_valid()) [[unlikely]] {
             return Err(Error::Code::WriteError, "Buffer not initialized");
         }
         
-        if (offset >= buffer_.size()) {
+        if (offset >= buffer_.size()) [[unlikely]] {
             return Err(Error::Code::OutOfBounds, "Write offset beyond buffer size");
         }
         
