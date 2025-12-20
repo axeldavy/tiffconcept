@@ -133,8 +133,8 @@ inline Result<WrittenImageInfo> ImageWriter<PixelType, CompSpec, WriteConfig_, T
         samples_per_pixel, planar_config
     );
     
-    if (!layout_result) {
-        return Err(layout_result.error().code, layout_result.error().message);
+    if (layout_result.is_error()) {
+        return layout_result.error();
     }
     
     auto layout = std::move(layout_result.value());
@@ -213,8 +213,8 @@ inline Result<WrittenImageInfo> ImageWriter<PixelType, CompSpec, WriteConfig_, T
             effective_samples
         );
         
-        if (!encoded_result) {
-            return Err(encoded_result.error().code, encoded_result.error().message);
+        if (encoded_result.is_error()) {
+            return encoded_result.error();
         }
         
         encoded_chunks.push_back(std::move(encoded_result.value()));
@@ -241,8 +241,8 @@ inline Result<WrittenImageInfo> ImageWriter<PixelType, CompSpec, WriteConfig_, T
             std::span<const std::byte>(encoded_chunk.data)
         );
         
-        if (!write_result) {
-            return Err(write_result.error().code, "Failed to write chunk data");
+        if (write_result.is_error()) {
+            return Err(write_result.error().code, "Failed to write chunk data: " + write_result.error().message);
         }
         
         current_offset += encoded_chunk.info.compressed_size;
@@ -250,13 +250,13 @@ inline Result<WrittenImageInfo> ImageWriter<PixelType, CompSpec, WriteConfig_, T
     
     // Flush buffered data
     auto flush_result = buffering_strategy.flush(writer);
-    if (!flush_result) {
-        return Err(flush_result.error().code, "Failed to flush buffered data");
+    if (flush_result.is_error()) {
+        return Err(flush_result.error().code, "Failed to flush buffered data: " + flush_result.error().message);
     }
     
     info.total_data_size = current_offset - data_start_offset;
     
-    return Ok(std::move(info));
+    return Ok(std::move(info)); // TODO: is move not a counter pattern here ?
 }
 
 /// Write stripped image (convenience wrapper)

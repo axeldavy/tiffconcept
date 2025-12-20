@@ -422,7 +422,7 @@ TEST(IFDBuilder, OptionalTagAbsent) {
 
 TEST(IFDBuilder, StringTagShort) {
     ExtractedTags<TagDescriptor<TagCode::Software, TiffDataType::Ascii, std::string>> tags;
-    tags.get<TagCode::Software>() = "Test";  // 4 bytes - fits inline
+    tags.get<TagCode::Software>() = "Hi!";  // 4 bytes - fits inline
     
     IFDBuilder<TiffFormatType::Classic, std::endian::native, IFDAtEnd> builder;
     ASSERT_TRUE(builder.add_tags(tags).is_ok());

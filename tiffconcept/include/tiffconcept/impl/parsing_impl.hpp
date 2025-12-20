@@ -25,8 +25,8 @@ inline Result<T> read_struct_no_endianness_conversion(const Reader& reader, std:
 {
     auto view_result = reader.read(offset, sizeof(T));
     
-    if (!view_result) {
-        return Err(view_result.error().code, "Failed to read structure at offset " + std::to_string(offset));
+    if (view_result.is_error()) {
+        return Err(view_result.error().code, "Failed to read structure at offset " + std::to_string(offset) + ": " + view_result.error().message);
     }
     
     const auto& view = view_result.value();
@@ -54,8 +54,8 @@ inline Result<void> read_array_into(const Reader& reader, std::size_t offset, st
 
     auto view_result = reader.read(offset, total_size);
 
-    if (!view_result) {
-        return Err(view_result.error().code, "Failed to read array at offset " + std::to_string(offset));
+    if (view_result.is_error()) {
+        return Err(view_result.error().code, "Failed to read array at offset " + std::to_string(offset) + ": " + view_result.error().message);
     }
 
     const auto& view = view_result.value();
@@ -89,8 +89,8 @@ inline Result<std::vector<T>> read_array(const Reader& reader, std::size_t offse
     std::vector<T> values(count);
     auto result = read_array_into<Reader, T, SourceEndian, TargetEndian>(reader, offset, std::span<T>(values));
     
-    if(!result) {
-        return Err(result.error().code, result.error().message);
+    if (result.is_error()) {
+        return result.error();
     }
     
     return Ok(std::move(values));
@@ -105,6 +105,13 @@ inline Result<typename TagDesc::element_type> parse_single_scalar(
 {
     using ElementType = typename TagDesc::element_type;
     using RefType = typename TagDesc::reference_type;
+    const std::size_t tag_count = static_cast<std::size_t>(tag.template get_count<std::endian::native>());
+
+    // The output is a scalar. It should have count=1
+    if (tag_count != 1) {
+        return Err(Error::Code::InvalidTag, 
+                  "Tag " + std::to_string(tag.template get_code<std::endian::native>()) + " has invalid count: " + std::to_string(tag_count) + ", expected 1 given the storage type.");
+    }
     
     if (tag.is_inline()) {
         RefType value;
@@ -115,9 +122,14 @@ inline Result<typename TagDesc::element_type> parse_single_scalar(
         if constexpr (SourceEndian != TargetEndian) {
             if constexpr (std::is_arithmetic_v<RefType>) {
                 auto result = read_struct_no_endianness_conversion<Reader, RefType>(reader, tag.template get_offset<std::endian::native>());
-                if (!result) return Err(result.error().code, result.error().message);
+
+                if (result.is_error()) {
+                    return Err(result.error().code, "Failed to read scalar value: " + result.error().message);
+                }
+
                 RefType value = result.value();
                 convert_endianness<RefType, SourceEndian, TargetEndian>(value);
+
                 return Ok(static_cast<ElementType>(value));
             } else {
                 // For custom types, we cannot handle endianness conversion
@@ -126,8 +138,12 @@ inline Result<typename TagDesc::element_type> parse_single_scalar(
                 }();
             }
         }
+
         auto result = read_struct_no_endianness_conversion<Reader, RefType>(reader, tag.template get_offset<std::endian::native>());
-        if (!result) return Err(result.error().code, result.error().message);
+        if (result.is_error()) {
+            return Err(result.error().code, "Failed to read scalar value: " + result.error().message);
+        }
+
         return Ok(static_cast<ElementType>(result.value()));
     }
 }
@@ -143,10 +159,10 @@ inline Result<typename TagDesc::element_type> parse_single_rational(
     using ComponentType = typename TagDesc::reference_type;
     const std::size_t tag_count = static_cast<std::size_t>(tag.template get_count<std::endian::native>());
     
-    // Rationals should have count=1 (representing one rational = 2 values)
+    // The output expected rational is a scalar. It should have count=1 (representing one rational = 2 values)
     if (tag_count != 1) {
         return Err(Error::Code::InvalidTag, 
-                  "Rational tag has invalid count: " + std::to_string(tag_count));
+                  "Tag " + std::to_string(tag.template get_code<std::endian::native>()) + " has invalid count: " + std::to_string(tag_count) + ", expected 1 given the storage type.");
     }
     
     RationalType result;
@@ -160,8 +176,8 @@ inline Result<typename TagDesc::element_type> parse_single_rational(
     } else {
         // External storage
         auto data_result = reader.read(tag.template get_offset<std::endian::native>(), 2 * sizeof(ComponentType));
-        if (!data_result) {
-            return Err(data_result.error().code, "Failed to read rational data");
+        if (data_result.is_error()) {
+            return Err(data_result.error().code, "Failed to read rational data: " + data_result.error().message);
         }
         
         const auto& view = data_result.value();
@@ -216,8 +232,8 @@ inline Result<typename TagDesc::value_type> parse_scalar_container(
             std::vector<RefType> ref_buffer(tag_count);
             auto read_result = read_array_into<Reader, RefType, SourceEndian, TargetEndian>(
                 reader, tag.template get_offset<std::endian::native>(), std::span<RefType>(ref_buffer));
-            if (!read_result) {
-                return Err(read_result.error().code, read_result.error().message);
+            if (read_result.is_error()) {
+                return Err(read_result.error().code, "Failed to read tag array value: " + read_result.error().message);
             }
             for (std::size_t i = 0; i < tag_count; ++i) {
                 result[i] = static_cast<ElemType>(ref_buffer[i]);
@@ -228,19 +244,19 @@ inline Result<typename TagDesc::value_type> parse_scalar_container(
     // Handle fixed-size array
     else {
         constexpr std::size_t N = std::tuple_size_v<ContainerType>;
-        if (tag_count != N) {
+        if (tag_count > N) {
             return Err(Error::Code::InvalidTag,
                       "Array count mismatch: expected " + std::to_string(N) + 
                       ", got " + std::to_string(tag_count));
         }
         
         ContainerType result;
-        std::size_t data_size = N * sizeof(RefType);
+        std::size_t data_size = tag_count * sizeof(RefType);
         
         if (data_size <= tag.inline_bytecount_limit()) {
             // Read as reference type for endianness conversion
             const std::byte* src = reinterpret_cast<const std::byte*>(&tag.value);
-            for (std::size_t i = 0; i < N; ++i) {
+            for (std::size_t i = 0; i < tag_count; ++i) {
                 RefType ref_val;
                 std::memcpy(&ref_val, src + i * sizeof(RefType), sizeof(RefType));
                 convert_endianness<RefType, SourceEndian, TargetEndian>(ref_val);
@@ -248,18 +264,201 @@ inline Result<typename TagDesc::value_type> parse_scalar_container(
             }
         } else {
             // Read as reference type, then convert to element type
-            std::array<RefType, N> ref_buffer;
+            std::vector<RefType> ref_buffer(tag_count);
             auto read_result = read_array_into<Reader, RefType, SourceEndian, TargetEndian>(
                 reader, tag.template get_offset<std::endian::native>(), std::span<RefType>(ref_buffer));
-            if (!read_result) {
-                return Err(read_result.error().code, read_result.error().message);
+            if (read_result.is_error()) {
+                return Err(read_result.error().code, "Failed to read tag array value: " + read_result.error().message);
             }
-            for (std::size_t i = 0; i < N; ++i) {
+            for (std::size_t i = 0; i < tag_count; ++i) {
                 result[i] = static_cast<ElemType>(ref_buffer[i]);
             }
         }
+        // Zero init remaining elements if any (should be fail instead ?)
+        for (std::size_t i = tag_count; i < N; ++i) {
+            result[i] = ElemType{};
+        }
         return Ok(result);
     }
+}
+
+/// Parse ascii/byte/undefined data into a int8/uint8 container
+template <typename TagDesc, typename Reader, TiffFormatType TiffFormat, std::endian SourceEndian, std::endian TargetEndian>
+inline Result<typename TagDesc::value_type> parse_byte_array(
+    const TagType<TiffFormat, SourceEndian>& tag,
+    const Reader& reader) noexcept 
+    requires RawReader<Reader>
+{
+    using ValueType = typename TagDesc::value_type;
+    using RefType = typename TagDesc::reference_type;
+    const std::size_t tag_count = static_cast<std::size_t>(tag.template get_count<std::endian::native>());
+    const TiffDataType tag_datatype = tag.template get_datatype<std::endian::native>();
+    
+    if (tag_count == 0) {
+        return Ok(ValueType{});
+    }
+    
+    // Get the raw data
+    const std::byte* data_ptr = nullptr;
+    std::optional<typename Reader::ReadViewType> data_result; // declared here to extend lifetime, as the read buffer is released when going out of scope
+    
+    if (tag_count <= tag.inline_bytecount_limit()) {
+        data_ptr = reinterpret_cast<const std::byte*>(&tag.value);
+    } else {
+        auto read_result = reader.read(tag.template get_offset<std::endian::native>(), tag_count);
+        if (read_result.is_error()) {
+            return Err(read_result.error().code, "Failed to read byte data: " + read_result.error().message);
+        }
+        data_result = std::move(read_result.value());
+        
+        std::span<const std::byte> external_data = data_result.value().data();
+        if (external_data.size() < tag_count) {
+            return Err(Error::Code::UnexpectedEndOfFile, "Incomplete byte data");
+        }
+        data_ptr = external_data.data();
+    }
+
+    std::size_t actual_count = tag_count;
+    if (tag_datatype == TiffDataType::Ascii) {
+        // Trim trailing NULs (maybe we should only trim 1 ???)
+        // The spec says that ascii strings must be NUL-terminated. But
+        // we don't want to fail if there is no NUL, thus accepting when there
+        // are no trailing NULs at all.
+        while (actual_count > 0 && data_ptr[actual_count - 1] == std::byte{0}) {
+            --actual_count;
+        }
+    }
+    
+    static_assert(std::is_same_v<ValueType, std::string> || std::is_same_v<RefType, uint8_t> || std::is_same_v<RefType, int8_t>,
+                  "Container must hold uint8_t or int8_t for byte data");
+    ValueType result;
+    if constexpr (requires { result.resize(actual_count); }) {
+        // Note: this path is taken for std::string as well as std::vector
+        result.resize(actual_count);
+        std::memcpy(result.data(), data_ptr, actual_count);
+    } else {
+        // Fixed-size array
+        constexpr std::size_t N = std::tuple_size_v<ValueType>;
+        if (actual_count > N) {
+            return Err(Error::Code::InvalidTag, 
+                        "Byte data size mismatch: expected " + std::to_string(N) + 
+                        ", got " + std::to_string(actual_count));
+        }
+        std::memcpy(result.data(), data_ptr, actual_count);
+        if (actual_count < N) {
+            // Zero out remaining bytes
+            // This may not be the optimal behaviour, but it's the safest
+            // option, and the one that will (I hope) least break backwards compatibility
+            // if we decide to change it later.
+            std::memset(result.data() + actual_count, 0, N - actual_count);
+        }
+    }
+    return Ok(std::move(result));
+}
+
+/// Parse multiple NUL-separated ASCII strings into a container
+template <typename TagDesc, typename Reader, TiffFormatType TiffFormat, std::endian SourceEndian, std::endian TargetEndian>
+inline Result<typename TagDesc::value_type> parse_string_array(
+    const TagType<TiffFormat, SourceEndian>& tag,
+    const Reader& reader) noexcept 
+    requires RawReader<Reader>
+{
+    using ValueType = typename TagDesc::value_type;
+    using ElementType = typename TagDesc::element_type;
+    static_assert(std::is_same_v<ElementType, std::string>, 
+                  "parse_string_array requires string container");
+    static_assert(TagDesc::is_container, "Must be string containers like std::vector<std::string>");
+    const std::size_t tag_count = static_cast<std::size_t>(tag.template get_count<std::endian::native>());
+    const TiffDataType tag_datatype = tag.template get_datatype<std::endian::native>();
+
+    if (tag_datatype != TiffDataType::Ascii) {
+        return Err(Error::Code::InvalidTag, 
+                  "Tag " + std::to_string(tag.template get_code<std::endian::native>()) + 
+                  " has invalid data type for string array: " + std::to_string(static_cast<int>(tag_datatype)) +
+                  ", expected Ascii.");
+    }
+    
+    if (tag_count == 0) {
+        return Ok(ValueType{});
+    }
+    
+    // Get the raw data
+    const char* data_ptr = nullptr;
+    std::optional<typename Reader::ReadViewType> data_result; // declared here to extend lifetime, as the read buffer is released when going out of scope
+    
+    if (tag_count <= tag.inline_bytecount_limit()) {
+        data_ptr = reinterpret_cast<const char*>(&tag.value);
+    } else {
+        auto read_result = reader.read(tag.template get_offset<std::endian::native>(), tag_count);
+        if (read_result.is_error()) {
+            return Err(read_result.error().code, "Failed to read ascii data: " + read_result.error().message);
+        }
+        data_result = std::move(read_result.value());
+        std::span<const std::byte> external_data = data_result.value().data();
+        if (external_data.size() < tag_count) {
+            return Err(Error::Code::UnexpectedEndOfFile, "Incomplete ascii data");
+        }
+        data_ptr = reinterpret_cast<const char*>(external_data.data());
+    }
+
+    ValueType result;
+    std::size_t pos = 0;
+    std::size_t num_strings = 0;
+
+    // Do a first pass to count the number of strings
+    while (pos < tag_count) {
+        std::size_t len = strnlen(data_ptr + pos, tag_count - pos);
+        pos += len;
+        if (pos < tag_count && data_ptr[pos] == '\0') {
+            ++pos; // Skip the NUL
+            ++num_strings;
+        } else {
+            // No NUL found - malformed but treat as if there was one
+            ++num_strings;
+            break;
+        }
+    }
+
+    // Reserve space
+    if constexpr (requires { result.resize(num_strings); }) {
+        result.resize(num_strings);
+    } else {
+        // Fixed-size array
+        constexpr std::size_t N = std::tuple_size_v<ValueType>;
+        if (num_strings > N) {
+            return Err(Error::Code::InvalidTag, 
+                      "String array size mismatch: expected at most " + std::to_string(N) + 
+                      ", got " + std::to_string(num_strings));
+        }
+    }
+
+    // Second pass to extract strings
+    pos = 0;
+    std::size_t string_index = 0;
+    std::size_t start_pos = 0;
+    
+    while (pos < tag_count) {
+        // Use strnlen to find the next NUL (bounded by remaining data)
+        std::size_t len = strnlen(data_ptr + pos, tag_count - pos);
+        assert(string_index < num_strings);
+        
+        // Move past this string and its NUL terminator
+        pos += len;
+        if (pos < tag_count && data_ptr[pos] == '\0') {
+            // Extract the string
+            // Add the string (may be empty if NUL at start)
+            result[string_index].assign(data_ptr + start_pos, len);
+            ++string_index;
+            ++pos; // Skip the NUL
+            start_pos = pos;
+        } else {
+            // No NUL found - malformed but treat as if there was one
+            result[string_index].assign(data_ptr + start_pos, len);
+            break;
+        }
+    }
+    
+    return Ok(std::move(result));
 }
 
 /// Parse a container of rationals
@@ -294,8 +493,8 @@ inline Result<typename TagDesc::value_type> parse_rational_container(
             }
         } else {
             auto data_result = reader.read(tag.template get_offset<std::endian::native>(), total_bytes);
-            if (!data_result) {
-                return Err(data_result.error().code, "Failed to read rational array");
+            if (data_result.is_error()) {
+                return Err(data_result.error().code, "Failed to read rational array: " + data_result.error().message);
             }
             
             const auto& view = data_result.value();
@@ -337,8 +536,8 @@ inline Result<typename TagDesc::value_type> parse_rational_container(
             }
         } else {
             auto data_result = reader.read(tag.template get_offset<std::endian::native>(), total_bytes);
-            if (!data_result) {
-                return Err(data_result.error().code, "Failed to read rational array");
+            if (data_result.is_error()) {
+                return Err(data_result.error().code, "Failed to read rational array: " + data_result.error().message);
             }
             
             const auto& view = data_result.value();
@@ -367,29 +566,29 @@ inline Result<typename TagDesc::value_type> parse_tag_value(
     requires RawReader<Reader>
 {
     using ValueType = typename TagDesc::value_type;
+    using RefType = typename TagDesc::reference_type;
+    const TiffDataType tag_datatype = tag.template get_datatype<std::endian::native>();
     
-    // Handle strings specially
+    // Handle ASCII strings
     if constexpr (std::is_same_v<ValueType, std::string>) {
-        const std::size_t tag_count = static_cast<std::size_t>(tag.template get_count<std::endian::native>());
-        if (tag_count == 0) {
-            return Ok(std::string{});
+        if (tag_datatype != TiffDataType::Ascii && tag_datatype != TiffDataType::Byte
+            && tag_datatype != TiffDataType::SByte && tag_datatype != TiffDataType::Undefined) {
+            return Err(Error::Code::InvalidTagType,
+                       "Tag " + std::to_string(tag.template get_code<std::endian::native>()) + 
+                       " has invalid data type for string: " + std::to_string(static_cast<int>(tag_datatype)) +
+                       ", expected Ascii.");
         }
-        
-        if (tag_count <= tag.inline_bytecount_limit()) {
-            const char* str_data = reinterpret_cast<const char*>(&tag.value);
-            return Ok(std::string(str_data, std::min(tag_count, std::strlen(str_data))));
-        } else {
-            auto data_result = reader.read(tag.template get_offset<std::endian::native>(), tag_count);
-            if (!data_result) {
-                return Err(data_result.error().code, "Failed to read string data");
-            }
-            const auto& view = data_result.value();
-            if (view.size() < tag_count) {
-                return Err(Error::Code::UnexpectedEndOfFile, "Incomplete string data");
-            }
-            const char* str_data = reinterpret_cast<const char*>(view.data().data());
-            return Ok(std::string(str_data, std::min(tag_count, std::strlen(str_data))));
+        return parse_byte_array<TagDesc, Reader, TiffFormat, SourceEndian, TargetEndian>(tag, reader);
+    }
+    // Handle string containers (std::vector<std::string>, std::array<std::string, N>)
+    else if constexpr (detail::is_string_container_v<ValueType>) {
+        if (tag_datatype == TiffDataType::Ascii) {
+            return parse_string_array<TagDesc, Reader, TiffFormat, SourceEndian, TargetEndian>(tag, reader);
         }
+        return Err(Error::Code::InvalidTagType,
+                   "Tag " + std::to_string(tag.template get_code<std::endian::native>()) + 
+                   " has invalid data type for string array: " + std::to_string(static_cast<int>(tag_datatype)) +
+                   ", expected Ascii.");
     }
     // Single value (scalar, enum, or rational)
     else if constexpr (!TagDesc::is_container) {
@@ -401,7 +600,16 @@ inline Result<typename TagDesc::value_type> parse_tag_value(
     }
     // Container of values
     else {
-        if constexpr (TagDesc::is_rational) {
+        // Handle uint8_t containers similarly to strings (in separate path to help the compiler understand strings cannot fallthrough)
+        if constexpr (std::is_same_v<RefType, uint8_t>
+                      || std::is_same_v<RefType, int8_t>
+                      || std::is_same_v<RefType, char>) {
+            if (tag_datatype == TiffDataType::Ascii || tag_datatype == TiffDataType::Byte || tag_datatype == TiffDataType::SByte || tag_datatype == TiffDataType::Undefined) {
+                return parse_byte_array<TagDesc, Reader, TiffFormat, SourceEndian, TargetEndian>(tag, reader);
+            } else {
+                return parse_scalar_container<TagDesc, Reader, TiffFormat, SourceEndian, TargetEndian>(tag, reader);
+            }
+        } else if constexpr (TagDesc::is_rational) {
             return parse_rational_container<TagDesc, Reader, TiffFormat, SourceEndian, TargetEndian>(tag, reader);
         } else {
             return parse_scalar_container<TagDesc, Reader, TiffFormat, SourceEndian, TargetEndian>(tag, reader);
@@ -444,7 +652,7 @@ inline Result<typename TagDesc::value_type> parse_tag_value_with_promotion(
     requires RawReader<Reader>
 {
     const auto tag_code = tag.template get_code<std::endian::native>();
-    const auto tag_datatype = tag.template get_datatype<std::endian::native>();
+    const TiffDataType tag_datatype = tag.template get_datatype<std::endian::native>();
     
     // Verify tag code matches
     if (tag_code != static_cast<uint16_t>(TagDesc::code)) {
@@ -517,12 +725,23 @@ inline TargetType convert_promoted_value(const SourceType& source) {
         // Container to container conversion
         using TargetElem = std::ranges::range_value_t<TargetType>;
         TargetType result;
-        if constexpr (requires { result.reserve(std::ranges::size(source)); }) {
-            result.reserve(std::ranges::size(source));
-        }
-        for (const auto& elem : source) {
-            if constexpr (requires { result.push_back(static_cast<TargetElem>(elem)); }) {
-                result.push_back(static_cast<TargetElem>(elem));
+        if constexpr (requires { result.resize(std::ranges::size(source)); }) {
+            result.resize(std::ranges::size(source));
+            std::size_t i = 0;
+            for (const auto& elem : source) {
+                result[i++] = static_cast<TargetElem>(elem);
+            }
+        } else {
+            // Fixed-size array
+            constexpr std::size_t N = std::tuple_size_v<TargetType>;
+            if (std::ranges::size(source) != N) {
+                []<bool flag = false>() {
+                    static_assert(flag, "Source container size does not match target fixed-size array");
+                }();
+            }
+            std::size_t i = 0;
+            for (const auto& elem : source) {
+                result[i++] = static_cast<TargetElem>(elem);
             }
         }
         return result;
@@ -563,38 +782,49 @@ inline Result<typename TagDesc::value_type> do_type_promotion(
         case TiffDataType::Byte:
             if constexpr (is_container) { PROMOTE_CONTAINER(uint8_t, TiffDataType::Byte); }
             else { PROMOTE_SCALAR(uint8_t, TiffDataType::Byte); }
+            break;
         case TiffDataType::Short:
             if constexpr (is_container) { PROMOTE_CONTAINER(uint16_t, TiffDataType::Short); }
             else { PROMOTE_SCALAR(uint16_t, TiffDataType::Short); }
+            break;
         case TiffDataType::Long:
             if constexpr (is_container) { PROMOTE_CONTAINER(uint32_t, TiffDataType::Long); }
             else { PROMOTE_SCALAR(uint32_t, TiffDataType::Long); }
+            break;
         case TiffDataType::Long8:
             if constexpr (is_container) { PROMOTE_CONTAINER(uint64_t, TiffDataType::Long8); }
             else { PROMOTE_SCALAR(uint64_t, TiffDataType::Long8); }
+            break;
         case TiffDataType::SByte:
             if constexpr (is_container) { PROMOTE_CONTAINER(int8_t, TiffDataType::SByte); }
             else { PROMOTE_SCALAR(int8_t, TiffDataType::SByte); }
+            break;
         case TiffDataType::SShort:
             if constexpr (is_container) { PROMOTE_CONTAINER(int16_t, TiffDataType::SShort); }
             else { PROMOTE_SCALAR(int16_t, TiffDataType::SShort); }
+            break;
         case TiffDataType::SLong:
             if constexpr (is_container) { PROMOTE_CONTAINER(int32_t, TiffDataType::SLong); }
             else { PROMOTE_SCALAR(int32_t, TiffDataType::SLong); }
+            break;
         case TiffDataType::SLong8:
             if constexpr (is_container) { PROMOTE_CONTAINER(int64_t, TiffDataType::SLong8); }
             else { PROMOTE_SCALAR(int64_t, TiffDataType::SLong8); }
+            break;
         case TiffDataType::Float:
             if constexpr (is_container) { PROMOTE_CONTAINER(float, TiffDataType::Float); }
             else { PROMOTE_SCALAR(float, TiffDataType::Float); }
+            break;
         case TiffDataType::Double:
             if constexpr (is_container) { PROMOTE_CONTAINER(double, TiffDataType::Double); }
             else { PROMOTE_SCALAR(double, TiffDataType::Double); }
+            break;
         default:
-            return Err(Error::Code::InvalidTagType, 
-                       "Unsupported type promotion for datatype " + 
-                       std::to_string(static_cast<uint16_t>(actual_datatype)));
+            break;
     }
+    return Err(Error::Code::InvalidTagType, 
+               "Unsupported type promotion for datatype " + 
+               std::to_string(static_cast<uint16_t>(actual_datatype)));
     
     #undef PROMOTE_SCALAR
     #undef PROMOTE_CONTAINER

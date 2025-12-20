@@ -906,7 +906,7 @@ Result<void> TiledImageInfo<PixelType>::update_from_metadata(
     if (!optional::is_value_present(tile_offsets_val)) {
         return Err(Error::Code::InvalidTag, "TileOffsets tag not found");
     }
-    if (!is_value_present(tile_byte_counts_val)) {
+    if (!optional::is_value_present(tile_byte_counts_val)) {
         return Err(Error::Code::InvalidTag, "TileByteCounts tag not found");
     }
     
@@ -1092,13 +1092,13 @@ Result<void> StrippedImageInfo<PixelType>::update_from_metadata(
     auto strip_byte_counts_val = metadata.template get<TagCode::StripByteCounts>();
     
     // Validation
-    if (!is_value_present(rows_per_strip_val)) {
+    if (!optional::is_value_present(rows_per_strip_val)) {
         return Err(Error::Code::InvalidTag, "RowsPerStrip tag not found");
     }
-    if (!is_value_present(strip_offsets_val)) {
+    if (!optional::is_value_present(strip_offsets_val)) {
         return Err(Error::Code::InvalidTag, "StripOffsets tag not found");
     }
-    if (!is_value_present(strip_byte_counts_val)) {
+    if (!optional::is_value_present(strip_byte_counts_val)) {
         return Err(Error::Code::InvalidTag, "StripByteCounts tag not found");
     }
     

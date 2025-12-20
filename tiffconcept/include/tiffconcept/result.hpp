@@ -23,8 +23,7 @@ struct Error {
         UnexpectedEndOfFile,
         InvalidTagType,
         InvalidPageIndex,
-        CompressionError,
-        IOError  // Alias for ReadError compatibility
+        CompressionError
     };
 
     Code code;
@@ -230,34 +229,6 @@ template <typename T>
 
 [[nodiscard]] constexpr Error Err(Error::Code code, std::string message = "") {
     return Error{code, std::move(message)};
-}
-
-/// Check if a value is present (works for both optional and direct values)
-/// For Result<T>, checks has_value()
-/// For direct values, always returns true
-template <typename T>
-constexpr bool is_value_present(const T& value) noexcept {
-    if constexpr (requires { value.is_ok(); }) {
-        // It's an optional-like type
-        return value.is_ok();
-    } else {
-        // It's a direct value (always present)
-        return true;
-    }
-}
-
-/// Extract the underlying value from either optional or direct storage
-/// For Result<T>, returns T&&
-/// For direct values, returns T&&
-template <typename T>
-constexpr decltype(auto) unwrap_value(T&& value) noexcept {
-    if constexpr (requires { std::forward<T>(value).value(); }) {
-        // It's an optional-like type
-        return std::forward<T>(value).value();
-    } else {
-        // It's a direct value
-        return std::forward<T>(value);
-    }
 }
 
 } // namespace tiffconcept

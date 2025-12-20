@@ -433,7 +433,7 @@ TEST(TagWriting, WriteAsciiString) {
     std::string value = "TestSoftware";
     std::vector<std::byte> buffer(20, std::byte{0});
     
-    auto result = tag_writing::write_tag_data<SoftwareTag, std::endian::native>(value, buffer, value.size());
+    auto result = tag_writing::write_tag_data<SoftwareTag, std::endian::native>(value, buffer, value.size()+1);
     
     ASSERT_TRUE(result);
     

@@ -54,7 +54,21 @@ IFDBuilder<TiffFormat, TargetEndian, IFDPlacement>::create_tag_entry(
     using RawType = typename TagDesc::value_type;
     
     if constexpr (std::is_same_v<RawType, std::string>) {
-        count = value.size();
+        if constexpr (datatype == TiffDataType::Ascii) {
+            count = value.size() + 1;
+            byte_size = count;
+        } else {
+            // Byte or Undefined
+            count = value.size();
+            byte_size = count;
+        }
+        byte_size = count;
+    } else if constexpr (std::is_same_v<typename TagDesc::element_type, std::string>) {
+        // Container of strings
+        count = 0;
+        for (const auto& str : value) {
+            count += str.size() + 1; // +1 for null terminator
+        }
         byte_size = count;
     } else if constexpr (TagDesc::is_container) {
         count = value.size();
@@ -85,8 +99,8 @@ IFDBuilder<TiffFormat, TargetEndian, IFDPlacement>::create_tag_entry(
             value, inline_buffer, byte_size
         );
         
-        if (!write_result) {
-            return Err(write_result.error().code, write_result.error().message);
+        if (write_result.is_error()) {
+            return write_result.error();
         }
     } else {
         // External: store offset, append data to external buffer
@@ -109,8 +123,8 @@ IFDBuilder<TiffFormat, TargetEndian, IFDPlacement>::create_tag_entry(
             value, external_buffer, byte_size
         );
         
-        if (!write_result) {
-            return Err(write_result.error().code, write_result.error().message);
+        if (write_result.is_error()) {
+            return write_result.error();
         }
         
         current_external_offset += byte_size;
@@ -156,7 +170,7 @@ Result<void> IFDBuilder<TiffFormat, TargetEndian, IFDPlacement>::add_tags(
                     const auto& value = value_storage.value();
                     
                     auto tag_result = create_tag_entry<TagDesc>(value, current_external_offset);
-                    if (!tag_result) {
+                    if (tag_result.is_error()) {
                         success = false;
                         last_error = tag_result.error();
                         return;
@@ -164,7 +178,7 @@ Result<void> IFDBuilder<TiffFormat, TargetEndian, IFDPlacement>::add_tags(
                     tags_.push_back(tag_result.value());
                 } else {
                     auto tag_result = create_tag_entry<TagDesc>(value_storage, current_external_offset);
-                    if (!tag_result) {
+                    if (tag_result.is_error()) {
                         success = false;
                         last_error = tag_result.error();
                         return;
@@ -178,13 +192,15 @@ Result<void> IFDBuilder<TiffFormat, TargetEndian, IFDPlacement>::add_tags(
     }(static_cast<Spec*>(nullptr));
     
     if (!success) {
-        return Err(last_error.code, last_error.message);
+        return last_error;
     }
 
     // Update external_data_offset_ for any external data added
     external_data_offset_ = current_external_offset;
     
     // Sort tags by tag code (required by TIFF spec)
+    // Note: We ensure Tags are sorted in TagSpec, thus if tags_ was empty,
+    // this sort should be a no-op.
     std::sort(tags_.begin(), tags_.end(), [](const TagType& a, const TagType& b) {
         uint16_t code_a = a.template get_code<std::endian::native>();
         uint16_t code_b = b.template get_code<std::endian::native>();
@@ -204,8 +220,8 @@ Result<void> IFDBuilder<TiffFormat, TargetEndian, IFDPlacement>::add_tag(
     std::size_t current_external_offset = external_data_offset_;
     auto tag_result = create_tag_entry<TagDesc>(value, current_external_offset);
     
-    if (!tag_result) {
-        return Err(tag_result.error().code, tag_result.error().message);
+    if (tag_result.is_error()) {
+        return tag_result.error();
     }
     
     tags_.push_back(tag_result.value());
@@ -213,7 +229,7 @@ Result<void> IFDBuilder<TiffFormat, TargetEndian, IFDPlacement>::add_tag(
     // Update external_data_offset_ with any new external data added
     external_data_offset_ = current_external_offset;
     
-    // Re-sort tags
+    // Re-sort tags. TODO: insert ordered instead.
     std::sort(tags_.begin(), tags_.end(), [](const TagType& a, const TagType& b) {
         uint16_t code_a = a.template get_code<std::endian::native>();
         uint16_t code_b = b.template get_code<std::endian::native>();
@@ -301,14 +317,14 @@ Result<ifd::IFDOffset> IFDBuilder<TiffFormat, TargetEndian, IFDPlacement>::write
     
     // Resize writer if needed
     auto size_result = writer.size();
-    if (!size_result) {
-        return Err(size_result.error().code, "Failed to get writer size");
+    if (size_result.is_error()) {
+        return Err(size_result.error().code, "Failed to get writer size: " + size_result.error().message);
     }
     
     if (size_result.value() < max_offset) {
         auto resize_result = writer.resize(max_offset);
-        if (!resize_result) {
-            return Err(resize_result.error().code, "Failed to resize writer");
+        if (resize_result.is_error()) {
+            return Err(resize_result.error().code, "Failed to resize writer: " + resize_result.error().message);
         }
     }
     
@@ -345,8 +361,8 @@ Result<ifd::IFDOffset> IFDBuilder<TiffFormat, TargetEndian, IFDPlacement>::write
     
     // Build IFD (this moves tags_)
     auto ifd_result = build(ifd::IFDOffset(ifd_offset));
-    if (!ifd_result) {
-        return Err(ifd_result.error().code, ifd_result.error().message);
+    if (ifd_result.is_error()) {
+        return ifd_result.error();
     }
     
     auto& ifd = ifd_result.value();
@@ -354,29 +370,29 @@ Result<ifd::IFDOffset> IFDBuilder<TiffFormat, TargetEndian, IFDPlacement>::write
     // Write IFD
     auto ifd_bytes = ifd.write();
     auto ifd_view_result = writer.write(ifd_offset, ifd_bytes.size());
-    if (!ifd_view_result) {
-        return Err(ifd_view_result.error().code, "Failed to write IFD");
+    if (ifd_view_result.is_error()) {
+        return Err(ifd_view_result.error().code, "Failed to write IFD: " + ifd_view_result.error().message);
     }
     
     auto ifd_view = std::move(ifd_view_result.value());
     std::memcpy(ifd_view.data().data(), ifd_bytes.data(), ifd_bytes.size());
     auto ifd_flush = ifd_view.flush();
-    if (!ifd_flush) {
-        return Err(ifd_flush.error().code, "Failed to flush IFD");
+    if (ifd_flush.is_error()) {
+        return Err(ifd_flush.error().code, "Failed to flush IFD: " + ifd_flush.error().message);
     }
     
     // Write external data if any
     if (!external_data_.empty()) {
         auto external_view_result = writer.write(external_offset, external_data_.size());
-        if (!external_view_result) {
-            return Err(external_view_result.error().code, "Failed to write external data");
+        if (external_view_result.is_error()) {
+            return Err(external_view_result.error().code, "Failed to write external data: " + external_view_result.error().message);
         }
         
         auto external_view = std::move(external_view_result.value());
         std::memcpy(external_view.data().data(), external_data_.data(), external_data_.size());
         auto external_flush = external_view.flush();
-        if (!external_flush) {
-            return Err(external_flush.error().code, "Failed to flush external data");
+        if (external_flush.is_error()) {
+            return Err(external_flush.error().code, "Failed to flush external data: " + external_flush.error().message);
         }
     }
     

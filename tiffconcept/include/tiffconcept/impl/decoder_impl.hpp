@@ -84,8 +84,8 @@ Result<void> ChunkDecoder<PixelType, DecompSpec>::decode_into(
         compression
     );
     
-    if (!decompress_result) {
-        return Err(decompress_result.error().code, decompress_result.error().message);
+    if (decompress_result.is_error()) {
+        return decompress_result.error();
     }
     
     // Apply predictor decoding if needed (in-place)
@@ -119,7 +119,7 @@ Result<std::span<const PixelType>> ChunkDecoder<PixelType, DecompSpec>::decode(
     // Decode into scratch buffer
     auto result = decode_into(compressed_input, output, width, height, compression, predictor, samples_per_pixel);
     if (!result) {
-        return Err(result.error().code, result.error().message);
+        return result.error();
     }
     
     // Return span over decoded data
@@ -149,8 +149,8 @@ Result<std::vector<PixelType>> ChunkDecoder<PixelType, DecompSpec>::decode_copy(
     
     // Decode directly into the vector
     auto result = decode_into(compressed_input, output_span, width, height, compression, predictor, samples_per_pixel);
-    if (!result) {
-        return Err(result.error().code, result.error().message);
+    if (result.is_error()) {
+        return result.error();
     }
     
     return Ok(std::move(output));

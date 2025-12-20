@@ -45,10 +45,44 @@ template <typename TagDesc, std::endian TargetEndian, typename ValueType>
     using ElementType = typename TagDesc::element_type;
     std::byte* dest = buffer.data();
     
-    // For std::string (ASCII)
+    // For std::string
     if constexpr (std::is_same_v<ValueType_, std::string>) {
-        std::memcpy(dest, value.data(), value.size());
-        // Note: no null terminator (the size is stored in the tag count)
+        constexpr TiffDataType datatype = TagDesc::datatype;
+        static_assert (datatype == TiffDataType::Ascii || 
+                       datatype == TiffDataType::Byte || 
+                       datatype == TiffDataType::Undefined,
+                       "std::string requires Ascii, Byte, or Undefined datatype");
+
+        // (ASCII), spec mandates null terminator, included in the tag count.
+        if constexpr (datatype == TiffDataType::Ascii) {
+            if (required_size != value.size() + 1) {
+                return Err(Error::Code::InvalidTag,
+                          "String size mismatch: expected " + std::to_string(required_size - 1) + 
+                          " characters + null terminator, got " + std::to_string(value.size()));
+            }
+            std::memcpy(dest, value.data(), value.size());
+            dest[value.size()] = std::byte{0}; // spec mandates null terminator, included in the tag count.
+        } else {
+            // Byte or Undefined: write raw bytes without null terminator
+            if (required_size != value.size()) {
+                return Err(Error::Code::InvalidTag,
+                          "String size mismatch: expected " + std::to_string(required_size) + 
+                          " bytes, got " + std::to_string(value.size()));// TODO: maybe required_size should be checked for all paths
+            }
+            std::memcpy(dest, value.data(), value.size());
+        }
+    }
+    // For std::vector<std::string> or std::array<std::string, N> - multiple NUL-separated strings
+    else if constexpr (std::is_same_v<ElementType, std::string>) {
+        constexpr TiffDataType datatype = TagDesc::datatype;
+        static_assert (datatype == TiffDataType::Ascii, "String containers require Ascii datatype");
+        // Write each string followed by a NUL byte
+        std::size_t offset = 0;
+        for (const auto& str : value) {
+            std::memcpy(dest + offset, str.data(), str.size());
+            offset += str.size();
+            dest[offset++] = std::byte{0}; // NUL separator/terminator
+        }
     }
     // Single value (scalar, enum, or rational)
     else if constexpr (!TagDesc::is_container) {
@@ -92,6 +126,7 @@ template <typename TagDesc, typename ValueType>
     constexpr std::size_t type_size = tiff_type_size(datatype);
     
     using RawType = typename TagDesc::value_type;
+    using ElementType = typename TagDesc::element_type;
     
     // For scalar types (single value)
     if constexpr (std::is_arithmetic_v<RawType> || std::is_enum_v<RawType>) {
@@ -103,7 +138,19 @@ template <typename TagDesc, typename ValueType>
     }
     // For std::string (ASCII type - count includes null terminator)
     else if constexpr (std::is_same_v<RawType, std::string>) {
-        return value.size() + 1; // +1 for null terminator
+        if constexpr (datatype == TiffDataType::Ascii) {
+            return value.size() + 1; // ASCII: +1 for null terminator
+        } else {
+            return value.size(); // Byte/Undefined: no null terminator
+        }
+    }
+    // For std::vector<std::string> or containers of strings
+    else if constexpr (std::is_same_v<ElementType, std::string>) {
+        std::size_t total_size = 0;
+        for (const auto& str : value) {
+            total_size += str.size() + 1; // +1 for null terminator
+        }
+        return total_size;
     }
     // For std::vector (count = dynamic size)
     else if constexpr (requires { value.size(); value.data(); typename RawType::value_type; } &&

@@ -92,8 +92,8 @@ Result<IFDOffset> get_first_ifd_offset(const Reader& reader) noexcept {
     
     auto header_result = parsing::read_struct_no_endianness_conversion<Reader, HeaderType>(reader, 0);
 
-    if (!header_result) {
-        return Err(header_result.error().code, header_result.error().message);
+    if (header_result.is_error()) {
+        return header_result.error();
     }
 
     const auto& header = header_result.value();
@@ -114,8 +114,8 @@ Result<IFDDescription<TiffFormat>> read_ifd_header(
     
     auto ifd_header_result = parsing::read_struct_no_endianness_conversion<Reader, IFDHeaderType>(reader, offset.value);
 
-    if (!ifd_header_result) {
-        return Err(ifd_header_result.error().code, ifd_header_result.error().message);
+    if (ifd_header_result.is_error()) {
+        return ifd_header_result.error();
     }
 
     const auto& ifd_header = ifd_header_result.value();
@@ -138,8 +138,8 @@ Result<IFDOffset> read_next_ifd_offset(
                                   ifd_desc.num_entries * sizeof(TagType);
     
     auto result = parsing::read_struct_no_endianness_conversion<Reader, OffsetType>(reader, next_offset_pos);
-    if (!result) {
-        return Err(result.error().code, result.error().message);
+    if (result.is_error()) {
+        return result.error();
     }
     
     OffsetType next_offset = result.value();
@@ -170,8 +170,8 @@ Result<IFDOffset> read_ifd_tags(
     auto tags_result = parsing::read_array<Reader, TagType, SourceEndian, SourceEndian>(
         reader, tags_offset, ifd_desc.num_entries);
     
-    if (!tags_result) {
-        return Err(tags_result.error().code, tags_result.error().message);
+    if (tags_result.is_error()) {
+        return tags_result.error();
     }
     
     out_tags = std::move(tags_result.value());
@@ -192,8 +192,8 @@ Result<void> read_ifd_into(
     
     // First, read just the header to know how many entries
     auto header_result = parsing::read_struct_no_endianness_conversion<Reader, IFDHeaderType>(reader, offset.value);
-    if (!header_result) {
-        return Err(header_result.error().code, header_result.error().message);
+    if (header_result.is_error()) {
+        return header_result.error();
     }
     
     const auto& ifd_header = header_result.value();
@@ -206,8 +206,8 @@ Result<void> read_ifd_into(
         
         // Read next IFD offset
         auto next_offset_result = read_next_ifd_offset<Reader, TiffFormat, SourceEndian>(reader, ifd.description);
-        if (!next_offset_result) {
-            return Err(next_offset_result.error().code, next_offset_result.error().message);
+        if (next_offset_result.is_error()) {
+            return next_offset_result.error();
         }
         
         ifd.next_ifd_offset = next_offset_result.value();
@@ -219,8 +219,8 @@ Result<void> read_ifd_into(
     std::size_t tags_offset = offset.value + sizeof(IFDHeaderType);
     
     auto data_result = reader.read(tags_offset, total_read_size);
-    if (!data_result) {
-        return Err(data_result.error().code, "Failed to read IFD tags and next offset");
+    if (data_result.is_error()) {
+        return Err(data_result.error().code, "Failed to read IFD tags and next offset: " + data_result.error().message);
     }
     
     const auto& view = data_result.value();
@@ -252,8 +252,8 @@ Result<IFD<TiffFormat, SourceEndian>> read_ifd(
     IFD<TiffFormat, SourceEndian> ifd;
     auto result = read_ifd_into<Reader, TiffFormat, SourceEndian>(reader, offset, ifd);
     
-    if (!result) {
-        return Err(result.error().code, result.error().message);
+    if (result.is_error()) {
+        return result.error();
     }
     
     return Ok(std::move(ifd));

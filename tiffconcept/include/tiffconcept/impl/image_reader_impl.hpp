@@ -55,8 +55,8 @@ template <ImageLayoutSpec OutSpec, typename PixelType, typename DecompSpec, type
             samples_per_pixel_
         );
         
-        if (!decode_result) {
-            return Err(decode_result.error().code, decode_result.error().message);
+        if (decode_result.is_error()) {
+            return decode_result.error();
         }
         
         auto decoded_span = decode_result.value();
@@ -66,8 +66,8 @@ template <ImageLayoutSpec OutSpec, typename PixelType, typename DecompSpec, type
             info, decoded_span
         );
         
-        if (!copy_result) {
-            return copy_result;
+        if (copy_result.is_error()) {
+            return copy_result.error();
         }
     }
     

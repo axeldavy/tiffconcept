@@ -115,6 +115,17 @@ consteval bool is_valid_rational_type() {
     return false;
 }
 
+/// Helper to check if a type is a container of strings
+template <typename T>
+struct is_string_container : std::false_type {};
+
+template <typename T>
+    requires std::ranges::range<T> && (!std::is_same_v<T, std::string>)
+struct is_string_container<T> : std::is_same<std::ranges::range_value_t<T>, std::string> {};
+
+template <typename T>
+inline constexpr bool is_string_container_v = is_string_container<T>::value;
+
 /// Validate that a TagDescriptor's value_type matches its TiffDataType
 template <typename TagDesc>
 consteval bool validate_tag_descriptor() {
@@ -122,12 +133,17 @@ consteval bool validate_tag_descriptor() {
     constexpr TiffDataType datatype = TagDesc::datatype;
     using RefType = tiff_reference_type_t<datatype>;
     
-    // Special case: std::string for Ascii/Undefined
+    // Special case: std::string for Ascii/Byte/Undefined
     if constexpr (std::is_same_v<ValueType, std::string>) {
-        return datatype == TiffDataType::Ascii || datatype == TiffDataType::Undefined;
+        return datatype == TiffDataType::Ascii || datatype == TiffDataType::Byte || datatype == TiffDataType::Undefined;
     }
 
     using BaseType = unwrap_container_t<ValueType>;
+
+    // Accept containers of strings for Ascii
+    if constexpr (std::is_same_v<BaseType, std::string>) { // maybe use is_string_container_v ?
+        return datatype == TiffDataType::Ascii;
+    }
     
     // For rational types: ValueType should be a valid rational representation
     if constexpr (datatype == TiffDataType::Rational || datatype == TiffDataType::SRational) {
@@ -186,7 +202,12 @@ struct TagDescriptor {
     static constexpr bool is_rational = (Type == TiffDataType::Rational || Type == TiffDataType::SRational);
     using value_type = ValueType;
     using storage_type = std::conditional_t<Optional, std::optional<ValueType>, ValueType>;
-    using element_type = detail::unwrap_container_t<ValueType>; // value_type if not a container, else the type of the contained elements
+    //using element_type = detail::unwrap_container_t<ValueType>; // value_type if not a container, else the type of the contained elements
+    using element_type = std::conditional_t<
+        std::is_same_v<ValueType, std::string>,
+        char, // map string to char element type
+        detail::unwrap_container_t<ValueType>
+    >;
     using reference_type = detail::tiff_reference_type_t<Type>; // Reference integer C++ type for the primary TiffDataType. needed for endian conversion.
 
     // Compile-time validation
@@ -395,7 +416,7 @@ using CleanFaxDataTag = TagDescriptor<TagCode::CleanFaxData, TiffDataType::Short
 using ConsecutiveBadFaxLinesTag = TagDescriptor<TagCode::ConsecutiveBadFaxLines, TiffDataType::Long, uint32_t, false>;
 using SubIFDTag = TagDescriptor<TagCode::SubIFD, TiffDataType::IFD, std::vector<uint32_t>, false, TiffDataType::Short, TiffDataType::Long>;
 using InkSetTag = TagDescriptor<TagCode::InkSet, TiffDataType::Short, uint16_t, false>; // Default: 1 (CMYK), 2=not CMYK
-using InkNamesTag = TagDescriptor<TagCode::InkNames, TiffDataType::Ascii, std::string, false>;
+using InkNamesTag = TagDescriptor<TagCode::InkNames, TiffDataType::Ascii, std::vector<std::string>, false>;
 using NumberOfInksTag = TagDescriptor<TagCode::NumberOfInks, TiffDataType::Short, uint16_t, false>; // Default: 4
 using DotRangeTag = TagDescriptor<TagCode::DotRange, TiffDataType::Byte, std::vector<uint8_t>, false>;
 using TargetPrinterTag = TagDescriptor<TagCode::TargetPrinter, TiffDataType::Ascii, std::string, false>;
