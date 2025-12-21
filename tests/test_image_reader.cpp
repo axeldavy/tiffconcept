@@ -11,12 +11,12 @@
 #include "../tiffconcept/include/tiffconcept/decompressors/decompressor_standard.hpp"
 #include "../tiffconcept/include/tiffconcept/decompressors/decompressor_zstd.hpp"
 #include "../tiffconcept/include/tiffconcept/strategy/write_strategy.hpp"
-#include "../tiffconcept/include/tiffconcept/strategy/read_strategy.hpp"
 #include "../tiffconcept/include/tiffconcept/readers/reader_buffer.hpp"
-#include "../tiffconcept/include/tiffconcept/tiling.hpp"
+#include "../tiffconcept/include/tiffconcept/lowlevel/tiling.hpp"
 #include "../tiffconcept/include/tiffconcept/ifd.hpp"
 #include "../tiffconcept/include/tiffconcept/tag_extraction.hpp"
-#include "../tiffconcept/include/tiffconcept/tag_spec.hpp"
+#include "../tiffconcept/include/tiffconcept/types/tag_spec.hpp"
+#include "../tiffconcept/include/tiffconcept/types/tag_spec_examples.hpp"
 
 using namespace tiffconcept;
 
@@ -77,7 +77,6 @@ TEST(ImageReaderTest, ReadTiledImage_Uint8_NoCompression) {
     using CompSpec = CompressorSpec<NoneCompressorDesc, PackBitsCompressorDesc, ZstdCompressorDesc>;
     using DecompSpec = DecompressorSpec<NoneDecompressorDesc, PackBitsDecompressorDesc, ZstdDecompressorDesc>;
     using WriteConfig = WriteConfig<IFDAtEnd, SequentialTiles, DirectWrite<BufferWriter>, LazyOffsets>;
-    using ReadStrat = SingleThreadedReader;
     
     const uint32_t width = 256, height = 256;
     const uint32_t tile_width = 64, tile_height = 64;
@@ -129,17 +128,40 @@ TEST(ImageReaderTest, ReadTiledImage_Uint8_NoCompression) {
     }
     ASSERT_TRUE(update_result.is_ok());
     
-    // Read the image
-    ImageReader<PixelType, DecompSpec, ReadStrat> image_reader;
+    // Read the image with all readers
     std::vector<PixelType> output_data(original_data.size());
     auto region = image_info.shape().full_region();
+
+    {
+        SimpleReader<PixelType, DecompSpec> image_reader;
     
-    auto read_result = image_reader.read_region<ImageLayoutSpec::DHWC>(
-        reader, image_info, output_data, region);
-    ASSERT_TRUE(read_result.is_ok());
+        auto read_result = image_reader.read_region<ImageLayoutSpec::DHWC>(
+            reader, metadata, region, std::span<PixelType>(output_data));
+        ASSERT_TRUE(read_result.is_ok());
     
-    // Compare results
-    EXPECT_TRUE(compare_images<PixelType>(original_data, output_data));
+        // Compare results
+        EXPECT_TRUE(compare_images<PixelType>(original_data, output_data));
+    }
+
+    {
+        IOLimitedReader<PixelType, DecompSpec> io_image_reader;
+        memset(output_data.data(), 0, output_data.size() * sizeof(PixelType));
+        auto read_result = io_image_reader.read_region<ImageLayoutSpec::DHWC>(
+            reader, metadata, region, std::span<PixelType>(output_data));
+        ASSERT_TRUE(read_result.is_ok());
+
+        EXPECT_TRUE(compare_images<PixelType>(original_data, output_data));
+    }
+
+    {
+        CPULimitedReader<PixelType, DecompSpec> cpu_image_reader;
+        memset(output_data.data(), 0, output_data.size() * sizeof(PixelType));
+        auto read_result = cpu_image_reader.read_region<ImageLayoutSpec::DHWC>(
+            reader, metadata, region, std::span<PixelType>(output_data));
+        ASSERT_TRUE(read_result.is_ok());
+
+        EXPECT_TRUE(compare_images<PixelType>(original_data, output_data));
+    }
 }
 
 TEST(ImageReaderTest, ReadTiledImage_Uint16_PackBits) {
@@ -147,7 +169,6 @@ TEST(ImageReaderTest, ReadTiledImage_Uint16_PackBits) {
     using CompSpec = CompressorSpec<NoneCompressorDesc, PackBitsCompressorDesc, ZstdCompressorDesc>;
     using DecompSpec = DecompressorSpec<NoneDecompressorDesc, PackBitsDecompressorDesc, ZstdDecompressorDesc>;
     using WriteConfig = WriteConfig<IFDAtEnd, SequentialTiles, DirectWrite<BufferWriter>, LazyOffsets>;
-    using ReadStrat = SingleThreadedReader;
     
     const uint32_t width = 128, height = 128;
     const uint32_t tile_width = 32, tile_height = 32;
@@ -187,15 +208,38 @@ TEST(ImageReaderTest, ReadTiledImage_Uint16_PackBits) {
     auto update_result = image_info.update_from_metadata(metadata);
     ASSERT_TRUE(update_result.is_ok());
     
-    ImageReader<PixelType, DecompSpec, ReadStrat> image_reader;
+
     std::vector<PixelType> output_data(original_data.size());
     auto region = image_info.shape().full_region();
+
+    {
+        SimpleReader<PixelType, DecompSpec> image_reader;
+        auto read_result = image_reader.read_region<ImageLayoutSpec::DHWC>(
+            reader, metadata, region, std::span<PixelType>(output_data));
+        ASSERT_TRUE(read_result.is_ok());
     
-    auto read_result = image_reader.read_region<ImageLayoutSpec::DHWC>(
-        reader, image_info, output_data, region);
-    ASSERT_TRUE(read_result.is_ok());
-    
-    EXPECT_TRUE(compare_images<PixelType>(original_data, output_data));
+        EXPECT_TRUE(compare_images<PixelType>(original_data, output_data));
+    }
+
+    {
+        IOLimitedReader<PixelType, DecompSpec> io_image_reader;
+        memset(output_data.data(), 0, output_data.size() * sizeof(PixelType));
+        auto read_result = io_image_reader.read_region<ImageLayoutSpec::DHWC>(
+            reader, metadata, region, std::span<PixelType>(output_data));
+        ASSERT_TRUE(read_result.is_ok());
+
+        EXPECT_TRUE(compare_images<PixelType>(original_data, output_data));
+    }
+
+    {
+        CPULimitedReader<PixelType, DecompSpec> cpu_image_reader;
+        memset(output_data.data(), 0, output_data.size() * sizeof(PixelType));
+        auto read_result = cpu_image_reader.read_region<ImageLayoutSpec::DHWC>(
+            reader, metadata, region, std::span<PixelType>(output_data));
+        ASSERT_TRUE(read_result.is_ok());
+
+        EXPECT_TRUE(compare_images<PixelType>(original_data, output_data));
+    }
 }
 
 TEST(ImageReaderTest, ReadTiledImage_Float_NoCompression) {
@@ -203,7 +247,6 @@ TEST(ImageReaderTest, ReadTiledImage_Float_NoCompression) {
     using CompSpec = CompressorSpec<NoneCompressorDesc, PackBitsCompressorDesc, ZstdCompressorDesc>;
     using DecompSpec = DecompressorSpec<NoneDecompressorDesc, PackBitsDecompressorDesc, ZstdDecompressorDesc>;
     using WriteConfig = WriteConfig<IFDAtEnd, SequentialTiles, DirectWrite<BufferWriter>, LazyOffsets>;
-    using ReadStrat = SingleThreadedReader;
     
     const uint32_t width = 64, height = 64;
     const uint32_t tile_width = 16, tile_height = 16;
@@ -242,16 +285,40 @@ TEST(ImageReaderTest, ReadTiledImage_Float_NoCompression) {
     TiledImageInfo<PixelType> image_info;
     auto update_result = image_info.update_from_metadata(metadata);
     ASSERT_TRUE(update_result.is_ok());
-    
-    ImageReader<PixelType, DecompSpec, ReadStrat> image_reader;
+
+
     std::vector<PixelType> output_data(original_data.size());
     auto region = image_info.shape().full_region();
+
+    {
+        SimpleReader<PixelType, DecompSpec> image_reader;
     
-    auto read_result = image_reader.read_region<ImageLayoutSpec::DHWC>(
-        reader, image_info, output_data, region);
-    ASSERT_TRUE(read_result.is_ok());
+        auto read_result = image_reader.read_region<ImageLayoutSpec::DHWC>(
+            reader, metadata, region, std::span<PixelType>(output_data));
+        ASSERT_TRUE(read_result.is_ok());
     
-    EXPECT_TRUE(compare_images<PixelType>(original_data, output_data, PixelType{1e-6}));
+        EXPECT_TRUE(compare_images<PixelType>(original_data, output_data, PixelType{1e-6}));
+    }
+
+    {
+        IOLimitedReader<PixelType, DecompSpec> io_image_reader;
+        memset(output_data.data(), 0, output_data.size() * sizeof(PixelType));
+        auto read_result = io_image_reader.read_region<ImageLayoutSpec::DHWC>(
+            reader, metadata, region, std::span<PixelType>(output_data));
+        ASSERT_TRUE(read_result.is_ok());
+
+        EXPECT_TRUE(compare_images<PixelType>(original_data, output_data, PixelType{1e-6}));
+    }
+
+    {
+        CPULimitedReader<PixelType, DecompSpec> cpu_image_reader;
+        memset(output_data.data(), 0, output_data.size() * sizeof(PixelType));
+        auto read_result = cpu_image_reader.read_region<ImageLayoutSpec::DHWC>(
+            reader, metadata, region, std::span<PixelType>(output_data));
+        ASSERT_TRUE(read_result.is_ok());
+
+        EXPECT_TRUE(compare_images<PixelType>(original_data, output_data, PixelType{1e-6}));
+    }
 }
 
 // ============================================================================
@@ -263,7 +330,6 @@ TEST(ImageReaderTest, ReadStrippedImage_Uint8_NoCompression) {
     using CompSpec = CompressorSpec<NoneCompressorDesc, PackBitsCompressorDesc, ZstdCompressorDesc>;
     using DecompSpec = DecompressorSpec<NoneDecompressorDesc, PackBitsDecompressorDesc, ZstdDecompressorDesc>;
     using WriteConfig = WriteConfig<IFDAtEnd, SequentialTiles, DirectWrite<BufferWriter>, LazyOffsets>;
-    using ReadStrat = SingleThreadedReader;
     
     const uint32_t width = 128, height = 128;
     const uint32_t rows_per_strip = 16;
@@ -307,16 +373,40 @@ TEST(ImageReaderTest, ReadStrippedImage_Uint8_NoCompression) {
     StrippedImageInfo<PixelType> image_info;
     auto update_result = image_info.update_from_metadata(metadata);
     ASSERT_TRUE(update_result.is_ok());
-    
-    ImageReader<PixelType, DecompSpec, ReadStrat> image_reader;
+
     std::vector<PixelType> output_data(original_data.size());
     auto region = image_info.shape().full_region();
-    
-    auto read_result = image_reader.read_region<ImageLayoutSpec::DHWC>(
-        reader, image_info, output_data, region);
-    ASSERT_TRUE(read_result.is_ok());
-    
-    EXPECT_TRUE(compare_images<PixelType>(original_data, output_data));
+
+    {
+        SimpleReader<PixelType, DecompSpec> image_reader;
+        
+        auto read_result = image_reader.read_region<ImageLayoutSpec::DHWC>(
+            reader, metadata, region, std::span<PixelType>(output_data));
+        ASSERT_TRUE(read_result.is_ok());
+        
+        EXPECT_TRUE(compare_images<PixelType>(original_data, output_data));
+    }
+
+    {
+        // Testing with the other readers
+        IOLimitedReader<PixelType, DecompSpec> io_image_reader;
+        memset(output_data.data(), 0, output_data.size() * sizeof(PixelType));
+        auto read_result = io_image_reader.read_region<ImageLayoutSpec::DHWC>(
+            reader, metadata, region, std::span<PixelType>(output_data));
+        ASSERT_TRUE(read_result.is_ok());
+
+        EXPECT_TRUE(compare_images<PixelType>(original_data, output_data));
+    }
+
+    {
+        CPULimitedReader<PixelType, DecompSpec> cpu_image_reader;
+        memset(output_data.data(), 0, output_data.size() * sizeof(PixelType));
+        auto read_result = cpu_image_reader.read_region<ImageLayoutSpec::DHWC>(
+            reader, metadata, region, std::span<PixelType>(output_data));
+        ASSERT_TRUE(read_result.is_ok());
+
+        EXPECT_TRUE(compare_images<PixelType>(original_data, output_data));
+    }
 }
 
 // ============================================================================
@@ -328,7 +418,6 @@ TEST(ImageReaderTest, ReadTiledImage_RGB_Uint8) {
     using CompSpec = CompressorSpec<NoneCompressorDesc, PackBitsCompressorDesc, ZstdCompressorDesc>;
     using DecompSpec = DecompressorSpec<NoneDecompressorDesc, PackBitsDecompressorDesc, ZstdDecompressorDesc>;
     using WriteConfig = WriteConfig<IFDAtEnd, SequentialTiles, DirectWrite<BufferWriter>, LazyOffsets>;
-    using ReadStrat = SingleThreadedReader;
     
     const uint32_t width = 128, height = 128;
     const uint32_t tile_width = 32, tile_height = 32;
@@ -367,16 +456,40 @@ TEST(ImageReaderTest, ReadTiledImage_RGB_Uint8) {
     TiledImageInfo<PixelType> image_info;
     auto update_result = image_info.update_from_metadata(metadata);
     ASSERT_TRUE(update_result.is_ok());
-    
-    ImageReader<PixelType, DecompSpec, ReadStrat> image_reader;
+
     std::vector<PixelType> output_data(original_data.size());
     auto region = image_info.shape().full_region();
-    
-    auto read_result = image_reader.read_region<ImageLayoutSpec::DHWC>(
-        reader, image_info, output_data, region);
-    ASSERT_TRUE(read_result.is_ok());
-    
-    EXPECT_TRUE(compare_images<PixelType>(original_data, output_data));
+
+    {
+        SimpleReader<PixelType, DecompSpec> image_reader;
+        
+        auto read_result = image_reader.read_region<ImageLayoutSpec::DHWC>(
+            reader, metadata, region, std::span<PixelType>(output_data));
+        ASSERT_TRUE(read_result.is_ok());
+        
+        EXPECT_TRUE(compare_images<PixelType>(original_data, output_data));
+    }
+
+    {
+        // Testing with the other readers
+        IOLimitedReader<PixelType, DecompSpec> io_image_reader;
+        memset(output_data.data(), 0, output_data.size() * sizeof(PixelType));
+        auto read_result = io_image_reader.read_region<ImageLayoutSpec::DHWC>(
+            reader, metadata, region, std::span<PixelType>(output_data));
+        ASSERT_TRUE(read_result.is_ok());
+
+        EXPECT_TRUE(compare_images<PixelType>(original_data, output_data));
+    }
+
+    {
+        CPULimitedReader<PixelType, DecompSpec> cpu_image_reader;
+        memset(output_data.data(), 0, output_data.size() * sizeof(PixelType));
+        auto read_result = cpu_image_reader.read_region<ImageLayoutSpec::DHWC>(
+            reader, metadata, region, std::span<PixelType>(output_data));
+        ASSERT_TRUE(read_result.is_ok());
+
+        EXPECT_TRUE(compare_images<PixelType>(original_data, output_data));
+    }
 }
 
 // ============================================================================
@@ -388,7 +501,6 @@ TEST(ImageReaderTest, ReadPartialRegion_Tiled) {
     using CompSpec = CompressorSpec<NoneCompressorDesc, PackBitsCompressorDesc, ZstdCompressorDesc>;
     using DecompSpec = DecompressorSpec<NoneDecompressorDesc, PackBitsDecompressorDesc, ZstdDecompressorDesc>;
     using WriteConfig = WriteConfig<IFDAtEnd, SequentialTiles, DirectWrite<BufferWriter>, LazyOffsets>;
-    using ReadStrat = SingleThreadedReader;
     
     const uint32_t width = 256, height = 256;
     const uint32_t tile_width = 64, tile_height = 64;
@@ -431,23 +543,46 @@ TEST(ImageReaderTest, ReadPartialRegion_Tiled) {
     // Read a 64x64 region starting at (100, 100)
     ImageRegion region(0, 0, 100, 100, samples_per_pixel, 1, 64, 64);
     std::vector<PixelType> output_data(64 * 64 * samples_per_pixel);
-    
-    ImageReader<PixelType, DecompSpec, ReadStrat> image_reader;
-    auto read_result = image_reader.read_region<ImageLayoutSpec::DHWC>(
-        reader, image_info, output_data, region);
-    if (!read_result.is_ok()) {
-        std::cerr << "Partial region read failed: " << read_result.error().message << std::endl;
-    }
-    ASSERT_TRUE(read_result.is_ok());
-    
-    // Verify by comparing with expected region from original data
-    for (uint32_t y = 0; y < 64; ++y) {
-        for (uint32_t x = 0; x < 64; ++x) {
-            std::size_t orig_idx = ((100 + y) * width + (100 + x)) * samples_per_pixel;
-            std::size_t out_idx = (y * 64 + x) * samples_per_pixel;
-            for (uint16_t c = 0; c < samples_per_pixel; ++c) {
-                EXPECT_EQ(original_data[orig_idx + c], output_data[out_idx + c]);
+
+    // Check the while tile is read correctly
+    auto check_whole_tile = [&](std::span<const PixelType> data) {
+        for (uint32_t y = 0; y < tile_height; ++y) {
+            for (uint32_t x = 0; x < tile_width; ++x) {
+                std::size_t orig_idx = ((100 + y) * width + (100 + x)) * samples_per_pixel;
+                std::size_t out_idx = (y * 64 + x) * samples_per_pixel;
+                for (uint16_t c = 0; c < samples_per_pixel; ++c) {
+                    EXPECT_EQ(data[out_idx + c], original_data[orig_idx + c]);
+                }
             }
         }
+    };
+
+    {
+        SimpleReader<PixelType, DecompSpec> image_reader;
+        auto read_result = image_reader.read_region<ImageLayoutSpec::DHWC>(
+            reader, metadata, region, std::span<PixelType>(output_data));
+        ASSERT_TRUE(read_result.is_ok());
+
+        check_whole_tile(std::span<const PixelType>(output_data));
+    }
+
+    {
+        IOLimitedReader<PixelType, DecompSpec> io_image_reader;
+        memset(output_data.data(), 0, output_data.size() * sizeof(PixelType));
+        auto read_result = io_image_reader.read_region<ImageLayoutSpec::DHWC>(
+            reader, metadata, region, std::span<PixelType>(output_data));
+        ASSERT_TRUE(read_result.is_ok());
+
+        check_whole_tile(std::span<const PixelType>(output_data));
+    }
+
+    {
+        CPULimitedReader<PixelType, DecompSpec> cpu_image_reader;
+        memset(output_data.data(), 0, output_data.size() * sizeof(PixelType));
+        auto read_result = cpu_image_reader.read_region<ImageLayoutSpec::DHWC>(
+            reader, metadata, region, std::span<PixelType>(output_data));
+        ASSERT_TRUE(read_result.is_ok());
+
+        check_whole_tile(std::span<const PixelType>(output_data));
     }
 }

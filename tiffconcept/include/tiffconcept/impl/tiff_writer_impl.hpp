@@ -5,15 +5,15 @@
 #include <cstring>
 #include <span>
 #include <vector>
-#include "../encoder.hpp"
+#include "../lowlevel/encoder.hpp"
 #include "../ifd.hpp"
-#include "../ifd_builder.hpp"
 #include "../image_writer.hpp"
+#include "../lowlevel/ifd_builder.hpp"
 #include "../reader_base.hpp"
-#include "../result.hpp"
 #include "../tag_extraction.hpp"
-#include "../tag_spec.hpp"
-#include "../types.hpp"
+#include "../types/result.hpp"
+#include "../types/tag_spec.hpp"
+#include "../types/tiff_spec.hpp"
 #include "../strategy/write_strategy.hpp"
 
 #ifndef TIFFCONCEPT_TIFF_WRITER_HEADER

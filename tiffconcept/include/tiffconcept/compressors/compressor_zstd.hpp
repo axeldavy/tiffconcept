@@ -5,8 +5,8 @@
 #include <memory>
 #include <span>
 #include <vector>
-#include "../compressor_base.hpp"
-#include "../result.hpp"
+#include "compressor_base.hpp"
+#include "../types/result.hpp"
 
 // Forward declarations for ZSTD C API if the header is not included
 #ifndef ZSTD_VERSION_MAJOR

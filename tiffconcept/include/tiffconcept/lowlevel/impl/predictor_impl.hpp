@@ -4,7 +4,7 @@
 #include <concepts>
 #include <cstdint>
 #include <span>
-#include "../types.hpp"
+#include "../../types/tiff_spec.hpp"
 
 #ifndef TIFFCONCEPT_PREDICTOR_HEADER
 #include "../predictor.hpp" // for linters

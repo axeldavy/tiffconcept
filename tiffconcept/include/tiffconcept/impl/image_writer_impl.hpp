@@ -5,15 +5,14 @@
 #include <algorithm>
 #include <span>
 #include <vector>
-#include "../strategy/chunk_strategy.hpp"
-#include "../encoder.hpp"
-#include "../ifd_builder.hpp"
+#include "../lowlevel/encoder.hpp"
+#include "../lowlevel/ifd_builder.hpp"
+#include "../lowlevel/tiling.hpp"
 #include "../image_shape.hpp"
-#include "../result.hpp"
-#include "../tag_spec.hpp"
-#include "../tiling.hpp"
-#include "../types.hpp"
 #include "../strategy/write_strategy.hpp"
+#include "../types/result.hpp"
+#include "../types/tag_spec.hpp"
+#include "../types/tiff_spec.hpp"
 
 
 #ifndef TIFFCONCEPT_IMAGE_WRITER_HEADER
@@ -165,35 +164,47 @@ inline Result<WrittenImageInfo> ImageWriter<PixelType, CompSpec, WriteConfig_, T
             fetch_tile_from_buffer<PlanarConfiguration::Planar, InputSpec, PixelType>(
                 input_data,
                 std::span<PixelType>(tile_buffer),
-                image_depth,
-                image_height,
-                image_width,
-                samples_per_pixel,
-                chunk_info.pixel_z,
-                chunk_info.pixel_y,
-                chunk_info.pixel_x,
-                chunk_info.plane,
-                tile_depth,
-                tile_height,
-                tile_width,
-                effective_samples
+                TileSize{
+                    tile_width,
+                    tile_height,
+                    tile_depth,
+                    effective_samples
+                },
+                TileSize{
+                    image_width,
+                    image_height,
+                    image_depth,
+                    samples_per_pixel
+                },
+                TileCoordinates{
+                    chunk_info.pixel_x,
+                    chunk_info.pixel_y,
+                    chunk_info.pixel_z,
+                    chunk_info.plane
+                }
             );
         } else {
             fetch_tile_from_buffer<PlanarConfiguration::Chunky, InputSpec, PixelType>(
                 input_data,
                 std::span<PixelType>(tile_buffer),
-                image_depth,
-                image_height,
-                image_width,
-                samples_per_pixel,
-                chunk_info.pixel_z,
-                chunk_info.pixel_y,
-                chunk_info.pixel_x,
-                chunk_info.plane,
-                tile_depth,
-                tile_height,
-                tile_width,
-                effective_samples
+                TileSize{
+                    tile_width,
+                    tile_height,
+                    tile_depth,
+                    effective_samples
+                },
+                TileSize{
+                    image_width,
+                    image_height,
+                    image_depth,
+                    samples_per_pixel
+                },
+                TileCoordinates{
+                    chunk_info.pixel_x,
+                    chunk_info.pixel_y,
+                    chunk_info.pixel_z,
+                    chunk_info.plane
+                }
             );
         }
         

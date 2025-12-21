@@ -3,11 +3,11 @@
 #include <cstring>
 #include <span>
 #include <vector>
-#include "../compressor_base.hpp"
+#include "../../compressors/compressor_base.hpp"
 #include "../predictor.hpp"
-#include "../result.hpp"
-#include "../types.hpp"
-#include "../strategy/write_strategy.hpp"
+#include "../../types/result.hpp"
+#include "../../types/tiff_spec.hpp"
+//#include "../strategy/write_strategy.hpp"
 
 #ifndef TIFFCONCEPT_ENCODER_HEADER
 #include "../encoder.hpp" // for linters

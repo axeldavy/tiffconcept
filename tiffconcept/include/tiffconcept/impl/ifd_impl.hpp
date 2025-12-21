@@ -9,8 +9,8 @@
 #include <vector>
 #include "../parsing.hpp"
 #include "../reader_base.hpp"
-#include "../result.hpp"
-#include "../types.hpp"
+#include "../types/result.hpp"
+#include "../types/tiff_spec.hpp"
 
 #ifndef TIFFCONCEPT_IFD_HEADER
 #include "../ifd.hpp" // for linters
@@ -20,12 +20,121 @@ namespace tiffconcept {
 
 namespace ifd {
 
+#if 0
+// ============================================================================
+// IFDDescription Member Function Implementations
+// ============================================================================
+
+/**
+ * @brief Default constructor - creates an empty IFD description
+ */
+template <TiffFormatType TiffFormat>
+constexpr IFDDescription<TiffFormat>::IFDDescription() noexcept 
+        : offset(), num_entries(0) {}
+    
+/**
+ * @brief Construct an IFD description with offset and entry count
+ * @param offset_ File offset where the IFD is located
+ * @param num_entries_ Number of tag entries in the IFD
+ */
+template <TiffFormatType TiffFormat>
+constexpr IFDDescription<TiffFormat>::IFDDescription(IFDOffset offset_, std::size_t num_entries_) noexcept
+    : offset(offset_), num_entries(num_entries_) {}
+
+#endif
 // ============================================================================
 // IFD Member Function Implementations
 // ============================================================================
 
+/**
+ * @brief Default constructor - creates an empty IFD
+ */
 template <TiffFormatType TiffFormat, std::endian SourceEndian>
-Result<void> IFD<TiffFormat, SourceEndian>::write(std::span<std::byte> buffer) const noexcept {
+IFD<TiffFormat, SourceEndian>::IFD() noexcept : description(), tags(), next_ifd_offset() {}
+
+/**
+ * @brief Constructor with IFD description
+ * @param desc IFD description (offset and entry count)
+ */
+template <TiffFormatType TiffFormat, std::endian SourceEndian>
+IFD<TiffFormat, SourceEndian>::IFD(const IFDDescription<TiffFormat>& desc) noexcept 
+    : description(desc), tags(), next_ifd_offset() {}
+
+/**
+ * @brief Constructor with all components
+ * @param desc IFD description (offset and entry count)
+ * @param tags_ Tag entries (moved)
+ * @param next_offset Offset to next IFD in chain
+ */
+template <TiffFormatType TiffFormat, std::endian SourceEndian>
+IFD<TiffFormat, SourceEndian>::IFD(
+    const IFDDescription<TiffFormat>& desc, 
+    std::vector<parsing::TagType<TiffFormat, SourceEndian>>&& tags_,
+    IFDOffset next_offset) noexcept 
+    : description(desc), tags(std::move(tags_)), next_ifd_offset(next_offset)
+{}
+
+/**
+ * @brief Get number of tags in this IFD
+ * @return Number of tag entries
+ */
+template <TiffFormatType TiffFormat, std::endian SourceEndian>
+inline std::size_t IFD<TiffFormat, SourceEndian>::num_tags() const noexcept {
+    return tags.size();
+}
+
+/**
+ * @brief Calculate size in bytes of an IFD when written to file
+ * 
+ * This is the total size including:
+ * - IFD header (entry count)
+ * - All tag entries
+ * - Next IFD offset
+ * 
+ * @param num_tags Number of tags in the IFD
+ * @return Total size in bytes
+ */
+template <TiffFormatType TiffFormat, std::endian SourceEndian>
+inline constexpr std::size_t IFD<TiffFormat, SourceEndian>::size_in_bytes(std::size_t num_tags) noexcept {
+    using IFDHeaderType = typename IFDDescription<TiffFormat>::template HeaderType<SourceEndian>;
+    using TagType = typename IFDDescription<TiffFormat>::template TagType<SourceEndian>;
+    using OffsetType = typename IFDDescription<TiffFormat>::OffsetType;
+    
+    return sizeof(IFDHeaderType) + 
+            num_tags * sizeof(TagType) + 
+            sizeof(OffsetType);
+}
+
+/**
+ * @brief Get size in bytes of this IFD when written to file
+ * @return Total size in bytes
+ */
+template <TiffFormatType TiffFormat, std::endian SourceEndian>
+inline std::size_t IFD<TiffFormat, SourceEndian>::size_in_bytes() const noexcept {
+    return size_in_bytes(num_tags());
+}
+
+/**
+ * @brief Write IFD to a byte buffer
+ * 
+ * Writes the complete IFD structure to a buffer:
+ * 1. IFD header (entry count)
+ * 2. All tag entries
+ * 3. Next IFD offset
+ * 
+ * The data is written in the SourceEndian byte order.
+ * 
+ * @param buffer Output buffer (must be at least size_in_bytes() bytes)
+ * @return Ok() on success, or Error on failure
+ * 
+ * @throws None (noexcept)
+ * @retval Error::Code::OutOfBounds Buffer is too small for the IFD data
+ * 
+ * @note Tags must already be in the correct byte order (SourceEndian)
+ * @note The buffer must be pre-allocated with sufficient size
+ */
+template <TiffFormatType TiffFormat, std::endian SourceEndian>
+inline Result<void> IFD<TiffFormat, SourceEndian>::write(std::span<std::byte> buffer) const noexcept {
     using IFDHeaderType = typename IFDDescription<TiffFormat>::template HeaderType<SourceEndian>;
     using TagType = typename IFDDescription<TiffFormat>::template TagType<SourceEndian>;
     using OffsetType = typename IFDDescription<TiffFormat>::OffsetType;
@@ -71,8 +180,18 @@ Result<void> IFD<TiffFormat, SourceEndian>::write(std::span<std::byte> buffer) c
     return Ok();
 }
 
+/**
+ * @brief Write IFD to a new vector
+ * 
+ * Convenience method that allocates a vector of the exact size needed
+ * and writes the IFD to it.
+ * 
+ * @return Vector containing the serialized IFD
+ * 
+ * @note This always succeeds since the buffer is correctly sized
+ */
 template <TiffFormatType TiffFormat, std::endian SourceEndian>
-std::vector<std::byte> IFD<TiffFormat, SourceEndian>::write() const noexcept {
+inline std::vector<std::byte> IFD<TiffFormat, SourceEndian>::write() const noexcept {
     std::vector<std::byte> buffer(size_in_bytes());
     auto result = write(std::span<std::byte>(buffer));
     // This should never fail since we allocated the exact size
@@ -90,7 +209,7 @@ Result<IFDOffset> get_first_ifd_offset(const Reader& reader) noexcept {
                                           TiffHeader<SourceEndian>, 
                                           TiffBigHeader<SourceEndian>>;
     
-    auto header_result = parsing::read_struct_no_endianness_conversion<Reader, HeaderType>(reader, 0);
+    auto header_result = parsing::detail::read_struct_no_endianness_conversion<Reader, HeaderType>(reader, 0);
 
     if (header_result.is_error()) [[unlikely]] {
         return header_result.error();
@@ -112,7 +231,7 @@ Result<IFDDescription<TiffFormat>> read_ifd_header(
 {
     using IFDHeaderType = typename IFDDescription<TiffFormat>::template HeaderType<SourceEndian>;
     
-    auto ifd_header_result = parsing::read_struct_no_endianness_conversion<Reader, IFDHeaderType>(reader, offset.value);
+    auto ifd_header_result = parsing::detail::read_struct_no_endianness_conversion<Reader, IFDHeaderType>(reader, offset.value);
 
     if (ifd_header_result.is_error()) [[unlikely]] {
         return ifd_header_result.error();
@@ -137,7 +256,7 @@ Result<IFDOffset> read_next_ifd_offset(
     std::size_t next_offset_pos = ifd_desc.offset.value + sizeof(IFDHeaderType) + 
                                   ifd_desc.num_entries * sizeof(TagType);
     
-    auto result = parsing::read_struct_no_endianness_conversion<Reader, OffsetType>(reader, next_offset_pos);
+    auto result = parsing::detail::read_struct_no_endianness_conversion<Reader, OffsetType>(reader, next_offset_pos);
     if (result.is_error()) [[unlikely]] {
         return result.error();
     }
@@ -167,7 +286,7 @@ Result<IFDOffset> read_ifd_tags(
     
     // Read all tag entries
     std::size_t tags_offset = ifd_desc.offset.value + sizeof(IFDHeaderType);
-    auto tags_result = parsing::read_array<Reader, TagType, SourceEndian, SourceEndian>(
+    auto tags_result = parsing::detail::read_array<Reader, TagType, SourceEndian, SourceEndian>(
         reader, tags_offset, ifd_desc.num_entries);
     
     if (tags_result.is_error()) [[unlikely]] {
@@ -191,7 +310,7 @@ Result<void> read_ifd_into(
     using OffsetType = typename IFDDescription<TiffFormat>::OffsetType;
     
     // First, read just the header to know how many entries
-    auto header_result = parsing::read_struct_no_endianness_conversion<Reader, IFDHeaderType>(reader, offset.value);
+    auto header_result = parsing::detail::read_struct_no_endianness_conversion<Reader, IFDHeaderType>(reader, offset.value);
     if (header_result.is_error()) [[unlikely]] {
         return header_result.error();
     }

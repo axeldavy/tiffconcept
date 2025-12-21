@@ -6,12 +6,14 @@
 
 #include "../tiffconcept/include/tiffconcept/parsing.hpp"
 #include "../tiffconcept/include/tiffconcept/ifd.hpp"
-#include "../tiffconcept/include/tiffconcept/ifd_builder.hpp"
+#include "../tiffconcept/include/tiffconcept/lowlevel/ifd_builder.hpp"
 #include "../tiffconcept/include/tiffconcept/tag_extraction.hpp"
-#include "../tiffconcept/include/tiffconcept/tag_spec.hpp"
-#include "../tiffconcept/include/tiffconcept/tag_writing.hpp"
+#include "../tiffconcept/include/tiffconcept/lowlevel/tag_writing.hpp"
 #include "../tiffconcept/include/tiffconcept/readers/reader_buffer.hpp"
-#include "../tiffconcept/include/tiffconcept/types.hpp"
+#include "../tiffconcept/include/tiffconcept/types/tiff_spec.hpp"
+#include "../tiffconcept/include/tiffconcept/types/tag_codes.hpp"
+#include "../tiffconcept/include/tiffconcept/types/tag_spec.hpp"
+#include "../tiffconcept/include/tiffconcept/types/tag_spec_examples.hpp"
 
 using namespace tiffconcept;
 

@@ -3,8 +3,8 @@
 #include <algorithm>
 
 #include "../tiffconcept/include/tiffconcept/readers/reader_buffer.hpp"
-#include "../tiffconcept/include/tiffconcept/result.hpp"
 #include "../tiffconcept/include/tiffconcept/strategy/write_strategy.hpp"
+#include "../tiffconcept/include/tiffconcept/types/result.hpp"
 
 using namespace tiffconcept;
 

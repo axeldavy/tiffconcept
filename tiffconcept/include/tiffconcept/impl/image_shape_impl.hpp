@@ -2,10 +2,11 @@
 
 #include <cstdint>
 #include <type_traits>
-#include "../result.hpp"
+#include "../types/result.hpp"
 #include "../tag_extraction.hpp"
-#include "../tag_spec.hpp"
-#include "../types.hpp"
+#include "../types/optional.hpp"
+#include "../types/tag_spec.hpp"
+#include "../types/tiff_spec.hpp"
 
 #ifndef TIFFCONCEPT_IMAGE_SHAPE_HEADER
 #include "../image_shape.hpp" // for linters

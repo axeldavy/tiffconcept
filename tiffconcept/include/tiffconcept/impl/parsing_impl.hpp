@@ -5,10 +5,10 @@
 #include <cstring>
 #include <span>
 #include <vector>
-#include "../result.hpp"
+#include "../types/result.hpp"
 #include "../reader_base.hpp"
-#include "../tag_spec.hpp"
-#include "../types.hpp"
+#include "../types/tag_spec.hpp"
+#include "../types/tiff_spec.hpp"
 
 #ifndef TIFFCONCEPT_PARSING_HEADER
 #include "../parsing.hpp" // for linters
@@ -17,6 +17,8 @@
 namespace tiffconcept {
 
 namespace parsing {
+
+namespace detail {
 
 /// Helper to read a structure from a reader
 template <typename Reader, typename T>
@@ -594,7 +596,7 @@ inline Result<typename TagDesc::value_type> parse_tag_value(
         return parse_byte_array<TagDesc, Reader, TiffFormat, SourceEndian, TargetEndian>(tag, reader);
     }
     // Handle string containers (std::vector<std::string>, std::array<std::string, N>)
-    else if constexpr (detail::is_string_container_v<ValueType>) {
+    else if constexpr (tiffconcept::detail::is_string_container_v<ValueType>) {
         if (tag_datatype != TiffDataType::Ascii) [[unlikely]] {
             return Err(Error::Code::InvalidTagType,
                     "Tag " + std::to_string(tag.template get_code<std::endian::native>()) + 
@@ -630,8 +632,6 @@ inline Result<typename TagDesc::value_type> parse_tag_value(
     }
 }
 
-namespace detail {
-
 /// Helper to check if a tag descriptor accepts alternate types
 template <typename TagDesc>
 consteval bool has_alternate_types() {
@@ -647,7 +647,6 @@ template <typename TagDesc>
     return false;
 }
 
-} // namespace detail
 
 // Forward declaration for type promotion helper
 template <typename TagDesc, typename Reader, TiffFormatType TiffFormat, std::endian SourceEndian, std::endian TargetEndian>
@@ -711,8 +710,6 @@ inline Result<typename TagDesc::value_type> parse_tag_value_with_promotion(
     }
 }
 
-namespace detail {
-
 // Helper template for type promotion - creates alternate TagDescriptor at namespace scope
 template <TagCode Code, TiffDataType AltDataType, typename AltType>
 struct AlternateTagDescriptor {
@@ -725,8 +722,6 @@ struct AlternateTagDescriptor {
     static constexpr bool is_rational = false;
     static constexpr std::array<TiffDataType, 0> alternate_types{};
 };
-
-} // namespace detail
 
 // Helper to convert from parsed alternate type to target type
 template <typename TargetType, typename SourceType>
@@ -843,9 +838,12 @@ inline Result<typename TagDesc::value_type> do_type_promotion(
     #undef PROMOTE_CONTAINER
 }
 
+
+} // namespace detail
+
 template <RawReader Reader, typename TagDesc, TiffFormatType TiffFormat, std::endian TargetEndian, std::endian SourceEndian>
 inline Result<typename TagDesc::value_type> parse_tag(const Reader& reader, const TagType<TiffFormat, SourceEndian>& tag) noexcept {
-    return parse_tag_value_with_promotion<TagDesc, Reader, TiffFormat, SourceEndian, TargetEndian>(tag, reader);
+    return detail::parse_tag_value_with_promotion<TagDesc, Reader, TiffFormat, SourceEndian, TargetEndian>(tag, reader);
 }
 
 } // namespace parsing

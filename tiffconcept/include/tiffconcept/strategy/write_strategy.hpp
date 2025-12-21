@@ -4,8 +4,8 @@
 #include <cstddef>
 #include <span>
 #include <vector>
-#include "../result.hpp"
-#include "../types.hpp"
+#include "../types/result.hpp"
+#include "../types/tiff_spec.hpp"
 
 namespace tiffconcept {
 

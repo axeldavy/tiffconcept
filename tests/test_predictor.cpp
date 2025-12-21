@@ -7,8 +7,8 @@
 #include <limits>
 #include <algorithm>
 
-#include "../tiffconcept/include/tiffconcept/predictor.hpp"
-#include "../tiffconcept/include/tiffconcept/types.hpp"
+#include "../tiffconcept/include/tiffconcept/lowlevel/predictor.hpp"
+#include "../tiffconcept/include/tiffconcept/types/tiff_spec.hpp"
 
 using namespace tiffconcept;
 using namespace tiffconcept::predictor;

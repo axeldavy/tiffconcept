@@ -3,15 +3,14 @@
 #include <algorithm>
 #include <span>
 #include <vector>
-#include "strategy/chunk_strategy.hpp"
-#include "encoder.hpp"
-#include "ifd_builder.hpp"
 #include "image_shape.hpp"
-#include "result.hpp"
-#include "tag_spec.hpp"
-#include "tiling.hpp"
-#include "types.hpp"
+#include "lowlevel/encoder.hpp"
+#include "lowlevel/ifd_builder.hpp"
+#include "types/result.hpp"
 #include "strategy/write_strategy.hpp"
+#include "types/tag_spec.hpp"
+#include "lowlevel/tiling.hpp"
+#include "types/tiff_spec.hpp"
 
 namespace tiffconcept {
 

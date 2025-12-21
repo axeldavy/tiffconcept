@@ -6,16 +6,16 @@
 #include <algorithm>
 #include <span>
 
-#include "../tiffconcept/include/tiffconcept/compressor_base.hpp"
+#include "../tiffconcept/include/tiffconcept/compressors/compressor_base.hpp"
 #include "../tiffconcept/include/tiffconcept/compressors/compressor_standard.hpp"
 #include "../tiffconcept/include/tiffconcept/compressors/compressor_zstd.hpp"
-#include "../tiffconcept/include/tiffconcept/decoder.hpp"
-#include "../tiffconcept/include/tiffconcept/decompressor_base.hpp"
+#include "../tiffconcept/include/tiffconcept/decompressors/decompressor_base.hpp"
 #include "../tiffconcept/include/tiffconcept/decompressors/decompressor_standard.hpp"
 #include "../tiffconcept/include/tiffconcept/decompressors/decompressor_zstd.hpp"
-#include "../tiffconcept/include/tiffconcept/encoder.hpp"
-#include "../tiffconcept/include/tiffconcept/result.hpp"
-#include "../tiffconcept/include/tiffconcept/types.hpp"
+#include "../tiffconcept/include/tiffconcept/lowlevel/decoder.hpp"
+#include "../tiffconcept/include/tiffconcept/lowlevel/encoder.hpp"
+#include "../tiffconcept/include/tiffconcept/types/result.hpp"
+#include "../tiffconcept/include/tiffconcept/types/tiff_spec.hpp"
 
 using namespace tiffconcept;
 
@@ -203,7 +203,7 @@ TEST(EncoderDecoder, RoundTripNoCompressionNoPredictor) {
     >;
     
     ChunkEncoder<uint8_t, CompSpec> encoder;
-    ChunkDecoder<uint8_t, DecompSpec> decoder;
+    TileDecoder<uint8_t, DecompSpec> decoder;
     
     auto original = generate_test_image<uint8_t>(64, 64, 1, 123);
     
@@ -241,7 +241,7 @@ TEST(EncoderDecoder, RoundTripZSTDNoPredictor) {
     >;
     
     ChunkEncoder<uint16_t, CompSpec> encoder;
-    ChunkDecoder<uint16_t, DecompSpec> decoder;
+    TileDecoder<uint16_t, DecompSpec> decoder;
     
     auto original = generate_gradient_image<uint16_t>(128, 128, 3);
     
@@ -278,7 +278,7 @@ TEST(EncoderDecoder, RoundTripNoCompressionHorizontalPredictor) {
     >;
     
     ChunkEncoder<uint16_t, CompSpec> encoder;
-    ChunkDecoder<uint16_t, DecompSpec> decoder;
+    TileDecoder<uint16_t, DecompSpec> decoder;
     
     auto original = generate_test_image<uint16_t>(64, 64, 3, 456);
     
@@ -317,7 +317,7 @@ TEST(EncoderDecoder, RoundTripZSTDHorizontalPredictor) {
     >;
     
     ChunkEncoder<uint8_t, CompSpec> encoder;
-    ChunkDecoder<uint8_t, DecompSpec> decoder;
+    TileDecoder<uint8_t, DecompSpec> decoder;
     
     auto original = generate_gradient_image<uint8_t>(256, 256, 1);
     
@@ -358,7 +358,7 @@ TEST(EncoderDecoder, RoundTripFloatFloatingPointPredictor) {
     >;
     
     ChunkEncoder<float, CompSpec> encoder;
-    ChunkDecoder<float, DecompSpec> decoder;
+    TileDecoder<float, DecompSpec> decoder;
     
     auto original = generate_gradient_image<float>(64, 64, 4);
     
@@ -397,7 +397,7 @@ TEST(EncoderDecoder, RoundTripPackBits) {
     >;
     
     ChunkEncoder<uint8_t, CompSpec> encoder;
-    ChunkDecoder<uint8_t, DecompSpec> decoder;
+    TileDecoder<uint8_t, DecompSpec> decoder;
     
     // Create data with runs (good for PackBits)
     std::vector<uint8_t> original(128 * 128);

@@ -1,5 +1,5 @@
 
-// This file contains the implementation of ChunkDecoder.
+// This file contains the implementation of TileDecoder.
 // Do not include this file directly - it is included by decoder.hpp
 
 #pragma once
@@ -7,10 +7,10 @@
 #include <cstring>
 #include <span>
 #include <vector>
-#include "../decompressor_base.hpp"
+#include "../../decompressors/decompressor_base.hpp"
 #include "../predictor.hpp"
-#include "../result.hpp"
-#include "../types.hpp"
+#include "../../types/result.hpp"
+#include "../../types/tiff_spec.hpp"
 
 #ifndef TIFFCONCEPT_DECODER_HEADER
 #include "../decoder.hpp" // for linters
@@ -19,13 +19,13 @@
 namespace tiffconcept {
 
 // ============================================================================
-// ChunkDecoder Private Member Function Implementations
+// TileDecoder Private Member Function Implementations
 // ============================================================================
 
 template <typename PixelType, typename DecompSpec>
     requires predictor::DeltaDecodable<PixelType> &&
              ValidDecompressorSpec<DecompSpec>
-Result<void> ChunkDecoder<PixelType, DecompSpec>::apply_predictor(
+Result<void> TileDecoder<PixelType, DecompSpec>::apply_predictor(
     std::span<std::byte> data,
     uint32_t width,
     uint32_t height,
@@ -52,19 +52,19 @@ Result<void> ChunkDecoder<PixelType, DecompSpec>::apply_predictor(
 }
 
 // ============================================================================
-// ChunkDecoder Public Member Function Implementations
+// TileDecoder Public Member Function Implementations
 // ============================================================================
 
 template <typename PixelType, typename DecompSpec>
     requires predictor::DeltaDecodable<PixelType> &&
              ValidDecompressorSpec<DecompSpec>
-ChunkDecoder<PixelType, DecompSpec>::ChunkDecoder() 
+TileDecoder<PixelType, DecompSpec>::TileDecoder() 
     : decompressors_(), scratch_buffer_() {}
 
 template <typename PixelType, typename DecompSpec>
     requires predictor::DeltaDecodable<PixelType> &&
              ValidDecompressorSpec<DecompSpec>
-Result<void> ChunkDecoder<PixelType, DecompSpec>::decode_into(
+inline Result<void> TileDecoder<PixelType, DecompSpec>::decode_into_impl(
     std::span<const std::byte> compressed_input,
     std::span<std::byte> decompressed_output,
     uint32_t width,
@@ -72,7 +72,7 @@ Result<void> ChunkDecoder<PixelType, DecompSpec>::decode_into(
     CompressionScheme compression,
     Predictor predictor,
     uint16_t samples_per_pixel) const noexcept {
-    
+
     if (decompressed_output.size() < width * height * samples_per_pixel * sizeof(PixelType)) {
         return Err(Error::Code::OutOfBounds, "Insufficient decompressed output size");
     }
@@ -96,13 +96,44 @@ Result<void> ChunkDecoder<PixelType, DecompSpec>::decode_into(
 template <typename PixelType, typename DecompSpec>
     requires predictor::DeltaDecodable<PixelType> &&
              ValidDecompressorSpec<DecompSpec>
-Result<std::span<const PixelType>> ChunkDecoder<PixelType, DecompSpec>::decode(
+inline Result<void> TileDecoder<PixelType, DecompSpec>::decode_into(
+    std::span<const std::byte> compressed_input,
+    std::span<std::byte> decompressed_output,
+    uint32_t width,
+    uint32_t height,
+    CompressionScheme compression,
+    Predictor predictor,
+    uint16_t samples_per_pixel) const noexcept {
+
+    std::lock_guard<std::mutex> lock(safety_mutex_);
+    
+    if (decompressed_output.size() < width * height * samples_per_pixel * sizeof(PixelType)) {
+        return Err(Error::Code::OutOfBounds, "Insufficient decompressed output size");
+    }
+    
+    return decode_into_impl(
+        compressed_input,
+        decompressed_output,
+        width,
+        height,
+        compression,
+        predictor,
+        samples_per_pixel
+    );
+}
+
+template <typename PixelType, typename DecompSpec>
+    requires predictor::DeltaDecodable<PixelType> &&
+             ValidDecompressorSpec<DecompSpec>
+inline Result<std::span<const PixelType>> TileDecoder<PixelType, DecompSpec>::decode(
     std::span<const std::byte> compressed_input,
     uint32_t width,
     uint32_t height,
     CompressionScheme compression,
     Predictor predictor,
     uint16_t samples_per_pixel) noexcept {
+
+    std::lock_guard<std::mutex> lock(safety_mutex_);
     
     // Ensure scratch buffer is large enough
     std::size_t required_size = width * height * samples_per_pixel;
@@ -117,7 +148,7 @@ Result<std::span<const PixelType>> ChunkDecoder<PixelType, DecompSpec>::decode(
     );
     
     // Decode into scratch buffer
-    auto result = decode_into(compressed_input, output, width, height, compression, predictor, samples_per_pixel);
+    auto result = decode_into_impl(compressed_input, output, width, height, compression, predictor, samples_per_pixel);
     if (result.is_error()) [[unlikely]] {
         return result.error();
     }
@@ -129,13 +160,15 @@ Result<std::span<const PixelType>> ChunkDecoder<PixelType, DecompSpec>::decode(
 template <typename PixelType, typename DecompSpec>
     requires predictor::DeltaDecodable<PixelType> &&
              ValidDecompressorSpec<DecompSpec>
-Result<std::vector<PixelType>> ChunkDecoder<PixelType, DecompSpec>::decode_copy(
+inline Result<std::vector<PixelType>> TileDecoder<PixelType, DecompSpec>::decode_copy(
     std::span<const std::byte> compressed_input,
     uint32_t width,
     uint32_t height,
     CompressionScheme compression,
     Predictor predictor,
     uint16_t samples_per_pixel) const noexcept {
+
+    std::lock_guard<std::mutex> lock(safety_mutex_);
     
     // Allocate output vector
     std::size_t required_size = width * height * samples_per_pixel;
@@ -148,7 +181,7 @@ Result<std::vector<PixelType>> ChunkDecoder<PixelType, DecompSpec>::decode_copy(
     );
     
     // Decode directly into the vector
-    auto result = decode_into(compressed_input, output_span, width, height, compression, predictor, samples_per_pixel);
+    auto result = decode_into_impl(compressed_input, output_span, width, height, compression, predictor, samples_per_pixel);
     if (result.is_error()) [[unlikely]] {
         return result.error();
     }

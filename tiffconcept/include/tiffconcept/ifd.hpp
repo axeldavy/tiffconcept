@@ -67,9 +67,9 @@
 #include <vector>
 #include "parsing.hpp"
 #include "reader_base.hpp"
-#include "result.hpp"
-#include "tag_spec.hpp"
-#include "types.hpp"
+#include "types/result.hpp"
+#include "types/tag_spec.hpp"
+#include "types/tiff_spec.hpp"
 
 namespace tiffconcept {
 
@@ -84,39 +84,12 @@ namespace ifd {
  * An offset of 0 represents a null offset (end of IFD chain).
  */
 struct IFDOffset {
-    std::size_t value;  ///< The actual file offset in bytes
-    
-    /**
-     * @brief Default constructor - creates a null offset (0)
-     */
+    std::size_t value;
     constexpr IFDOffset() noexcept : value(0) {}
-    
-    /**
-     * @brief Construct an IFD offset from a file position
-     * @param offset File offset in bytes
-     */
     constexpr explicit IFDOffset(std::size_t offset) noexcept : value(offset) {}
-    
-    /**
-     * @brief Check if this is a null offset
-     * @return true if offset is 0 (null), false otherwise
-     */
     [[nodiscard]] constexpr bool is_null() const noexcept { return value == 0; }
-    
-    /**
-     * @brief Check if this is a valid (non-null) offset
-     * @return true if offset is non-zero, false otherwise
-     */
     [[nodiscard]] constexpr explicit operator bool() const noexcept { return value != 0; }
-    
-    /**
-     * @brief Equality comparison
-     */
     [[nodiscard]] constexpr bool operator==(const IFDOffset& other) const noexcept = default;
-    
-    /**
-     * @brief Three-way comparison
-     */
     [[nodiscard]] constexpr auto operator<=>(const IFDOffset& other) const noexcept = default;
 };
 
@@ -130,43 +103,20 @@ struct IFDOffset {
  */
 template <TiffFormatType TiffFormat = TiffFormatType::Classic>
 struct IFDDescription {
-    IFDOffset offset;                ///< File offset of this IFD
-    std::size_t num_entries;         ///< Number of tag entries in this IFD
+    IFDOffset offset;
+    std::size_t num_entries;
     
-    /**
-     * @brief Default constructor - creates an empty IFD description
-     */
-    constexpr IFDDescription() noexcept 
-        : offset(), num_entries(0) {}
-    
-    /**
-     * @brief Construct an IFD description with offset and entry count
-     * @param offset_ File offset where the IFD is located
-     * @param num_entries_ Number of tag entries in the IFD
-     */
+    constexpr IFDDescription() noexcept : offset(), num_entries(0) {}
     constexpr IFDDescription(IFDOffset offset_, std::size_t num_entries_) noexcept
         : offset(offset_), num_entries(num_entries_) {}
     
-    /**
-     * @brief Get offset type for this TIFF format
-     * 
-     * Classic TIFF uses uint32_t offsets, BigTIFF uses uint64_t offsets.
-     */
     using OffsetType = std::conditional_t<TiffFormat == TiffFormatType::Classic, uint32_t, uint64_t>;
     
-    /**
-     * @brief Get IFD header type for this TIFF format
-     * @tparam SourceEndian The endianness of the TIFF file
-     */
     template <std::endian SourceEndian>
     using HeaderType = std::conditional_t<TiffFormat == TiffFormatType::Classic, 
                                           IFDHeader<SourceEndian>, 
                                           IFDBigHeader<SourceEndian>>;
     
-    /**
-     * @brief Get tag type for this TIFF format
-     * @tparam SourceEndian The endianness of the TIFF file
-     */
     template <std::endian SourceEndian>
     using TagType = std::conditional_t<TiffFormat == TiffFormatType::Classic, 
                                        TiffTag<SourceEndian>, 
@@ -189,101 +139,20 @@ struct IFDDescription {
  */
 template <TiffFormatType TiffFormat = TiffFormatType::Classic, std::endian SourceEndian = std::endian::native>
 struct IFD {
-    IFDDescription<TiffFormat> description;                             ///< IFD metadata (offset, entry count)
-    std::vector<parsing::TagType<TiffFormat, SourceEndian>> tags;       ///< Array of tag entries
-    IFDOffset next_ifd_offset;                                          ///< Offset to next IFD (0 if last)
+    IFDDescription<TiffFormat> description;
+    std::vector<parsing::TagType<TiffFormat, SourceEndian>> tags;
+    IFDOffset next_ifd_offset;
     
-    /**
-     * @brief Default constructor - creates an empty IFD
-     */
-    IFD() noexcept : description(), tags(), next_ifd_offset() {}
-    
-    /**
-     * @brief Constructor with IFD description
-     * @param desc IFD description (offset and entry count)
-     */
-    explicit IFD(const IFDDescription<TiffFormat>& desc) noexcept 
-        : description(desc), tags(), next_ifd_offset() {}
-    
-    /**
-     * @brief Constructor with all components
-     * @param desc IFD description (offset and entry count)
-     * @param tags_ Tag entries (moved)
-     * @param next_offset Offset to next IFD in chain
-     */
+    IFD() noexcept;
+    explicit IFD(const IFDDescription<TiffFormat>& desc) noexcept;
     IFD(const IFDDescription<TiffFormat>& desc, 
         std::vector<parsing::TagType<TiffFormat, SourceEndian>>&& tags_,
-        IFDOffset next_offset) noexcept 
-        : description(desc), tags(std::move(tags_)), next_ifd_offset(next_offset) {}
+        IFDOffset next_offset) noexcept;
 
-    /**
-     * @brief Get number of tags in this IFD
-     * @return Number of tag entries
-     */
-    [[nodiscard]] std::size_t num_tags() const noexcept {
-        return tags.size();
-    }
-
-    /**
-     * @brief Calculate size in bytes of an IFD when written to file
-     * 
-     * This is the total size including:
-     * - IFD header (entry count)
-     * - All tag entries
-     * - Next IFD offset
-     * 
-     * @param num_tags Number of tags in the IFD
-     * @return Total size in bytes
-     */
-    [[nodiscard]] constexpr static std::size_t size_in_bytes(std::size_t num_tags) noexcept {
-        using IFDHeaderType = typename IFDDescription<TiffFormat>::template HeaderType<SourceEndian>;
-        using TagType = typename IFDDescription<TiffFormat>::template TagType<SourceEndian>;
-        using OffsetType = typename IFDDescription<TiffFormat>::OffsetType;
-        
-        return sizeof(IFDHeaderType) + 
-               num_tags * sizeof(TagType) + 
-               sizeof(OffsetType);
-    }
-
-    /**
-     * @brief Get size in bytes of this IFD when written to file
-     * @return Total size in bytes
-     */
-    [[nodiscard]] std::size_t size_in_bytes() const noexcept {
-        return size_in_bytes(num_tags());
-    }
-
-    /**
-     * @brief Write IFD to a byte buffer
-     * 
-     * Writes the complete IFD structure to a buffer:
-     * 1. IFD header (entry count)
-     * 2. All tag entries
-     * 3. Next IFD offset
-     * 
-     * The data is written in the SourceEndian byte order.
-     * 
-     * @param buffer Output buffer (must be at least size_in_bytes() bytes)
-     * @return Ok() on success, or Error on failure
-     * 
-     * @throws None (noexcept)
-     * @retval Error::Code::OutOfBounds Buffer is too small for the IFD data
-     * 
-     * @note Tags must already be in the correct byte order (SourceEndian)
-     * @note The buffer must be pre-allocated with sufficient size
-     */
+    [[nodiscard]] std::size_t num_tags() const noexcept;
+    [[nodiscard]] constexpr static std::size_t size_in_bytes(std::size_t num_tags) noexcept;
+    [[nodiscard]] std::size_t size_in_bytes() const noexcept;
     [[nodiscard]] Result<void> write(std::span<std::byte> buffer) const noexcept;
-
-    /**
-     * @brief Write IFD to a new vector
-     * 
-     * Convenience method that allocates a vector of the exact size needed
-     * and writes the IFD to it.
-     * 
-     * @return Vector containing the serialized IFD
-     * 
-     * @note This always succeeds since the buffer is correctly sized
-     */
     [[nodiscard]] std::vector<std::byte> write() const noexcept;
 };
 

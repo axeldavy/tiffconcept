@@ -4,12 +4,13 @@
 #include <cstring>
 #include <vector>
 
-#include "../tiffconcept/include/tiffconcept/ifd_builder.hpp"
 #include "../tiffconcept/include/tiffconcept/ifd.hpp"
+#include "../tiffconcept/include/tiffconcept/lowlevel/ifd_builder.hpp"
 #include "../tiffconcept/include/tiffconcept/readers/reader_buffer.hpp"
 #include "../tiffconcept/include/tiffconcept/tag_extraction.hpp"
-#include "../tiffconcept/include/tiffconcept/tag_spec.hpp"
-#include "../tiffconcept/include/tiffconcept/types.hpp"
+#include "../tiffconcept/include/tiffconcept/types/tag_spec.hpp"
+#include "../tiffconcept/include/tiffconcept/types/tag_spec_examples.hpp"
+#include "../tiffconcept/include/tiffconcept/types/tiff_spec.hpp"
 #include "../tiffconcept/include/tiffconcept/strategy/write_strategy.hpp"
 
 using namespace tiffconcept;

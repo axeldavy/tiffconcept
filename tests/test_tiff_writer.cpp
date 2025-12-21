@@ -4,18 +4,17 @@
 #include <cstring>
 #include <cmath>
 
-#include "../tiffconcept/include/tiffconcept/image_writer.hpp"
-#include "../tiffconcept/include/tiffconcept/image_reader.hpp"
-#include "../tiffconcept/include/tiffconcept/encoder.hpp"
-#include "../tiffconcept/include/tiffconcept/decoder.hpp"
 #include "../tiffconcept/include/tiffconcept/compressors/compressor_standard.hpp"
 #include "../tiffconcept/include/tiffconcept/compressors/compressor_zstd.hpp"
 #include "../tiffconcept/include/tiffconcept/decompressors/decompressor_standard.hpp"
 #include "../tiffconcept/include/tiffconcept/decompressors/decompressor_zstd.hpp"
-#include "../tiffconcept/include/tiffconcept/strategy/write_strategy.hpp"
-#include "../tiffconcept/include/tiffconcept/strategy/read_strategy.hpp"
+#include "../tiffconcept/include/tiffconcept/image_writer.hpp"
+#include "../tiffconcept/include/tiffconcept/image_reader.hpp"
+#include "../tiffconcept/include/tiffconcept/lowlevel/encoder.hpp"
+#include "../tiffconcept/include/tiffconcept/lowlevel/decoder.hpp"
+#include "../tiffconcept/include/tiffconcept/lowlevel/tiling.hpp"
 #include "../tiffconcept/include/tiffconcept/readers/reader_buffer.hpp"
-#include "../tiffconcept/include/tiffconcept/tiling.hpp"
+#include "../tiffconcept/include/tiffconcept/strategy/write_strategy.hpp"
 
 using namespace tiffconcept;
 
@@ -80,7 +79,7 @@ TEST(EncoderDecoderRoundtrip, Simple2D_Uint8_NoCompression) {
     >;
     
     ChunkEncoder<uint8_t, CompSpec> encoder;
-    ChunkDecoder<uint8_t, DecompSpec> decoder;
+    TileDecoder<uint8_t, DecompSpec> decoder;
     
     const uint32_t width = 128;
     const uint32_t height = 128;
@@ -121,7 +120,7 @@ TEST(EncoderDecoderRoundtrip, RGB_Uint8_ZSTD_HorizontalPredictor) {
     >;
     
     ChunkEncoder<uint8_t, CompSpec> encoder;
-    ChunkDecoder<uint8_t, DecompSpec> decoder;
+    TileDecoder<uint8_t, DecompSpec> decoder;
     
     const uint32_t width = 200;
     const uint32_t height = 200;
@@ -158,7 +157,7 @@ TEST(EncoderDecoderRoundtrip, Uint16_ZSTD) {
     >;
     
     ChunkEncoder<uint16_t, CompSpec> encoder;
-    ChunkDecoder<uint16_t, DecompSpec> decoder;
+    TileDecoder<uint16_t, DecompSpec> decoder;
     
     const uint32_t width = 256;
     const uint32_t height = 256;
@@ -191,7 +190,7 @@ TEST(EncoderDecoderRoundtrip, Float_FloatingPointPredictor) {
     >;
     
     ChunkEncoder<float, CompSpec> encoder;
-    ChunkDecoder<float, DecompSpec> decoder;
+    TileDecoder<float, DecompSpec> decoder;
     
     const uint32_t width = 128;
     const uint32_t height = 128;
@@ -222,7 +221,7 @@ TEST(EncoderDecoderRoundtrip, Volume3D_Uint8) {
     >;
     
     ChunkEncoder<uint8_t, CompSpec> encoder;
-    ChunkDecoder<uint8_t, DecompSpec> decoder;
+    TileDecoder<uint8_t, DecompSpec> decoder;
     
     const uint32_t width = 64;
     const uint32_t height = 64;
@@ -256,7 +255,7 @@ TEST(EncoderDecoderRoundtrip, Volume3D_Multichannel_ZSTD) {
     >;
     
     ChunkEncoder<uint16_t, CompSpec> encoder;
-    ChunkDecoder<uint16_t, DecompSpec> decoder;
+    TileDecoder<uint16_t, DecompSpec> decoder;
     
     const uint32_t width = 96;
     const uint32_t height = 96;

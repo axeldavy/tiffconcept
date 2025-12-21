@@ -6,11 +6,12 @@
 #include <tuple>
 #include <utility>
 #include "../ifd.hpp"
+#include "../lowlevel/tag_writing.hpp"
 #include "../parsing.hpp"
-#include "../result.hpp"
-#include "../tag_spec.hpp"
-#include "../tag_writing.hpp"
-#include "../types.hpp"
+#include "../types/result.hpp"
+#include "../types/tag_spec.hpp"
+#include "../types/optional.hpp"
+#include "../types/tiff_spec.hpp"
 
 #ifndef TIFFCONCEPT_TAG_EXTRACTION_HEADER
 #include "../tag_extraction.hpp" // for linters
@@ -497,43 +498,7 @@ inline Result<void> ExtractedTags<Args...>::tag_write_external_data(std::span<st
     return Implementation::template tag_write_external_data_impl<Code, TiffFormat, TargetEndian>(values, buffer);
 }
 
-
-/// Helpers to extract optionals
 namespace optional {
-    /// Helper to check if a value is present (for optional types)
-    template <typename T>
-    inline constexpr bool is_value_present(const T& value) noexcept {
-        if constexpr (is_optional_v<T>) {
-            return value.has_value();
-        } else {
-            return true;
-        }
-    }
-
-    /// Helper to unwrap a value (for optional types)
-    template <typename T>
-    inline constexpr auto& unwrap_value(const T& value) noexcept {
-        if constexpr (is_optional_v<T>) {
-            return value.value();  // Return the whole value
-        } else {
-            return value;
-        }
-    }
-
-    /// Helper to unwrap a value or return a default (for optional types)
-    template <typename T, typename DefaultType>
-    inline constexpr auto& unwrap_value_or(const T& value, DefaultType&& default_value) noexcept {
-        if constexpr (is_optional_v<T>) {
-            if (value.has_value()) {
-                return value.value();
-            } else {
-                return std::forward<DefaultType>(default_value);
-            }
-        } else {
-            return value;
-        }
-    }
-
     /// Helper to extract a tag value or return a default
     template <TagCode Code, typename TagSpec, typename DefaultType>
     inline constexpr auto extract_tag_or(
@@ -553,6 +518,6 @@ namespace optional {
             return val;
         }
     }
-} // namespace optional
+}
 
 } // namespace tiffconcept

@@ -4,8 +4,8 @@
 #include <cstdint>
 #include <memory>
 #include <span>
-#include "../decompressor_base.hpp"
-#include "../result.hpp"
+#include "decompressor_base.hpp"
+#include "../types/result.hpp"
 
 // Forward declarations for ZSTD C API if the header is not included
 // We do not include <zstd.h> directly to avoid a hard dependency

@@ -5,20 +5,21 @@
 #include <fstream>
 #include <cstring>
 
-#include "../tiffconcept/include/tiffconcept/compressor_base.hpp"
+#include "../tiffconcept/include/tiffconcept/compressors/compressor_base.hpp"
 #include "../tiffconcept/include/tiffconcept/compressors/compressor_standard.hpp"
 #include "../tiffconcept/include/tiffconcept/compressors/compressor_zstd.hpp"
-#include "../tiffconcept/include/tiffconcept/decompressor_base.hpp"
+#include "../tiffconcept/include/tiffconcept/decompressors/decompressor_base.hpp"
 #include "../tiffconcept/include/tiffconcept/decompressors/decompressor_standard.hpp"
 #include "../tiffconcept/include/tiffconcept/decompressors/decompressor_zstd.hpp"
-#include "../tiffconcept/include/tiffconcept/encoder.hpp"
-#include "../tiffconcept/include/tiffconcept/decoder.hpp"
+#include "../tiffconcept/include/tiffconcept/image_shape.hpp"
+#include "../tiffconcept/include/tiffconcept/lowlevel/encoder.hpp"
+#include "../tiffconcept/include/tiffconcept/lowlevel/decoder.hpp"
 #include "../tiffconcept/include/tiffconcept/parsing.hpp"
 #include "../tiffconcept/include/tiffconcept/tag_extraction.hpp"
-#include "../tiffconcept/include/tiffconcept/tag_spec.hpp"
-#include "../tiffconcept/include/tiffconcept/image_shape.hpp"
+#include "../tiffconcept/include/tiffconcept/types/tag_spec.hpp"
+#include "../tiffconcept/include/tiffconcept/types/tag_spec_examples.hpp"
 #include "../tiffconcept/include/tiffconcept/readers/reader_buffer.hpp"
-#include "../tiffconcept/include/tiffconcept/types.hpp"
+#include "../tiffconcept/include/tiffconcept/types/tiff_spec.hpp"
 
 using namespace tiffconcept;
 namespace fs = std::filesystem;
@@ -310,7 +311,7 @@ TEST(ErrorHandling, Encoder_InputDataTooSmall) {
 
 TEST(ErrorHandling, Decoder_OutputBufferTooSmall) {
     using DecompSpec = DecompressorSpec<NoneDecompressorDesc>;
-    ChunkDecoder<uint8_t, DecompSpec> decoder;
+    TileDecoder<uint8_t, DecompSpec> decoder;
     
     std::vector<std::byte> compressed_data(100);
     std::vector<std::byte> output(50);  // Too small!

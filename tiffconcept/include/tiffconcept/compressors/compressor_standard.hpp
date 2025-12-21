@@ -5,8 +5,8 @@
 #include <cstring>
 #include <span>
 #include <vector>
-#include "../compressor_base.hpp"
-#include "../result.hpp"
+#include "compressor_base.hpp"
+#include "../types/result.hpp"
 
 namespace tiffconcept {
 

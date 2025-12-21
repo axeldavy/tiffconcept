@@ -6,21 +6,21 @@
 #include <cstring>
 #include <cmath>
 
-#include "../tiffconcept/include/tiffconcept/tiff_writer.hpp"
-#include "../tiffconcept/include/tiffconcept/image_reader.hpp"
-#include "../tiffconcept/include/tiffconcept/tag_extraction.hpp"
-#include "../tiffconcept/include/tiffconcept/tag_spec.hpp"
-#include "../tiffconcept/include/tiffconcept/tag_writing.hpp"
-#include "../tiffconcept/include/tiffconcept/parsing.hpp"
 #include "../tiffconcept/include/tiffconcept/compressors/compressor_standard.hpp"
 #include "../tiffconcept/include/tiffconcept/compressors/compressor_zstd.hpp"
 #include "../tiffconcept/include/tiffconcept/decompressors/decompressor_standard.hpp"
 #include "../tiffconcept/include/tiffconcept/decompressors/decompressor_zstd.hpp"
-#include "../tiffconcept/include/tiffconcept/strategy/write_strategy.hpp"
-#include "../tiffconcept/include/tiffconcept/strategy/read_strategy.hpp"
+#include "../tiffconcept/include/tiffconcept/image_reader.hpp"
+#include "../tiffconcept/include/tiffconcept/lowlevel/tag_writing.hpp"
+#include "../tiffconcept/include/tiffconcept/lowlevel/tiling.hpp"
+#include "../tiffconcept/include/tiffconcept/parsing.hpp"
 #include "../tiffconcept/include/tiffconcept/readers/reader_buffer.hpp"
 #include "../tiffconcept/include/tiffconcept/readers/reader_stream.hpp"
-#include "../tiffconcept/include/tiffconcept/tiling.hpp"
+#include "../tiffconcept/include/tiffconcept/strategy/write_strategy.hpp"
+#include "../tiffconcept/include/tiffconcept/tag_extraction.hpp"
+#include "../tiffconcept/include/tiffconcept/tiff_writer.hpp"
+#include "../tiffconcept/include/tiffconcept/types/tag_spec.hpp"
+#include "../tiffconcept/include/tiffconcept/types/tag_spec_examples.hpp"
 
 using namespace tiffconcept;
 namespace fs = std::filesystem;
@@ -175,12 +175,12 @@ TEST(TiffFileRoundtrip, ClassicTIFF_Uint8_NoCompression_LittleEndian) {
     ASSERT_TRUE(update_result.is_ok());
     
     // Read image data
-    ImageReader<PixelType, DecompSpec, SingleThreadedReader> image_reader;
+    SimpleReader<PixelType, DecompSpec> image_reader;
     auto region = image_info.shape().full_region();
     std::vector<PixelType> read_data(region.num_samples());
     
     auto read_result = image_reader.read_region<ImageLayoutSpec::DHWC>(
-        file_reader, image_info, read_data, region
+        file_reader, read_tags, region, read_data
     );
     ASSERT_TRUE(read_result.is_ok());
     
@@ -273,12 +273,12 @@ TEST(TiffFileRoundtrip, ClassicTIFF_Uint16_ZSTD_BigEndian) {
     auto update_result = image_info.update_from_metadata(read_tags);
     ASSERT_TRUE(update_result.is_ok());
     
-    ImageReader<PixelType, DecompSpec, SingleThreadedReader> image_reader;
+    SimpleReader<PixelType, DecompSpec> image_reader;
     auto region = image_info.shape().full_region();
     std::vector<PixelType> read_data(region.num_samples());
     
     auto read_result = image_reader.read_region<ImageLayoutSpec::DHWC>(
-        file_reader, image_info, read_data, region
+        file_reader, read_tags, region, read_data
     );
     ASSERT_TRUE(read_result.is_ok());
     
@@ -368,12 +368,12 @@ TEST(TiffFileRoundtrip, ClassicTIFF_Float_Predictor) {
     auto update_result = image_info.update_from_metadata(read_tags);
     ASSERT_TRUE(update_result.is_ok());
     
-    ImageReader<PixelType, DecompSpec, SingleThreadedReader> image_reader;
+    SimpleReader<PixelType, DecompSpec> image_reader;
     auto region = image_info.shape().full_region();
     std::vector<PixelType> read_data(region.num_samples());
     
     auto read_result = image_reader.read_region<ImageLayoutSpec::DHWC>(
-        file_reader, image_info, read_data, region
+        file_reader, read_tags, region, read_data
     );
     ASSERT_TRUE(read_result.is_ok());
     
@@ -459,12 +459,12 @@ TEST(TiffFileRoundtrip, ClassicTIFF_MultiChannel_Chunky) {
     auto update_result = image_info.update_from_metadata(read_tags);
     ASSERT_TRUE(update_result.is_ok());
     
-    ImageReader<PixelType, DecompSpec, SingleThreadedReader> image_reader;
+    SimpleReader<PixelType, DecompSpec> image_reader;
     auto region = image_info.shape().full_region();
     std::vector<PixelType> read_data(region.num_samples());
     
     auto read_result = image_reader.read_region<ImageLayoutSpec::DHWC>(
-        file_reader, image_info, read_data, region
+        file_reader, read_tags, region, read_data
     );
     ASSERT_TRUE(read_result.is_ok());
     
@@ -550,12 +550,12 @@ TEST(TiffFileRoundtrip, ClassicTIFF_MultiChannel_Planar) {
     auto update_result = image_info.update_from_metadata(read_tags);
     ASSERT_TRUE(update_result.is_ok());
     
-    ImageReader<PixelType, DecompSpec, SingleThreadedReader> image_reader;
+    SimpleReader<PixelType, DecompSpec> image_reader;
     auto region = image_info.shape().full_region();
     std::vector<PixelType> read_data(region.num_samples());
     
     auto read_result = image_reader.read_region<ImageLayoutSpec::DHWC>(
-        file_reader, image_info, read_data, region
+        file_reader, read_tags, region, read_data
     );
     ASSERT_TRUE(read_result.is_ok());
     
@@ -642,12 +642,12 @@ TEST(TiffFileRoundtrip, ClassicTIFF_Stripped_Uint8) {
     auto update_result = image_info.update_from_metadata(read_tags);
     ASSERT_TRUE(update_result.is_ok());
     
-    ImageReader<PixelType, DecompSpec, SingleThreadedReader> image_reader;
+    SimpleReader<PixelType, DecompSpec> image_reader;
     auto region = image_info.shape().full_region();
     std::vector<PixelType> read_data(region.num_samples());
     
     auto read_result = image_reader.read_region<ImageLayoutSpec::DHWC>(
-        file_reader, image_info, read_data, region
+        file_reader, read_tags, region, read_data
     );
     ASSERT_TRUE(read_result.is_ok());
     
@@ -737,12 +737,12 @@ TEST(TiffFileRoundtrip, BigTIFF_Uint16_LittleEndian) {
     auto update_result = image_info.update_from_metadata(read_tags);
     ASSERT_TRUE(update_result.is_ok());
     
-    ImageReader<PixelType, DecompSpec, SingleThreadedReader> image_reader;
+    SimpleReader<PixelType, DecompSpec> image_reader;
     auto region = image_info.shape().full_region();
     std::vector<PixelType> read_data(region.num_samples());
     
     auto read_result = image_reader.read_region<ImageLayoutSpec::DHWC>(
-        file_reader, image_info, read_data, region
+        file_reader, read_tags, region, read_data
     );
     ASSERT_TRUE(read_result.is_ok());
     
@@ -830,12 +830,12 @@ TEST(TiffFileRoundtrip, BigTIFF_Uint32_ZSTD_BigEndian) {
     auto update_result = image_info.update_from_metadata(read_tags);
     ASSERT_TRUE(update_result.is_ok());
     
-    ImageReader<PixelType, DecompSpec, SingleThreadedReader> image_reader;
+    SimpleReader<PixelType, DecompSpec> image_reader;
     auto region = image_info.shape().full_region();
     std::vector<PixelType> read_data(region.num_samples());
     
     auto read_result = image_reader.read_region<ImageLayoutSpec::DHWC>(
-        file_reader, image_info, read_data, region
+        file_reader, read_tags, region, read_data
     );
     ASSERT_TRUE(read_result.is_ok());
     

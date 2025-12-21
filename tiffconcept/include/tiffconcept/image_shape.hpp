@@ -2,10 +2,10 @@
 
 #include <cstdint>
 #include <type_traits>
-#include "result.hpp"
+#include "types/result.hpp"
 #include "tag_extraction.hpp"
-#include "tag_spec.hpp"
-#include "types.hpp"
+#include "types/tag_spec.hpp"
+#include "types/tiff_spec.hpp"
 
 namespace tiffconcept {
 

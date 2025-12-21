@@ -3,8 +3,8 @@
 #include <cstddef>
 #include <cstring>
 #include <span>
-#include "../decompressor_base.hpp"
-#include "../result.hpp"
+#include "decompressor_base.hpp"
+#include "../types/result.hpp"
 
 namespace tiffconcept {
 

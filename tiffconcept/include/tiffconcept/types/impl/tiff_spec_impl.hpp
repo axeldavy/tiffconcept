@@ -10,7 +10,7 @@
 #include <span>
 
 #ifndef TIFFCONCEPT_TYPES_HEADER
-#include "../types.hpp" // for linters
+#include "../tiff_spec.hpp" // for linters
 #endif
 
 namespace tiffconcept {

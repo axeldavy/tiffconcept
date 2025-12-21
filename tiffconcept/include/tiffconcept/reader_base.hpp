@@ -3,7 +3,7 @@
 #include <concepts>
 #include <cstddef>
 #include <span>
-#include "result.hpp"
+#include "types/result.hpp"
 
 namespace tiffconcept {
 

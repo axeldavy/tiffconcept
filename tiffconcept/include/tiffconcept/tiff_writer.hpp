@@ -3,15 +3,17 @@
 #include <cstring>
 #include <span>
 #include <vector>
-#include "encoder.hpp"
+#include "lowlevel/encoder.hpp"
 #include "ifd.hpp"
-#include "ifd_builder.hpp"
 #include "image_writer.hpp"
+#include "lowlevel/ifd_builder.hpp"
 #include "reader_base.hpp"
-#include "result.hpp"
+#include "types/result.hpp"
 #include "tag_extraction.hpp"
-#include "tag_spec.hpp"
-#include "types.hpp"
+#include "types/optional.hpp"
+#include "types/tag_spec.hpp"
+#include "types/tag_spec_examples.hpp"
+#include "types/tiff_spec.hpp"
 #include "strategy/write_strategy.hpp"
 
 namespace tiffconcept {
@@ -191,30 +193,30 @@ private:
         Writer& writer,
         ifd::IFDOffset first_ifd_offset) noexcept;
 
-    using StripOffsetsT = std::conditional_t<TiffFormat == TiffFormatType::Classic, StripOffsetsTag, StripOffsetsTag_BigTIFF>;
-    using StripByteCountsT = std::conditional_t<TiffFormat == TiffFormatType::Classic, StripByteCountsTag, StripByteCountsTag_BigTIFF>;
-    using TileOffsetsT = std::conditional_t<TiffFormat == TiffFormatType::Classic, TileOffsetsTag, TileOffsetsTag_BigTIFF>;
-    using TileByteCountsT = std::conditional_t<TiffFormat == TiffFormatType::Classic, TileByteCountsTag, TileByteCountsTag_BigTIFF>;
+    using StripOffsetsT = std::conditional_t<TiffFormat == TiffFormatType::Classic, tiffconcept::StripOffsetsTag, tiffconcept::StripOffsetsTag_BigTIFF>;
+    using StripByteCountsT = std::conditional_t<TiffFormat == TiffFormatType::Classic, tiffconcept::StripByteCountsTag, tiffconcept::StripByteCountsTag_BigTIFF>;
+    using TileOffsetsT = std::conditional_t<TiffFormat == TiffFormatType::Classic, tiffconcept::TileOffsetsTag, tiffconcept::TileOffsetsTag_BigTIFF>;
+    using TileByteCountsT = std::conditional_t<TiffFormat == TiffFormatType::Classic, tiffconcept::TileByteCountsTag, tiffconcept::TileByteCountsTag_BigTIFF>;
 
     using WritingTagsType = ExtractedTags<
-        OptTag_t<ImageWidthTag>,
-        OptTag_t<ImageLengthTag>,
-        OptTag_t<BitsPerSampleTag>,
-        OptTag_t<CompressionTag>,
-        OptTag_t<PhotometricInterpretationTag>,
+        OptTag_t<tiffconcept::ImageWidthTag>,
+        OptTag_t<tiffconcept::ImageLengthTag>,
+        OptTag_t<tiffconcept::BitsPerSampleTag>,
+        OptTag_t<tiffconcept::CompressionTag>,
+        OptTag_t<tiffconcept::PhotometricInterpretationTag>,
         OptTag_t<StripOffsetsT>,
-        OptTag_t<SamplesPerPixelTag>,
-        OptTag_t<RowsPerStripTag>,
+        OptTag_t<tiffconcept::SamplesPerPixelTag>,
+        OptTag_t<tiffconcept::RowsPerStripTag>,
         OptTag_t<StripByteCountsT>,
-        OptTag_t<PlanarConfigurationTag>,
-        OptTag_t<PredictorTag>,
-        OptTag_t<TileWidthTag>,
-        OptTag_t<TileLengthTag>,
+        OptTag_t<tiffconcept::PlanarConfigurationTag>,
+        OptTag_t<tiffconcept::PredictorTag>,
+        OptTag_t<tiffconcept::TileWidthTag>,
+        OptTag_t<tiffconcept::TileLengthTag>,
         OptTag_t<TileOffsetsT>,
         OptTag_t<TileByteCountsT>,
-        OptTag_t<SampleFormatTag>,
-        OptTag_t<ImageDepthTag>,
-        OptTag_t<TileDepthTag>
+        OptTag_t<tiffconcept::SampleFormatTag>,
+        OptTag_t<tiffconcept::ImageDepthTag>,
+        OptTag_t<tiffconcept::TileDepthTag>
     >;
 
     template <TagCode Code, typename... DstTagArgs, typename... SrcTagArgs, typename DefaultType>

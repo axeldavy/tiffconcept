@@ -11,13 +11,13 @@
 #include <optional>
 #include <span>
 #include <vector>
-#include "../ifd.hpp"
-#include "../result.hpp"
-#include "../tag_extraction.hpp"
-#include "../tag_spec.hpp"
+#include "../../ifd.hpp"
+#include "../../types/result.hpp"
+#include "../../tag_extraction.hpp"
+#include "../../types/tag_spec.hpp"
 #include "../tag_writing.hpp"
-#include "../types.hpp"
-#include "../strategy/write_strategy.hpp"
+#include "../../types/tiff_spec.hpp"
+#include "../../strategy/write_strategy.hpp"
 #pragma once
 
 #ifndef TIFFCONCEPT_IFD_BUILDER_HEADER

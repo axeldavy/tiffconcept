@@ -7,9 +7,9 @@
 #include <cstring>
 #include <span>
 #include <vector>
-#include "../image_shape.hpp"
-#include "../result.hpp"
-#include "../types.hpp"
+#include "../../image_shape.hpp"
+#include "../../types/result.hpp"
+#include "../../types/tiff_spec.hpp"
 
 #ifndef TIFFCONCEPT_TILING_HEADER
 #include "../tiling.hpp" // for linters
@@ -21,49 +21,48 @@ template <ImageLayoutSpec OutSpec, ImageLayoutSpec InSpec, typename PixelType>
 inline void copy_tile_to_tile(
     std::span<PixelType> dst_tile_data,
     const std::span<const PixelType> src_tile_data,
-    const TileDimensions& dst_dims,
-    const TileDimensions& src_dims,
-    std::size_t copy_depth,
-    std::size_t copy_height,
-    std::size_t copy_width,
-    std::size_t copy_nchans) noexcept
+    const TileSize dst_dims,
+    const TileSize src_dims,
+    const TileSize copy_dims,
+    const TileCoordinates dst_pos,
+    const TileCoordinates src_pos) noexcept
 {
-    assert (copy_depth + dst_dims.tile_z <= dst_dims.tile_depth);
-    assert (copy_height + dst_dims.tile_y <= dst_dims.tile_height);
-    assert (copy_width + dst_dims.tile_x <= dst_dims.tile_width);
-    assert (copy_nchans + dst_dims.tile_s <= dst_dims.tile_nsamples);
-    assert (copy_depth + src_dims.tile_z <= src_dims.tile_depth);
-    assert (copy_height + src_dims.tile_y <= src_dims.tile_height);
-    assert (copy_width + src_dims.tile_x <= src_dims.tile_width);
-    assert (copy_nchans + src_dims.tile_s <= src_dims.tile_nsamples);
+    assert (copy_dims.depth + dst_pos.z <= dst_dims.depth);
+    assert (copy_dims.height + dst_pos.y <= dst_dims.height);
+    assert (copy_dims.width + dst_pos.x <= dst_dims.width);
+    assert (copy_dims.nsamples + dst_pos.s <= dst_dims.nsamples);
+    assert (copy_dims.depth + src_pos.z <= src_dims.depth);
+    assert (copy_dims.height + src_pos.y <= src_dims.height);
+    assert (copy_dims.width + src_pos.x <= src_dims.width);
+    assert (copy_dims.nsamples + src_pos.s <= src_dims.nsamples);
 
     if constexpr (InSpec == ImageLayoutSpec::DHWC && OutSpec == ImageLayoutSpec::DHWC) {
         // Both source and destination are DHWC
-        const std::size_t src_hwc_slice_size = src_dims.tile_height * src_dims.tile_width * src_dims.tile_nsamples;
-        const std::size_t dst_hwc_slice_size = dst_dims.tile_height * dst_dims.tile_width * dst_dims.tile_nsamples;
-        const std::size_t src_wc_slice_size = src_dims.tile_width * src_dims.tile_nsamples;
-        const std::size_t dst_wc_slice_size = dst_dims.tile_width * dst_dims.tile_nsamples;
-        const std::size_t src_c_slice_size = src_dims.tile_nsamples;
-        const std::size_t dst_c_slice_size = dst_dims.tile_nsamples;
+        const std::size_t src_hwc_slice_size = src_dims.height * src_dims.width * src_dims.nsamples;
+        const std::size_t dst_hwc_slice_size = dst_dims.height * dst_dims.width * dst_dims.nsamples;
+        const std::size_t src_wc_slice_size = src_dims.width * src_dims.nsamples;
+        const std::size_t dst_wc_slice_size = dst_dims.width * dst_dims.nsamples;
+        const std::size_t src_c_slice_size = src_dims.nsamples;
+        const std::size_t dst_c_slice_size = dst_dims.nsamples;
 
-        const std::size_t src_start_index = src_dims.tile_s +
-            src_dims.tile_x * src_c_slice_size +
-            src_dims.tile_y * src_wc_slice_size +
-            src_dims.tile_z * src_hwc_slice_size;
-        const std::size_t dst_start_index = dst_dims.tile_s +
-            dst_dims.tile_x * dst_c_slice_size +
-            dst_dims.tile_y * dst_wc_slice_size +
-            dst_dims.tile_z * dst_hwc_slice_size;
+        const std::size_t src_start_index = src_pos.s +
+            src_pos.x * src_c_slice_size +
+            src_pos.y * src_wc_slice_size +
+            src_pos.z * src_hwc_slice_size;
+        const std::size_t dst_start_index = dst_pos.s +
+            dst_pos.x * dst_c_slice_size +
+            dst_pos.y * dst_wc_slice_size +
+            dst_pos.z * dst_hwc_slice_size;
 
         // HWC contiguous copy
-        if (copy_nchans == src_dims.tile_nsamples && copy_nchans == dst_dims.tile_nsamples) {
-            if (copy_width == src_dims.tile_width && copy_width == dst_dims.tile_width) {
+        if (copy_dims.nsamples == src_dims.nsamples && copy_dims.nsamples == dst_dims.nsamples) {
+            if (copy_dims.width == src_dims.width && copy_dims.width == dst_dims.width) {
                 // hWC copy
-                for (std::size_t d = 0; d < copy_depth; ++d) {
+                for (std::size_t d = 0; d < copy_dims.depth; ++d) {
                     std::memcpy(
                         &dst_tile_data[dst_start_index + d * dst_hwc_slice_size],
                         &src_tile_data[src_start_index + d * src_hwc_slice_size],
-                        copy_height * copy_width * copy_nchans * sizeof(PixelType)
+                        copy_dims.height * copy_dims.width * copy_dims.nsamples * sizeof(PixelType)
                     );
                 }
                 return;
@@ -71,14 +70,14 @@ inline void copy_tile_to_tile(
         }
 
         // WC contiguous copy
-        if (copy_nchans == src_dims.tile_nsamples && copy_nchans == dst_dims.tile_nsamples) {
+        if (copy_dims.nsamples == src_dims.nsamples && copy_dims.nsamples == dst_dims.nsamples) {
             // wC  copy
-            for (std::size_t d = 0; d < copy_depth; ++d) {
-                for (std::size_t h = 0; h < copy_height; ++h) {
+            for (std::size_t d = 0; d < copy_dims.depth; ++d) {
+                for (std::size_t h = 0; h < copy_dims.height; ++h) {
                     std::memcpy(
                         &dst_tile_data[dst_start_index + d * dst_hwc_slice_size + h * dst_wc_slice_size],
                         &src_tile_data[src_start_index + d * src_hwc_slice_size + h * src_wc_slice_size],
-                        copy_width * copy_nchans * sizeof(PixelType)
+                        copy_dims.width * copy_dims.nsamples * sizeof(PixelType)
                     );
                 }
             }
@@ -86,10 +85,10 @@ inline void copy_tile_to_tile(
         }
 
         // Generic fallback
-        for (std::size_t d = 0; d < copy_depth; ++d) {
-            for (std::size_t h = 0; h < copy_height; ++h) {
-                for (std::size_t w = 0; w < copy_width; ++w) {
-                    for (std::size_t c = 0; c < copy_nchans; ++c) {
+        for (std::size_t d = 0; d < copy_dims.depth; ++d) {
+            for (std::size_t h = 0; h < copy_dims.height; ++h) {
+                for (std::size_t w = 0; w < copy_dims.width; ++w) {
+                    for (std::size_t c = 0; c < copy_dims.nsamples; ++c) {
                         dst_tile_data[dst_start_index +
                             d * dst_hwc_slice_size +
                             h * dst_wc_slice_size +
@@ -107,31 +106,31 @@ inline void copy_tile_to_tile(
     }
     else if constexpr (InSpec == ImageLayoutSpec::CDHW && OutSpec == ImageLayoutSpec::CDHW) {
         // Both source and destination are CDHW
-        const std::size_t src_dhw_slice_size = src_dims.tile_depth * src_dims.tile_height * src_dims.tile_width;
-        const std::size_t dst_dhw_slice_size = dst_dims.tile_depth * dst_dims.tile_height * dst_dims.tile_width;
-        const std::size_t src_hw_slice_size = src_dims.tile_height * src_dims.tile_width;
-        const std::size_t dst_hw_slice_size = dst_dims.tile_height * dst_dims.tile_width;
-        const std::size_t src_w_slice_size = src_dims.tile_width;
-        const std::size_t dst_w_slice_size = dst_dims.tile_width;
+        const std::size_t src_dhw_slice_size = src_dims.depth * src_dims.height * src_dims.width;
+        const std::size_t dst_dhw_slice_size = dst_dims.depth * dst_dims.height * dst_dims.width;
+        const std::size_t src_hw_slice_size = src_dims.height * src_dims.width;
+        const std::size_t dst_hw_slice_size = dst_dims.height * dst_dims.width;
+        const std::size_t src_w_slice_size = src_dims.width;
+        const std::size_t dst_w_slice_size = dst_dims.width;
 
-        const std::size_t src_start_index = src_dims.tile_x +
-            src_dims.tile_y * src_w_slice_size +
-            src_dims.tile_z * src_hw_slice_size +
-            src_dims.tile_s * src_dhw_slice_size;
-        const std::size_t dst_start_index = dst_dims.tile_x +
-            dst_dims.tile_y * dst_w_slice_size +
-            dst_dims.tile_z * dst_hw_slice_size +
-            dst_dims.tile_s * dst_dhw_slice_size;
+        const std::size_t src_start_index = src_pos.x +
+            src_pos.y * src_w_slice_size +
+            src_pos.z * src_hw_slice_size +
+            src_pos.s * src_dhw_slice_size;
+        const std::size_t dst_start_index = dst_pos.x +
+            dst_pos.y * dst_w_slice_size +
+            dst_pos.z * dst_hw_slice_size +
+            dst_pos.s * dst_dhw_slice_size;
 
         // DHW contiguous copy
-        if (copy_height == src_dims.tile_height && copy_height == dst_dims.tile_height) {
-            if (copy_width == src_dims.tile_width && copy_width == dst_dims.tile_width) {
+        if (copy_dims.height == src_dims.height && copy_dims.height == dst_dims.height) {
+            if (copy_dims.width == src_dims.width && copy_dims.width == dst_dims.width) {
                 // dHW copy
-                for (std::size_t c = 0; c < copy_nchans; ++c) {
+                for (std::size_t c = 0; c < copy_dims.nsamples; ++c) {
                     std::memcpy(
                         &dst_tile_data[dst_start_index + c * dst_dhw_slice_size],
                         &src_tile_data[src_start_index + c * src_dhw_slice_size],
-                        copy_depth * copy_height * copy_width * sizeof(PixelType)
+                        copy_dims.depth * copy_dims.height * copy_dims.width * sizeof(PixelType)
                     );
                 }
                 return;
@@ -139,24 +138,24 @@ inline void copy_tile_to_tile(
         }
 
         // HW contiguous copy
-        if (copy_width == src_dims.tile_width && copy_width == dst_dims.tile_width) {
+        if (copy_dims.width == src_dims.width && copy_dims.width == dst_dims.width) {
             // hW copy
-            for (std::size_t c = 0; c < copy_nchans; ++c) {
-                for (std::size_t d = 0; d < copy_depth; ++d) {
+            for (std::size_t c = 0; c < copy_dims.nsamples; ++c) {
+                for (std::size_t d = 0; d < copy_dims.depth; ++d) {
                     std::memcpy(
                         &dst_tile_data[dst_start_index + c * dst_dhw_slice_size + d * dst_hw_slice_size],
                         &src_tile_data[src_start_index + c * src_dhw_slice_size + d * src_hw_slice_size],
-                        copy_height * copy_width * sizeof(PixelType)
+                        copy_dims.height * copy_dims.width * sizeof(PixelType)
                     );
                 }
             }
             return;
         }
         // Generic fallback
-        for (std::size_t c = 0; c < copy_nchans; ++c) {
-            for (std::size_t d = 0; d < copy_depth; ++d) {
-                for (std::size_t h = 0; h < copy_height; ++h) {
-                    for (std::size_t w = 0; w < copy_width; ++w) {
+        for (std::size_t c = 0; c < copy_dims.nsamples; ++c) {
+            for (std::size_t d = 0; d < copy_dims.depth; ++d) {
+                for (std::size_t h = 0; h < copy_dims.height; ++h) {
+                    for (std::size_t w = 0; w < copy_dims.width; ++w) {
                         dst_tile_data[dst_start_index +
                             c * dst_dhw_slice_size +
                             d * dst_hw_slice_size +
@@ -174,31 +173,31 @@ inline void copy_tile_to_tile(
     }
     else if constexpr (InSpec == ImageLayoutSpec::DCHW && OutSpec == ImageLayoutSpec::DCHW) {
         // Both source and destination are DCHW
-        const std::size_t src_chw_slice_size = src_dims.tile_nsamples * src_dims.tile_height * src_dims.tile_width;
-        const std::size_t dst_chw_slice_size = dst_dims.tile_nsamples * dst_dims.tile_height * dst_dims.tile_width;
-        const std::size_t src_hw_slice_size = src_dims.tile_height * src_dims.tile_width;
-        const std::size_t dst_hw_slice_size = dst_dims.tile_height * dst_dims.tile_width;
-        const std::size_t src_w_slice_size = src_dims.tile_width;
-        const std::size_t dst_w_slice_size = dst_dims.tile_width;
+        const std::size_t src_chw_slice_size = src_dims.nsamples * src_dims.height * src_dims.width;
+        const std::size_t dst_chw_slice_size = dst_dims.nsamples * dst_dims.height * dst_dims.width;
+        const std::size_t src_hw_slice_size = src_dims.height * src_dims.width;
+        const std::size_t dst_hw_slice_size = dst_dims.height * dst_dims.width;
+        const std::size_t src_w_slice_size = src_dims.width;
+        const std::size_t dst_w_slice_size = dst_dims.width;
 
-        const std::size_t src_start_index = src_dims.tile_x +
-            src_dims.tile_y * src_w_slice_size +
-            src_dims.tile_s * src_hw_slice_size +
-            src_dims.tile_z * src_chw_slice_size;
-        const std::size_t dst_start_index = dst_dims.tile_x +
-            dst_dims.tile_y * dst_w_slice_size +
-            dst_dims.tile_s * dst_hw_slice_size +
-            dst_dims.tile_z * dst_chw_slice_size;
+        const std::size_t src_start_index = src_pos.x +
+            src_pos.y * src_w_slice_size +
+            src_pos.s * src_hw_slice_size +
+            src_pos.z * src_chw_slice_size;
+        const std::size_t dst_start_index = dst_pos.x +
+            dst_pos.y * dst_w_slice_size +
+            dst_pos.s * dst_hw_slice_size +
+            dst_pos.z * dst_chw_slice_size;
 
         // CHW contiguous copy
-        if (copy_height == src_dims.tile_height && copy_height == dst_dims.tile_height) {
-            if (copy_width == src_dims.tile_width && copy_width == dst_dims.tile_width) {
+        if (copy_dims.height == src_dims.height && copy_dims.height == dst_dims.height) {
+            if (copy_dims.width == src_dims.width && copy_dims.width == dst_dims.width) {
                 // cHW copy
-                for (std::size_t d = 0; d < copy_depth; ++d) {
+                for (std::size_t d = 0; d < copy_dims.depth; ++d) {
                     std::memcpy(
                         &dst_tile_data[dst_start_index + d * dst_chw_slice_size],
                         &src_tile_data[src_start_index + d * src_chw_slice_size],
-                        copy_nchans * copy_height * copy_width * sizeof(PixelType)
+                        copy_dims.nsamples * copy_dims.height * copy_dims.width * sizeof(PixelType)
                     );
                 }
                 return;
@@ -206,14 +205,14 @@ inline void copy_tile_to_tile(
         }
 
         // HW contiguous copy
-        if (copy_width == src_dims.tile_width && copy_width == dst_dims.tile_width) {
+        if (copy_dims.width == src_dims.width && copy_dims.width == dst_dims.width) {
             // hW copy
-            for (std::size_t d = 0; d < copy_depth; ++d) {
-                for (std::size_t c = 0; c < copy_nchans; ++c) {
+            for (std::size_t d = 0; d < copy_dims.depth; ++d) {
+                for (std::size_t c = 0; c < copy_dims.nsamples; ++c) {
                     std::memcpy(
                         &dst_tile_data[dst_start_index + d * dst_chw_slice_size + c * dst_hw_slice_size],
                         &src_tile_data[src_start_index + d * src_chw_slice_size + c * src_hw_slice_size],
-                        copy_height * copy_width * sizeof(PixelType)
+                        copy_dims.height * copy_dims.width * sizeof(PixelType)
                     );
                 }
             }
@@ -221,10 +220,10 @@ inline void copy_tile_to_tile(
         }
 
         // Generic fallback
-        for (std::size_t d = 0; d < copy_depth; ++d) {
-            for (std::size_t c = 0; c < copy_nchans; ++c) {
-                for (std::size_t h = 0; h < copy_height; ++h) {
-                    for (std::size_t w = 0; w < copy_width; ++w) {
+        for (std::size_t d = 0; d < copy_dims.depth; ++d) {
+            for (std::size_t c = 0; c < copy_dims.nsamples; ++d) {
+                for (std::size_t h = 0; h < copy_dims.height; ++h) {
+                    for (std::size_t w = 0; w < copy_dims.width; ++w) {
                         dst_tile_data[dst_start_index +
                             d * dst_chw_slice_size +
                             c * dst_hw_slice_size +
@@ -242,37 +241,37 @@ inline void copy_tile_to_tile(
     }
     else if constexpr (InSpec == ImageLayoutSpec::CDHW && OutSpec == ImageLayoutSpec::DHWC) {
         // Source is CDHW, destination is DHWC
-        const std::size_t src_dhw_slice_size = src_dims.tile_depth * src_dims.tile_height * src_dims.tile_width;
-        const std::size_t dst_hwc_slice_size = dst_dims.tile_height * dst_dims.tile_width * dst_dims.tile_nsamples;
-        const std::size_t src_hw_slice_size = src_dims.tile_height * src_dims.tile_width;
-        const std::size_t dst_wc_slice_size = dst_dims.tile_width * dst_dims.tile_nsamples;
-        const std::size_t src_w_slice_size = src_dims.tile_width;
-        const std::size_t dst_c_slice_size = dst_dims.tile_nsamples;
+        const std::size_t src_dhw_slice_size = src_dims.depth * src_dims.height * src_dims.width;
+        const std::size_t dst_hwc_slice_size = dst_dims.height * dst_dims.width * dst_dims.nsamples;
+        const std::size_t src_hw_slice_size = src_dims.height * src_dims.width;
+        const std::size_t dst_wc_slice_size = dst_dims.width * dst_dims.nsamples;
+        const std::size_t src_w_slice_size = src_dims.width;
+        const std::size_t dst_c_slice_size = dst_dims.nsamples;
 
-        const std::size_t src_start_index = src_dims.tile_x +
-            src_dims.tile_y * src_w_slice_size +
-            src_dims.tile_z * src_hw_slice_size +
-            src_dims.tile_s * src_dhw_slice_size;
-        const std::size_t dst_start_index = dst_dims.tile_s +
-            dst_dims.tile_x * dst_c_slice_size +
-            dst_dims.tile_y * dst_wc_slice_size +
-            dst_dims.tile_z * dst_hwc_slice_size;
+        const std::size_t src_start_index = src_pos.x +
+            src_pos.y * src_w_slice_size +
+            src_pos.z * src_hw_slice_size +
+            src_pos.s * src_dhw_slice_size;
+        const std::size_t dst_start_index = dst_pos.s +
+            dst_pos.x * dst_c_slice_size +
+            dst_pos.y * dst_wc_slice_size +
+            dst_pos.z * dst_hwc_slice_size;
 
-        if (copy_nchans == 1 && dst_dims.tile_nsamples == 1 && dst_dims.tile_s == 0) {
+        if (copy_dims.nsamples == 1 && dst_dims.nsamples == 1 && dst_pos.s == 0) {
             // DHW: DHW
             copy_tile_to_tile<ImageLayoutSpec::CDHW, ImageLayoutSpec::CDHW, PixelType>(
                 dst_tile_data, src_tile_data,
                 dst_dims, src_dims,
-                copy_depth, copy_height, copy_width, 1
+                copy_dims, dst_pos, src_pos
             );
             return;
         }
 
         // Generic fallback (it is possible to do better)
-        for (std::size_t d = 0; d < copy_depth; ++d) {
-            for (std::size_t h = 0; h < copy_height; ++h) {
-                for (std::size_t w = 0; w < copy_width; ++w) {
-                    for (std::size_t c = 0; c < copy_nchans; ++c) {
+        for (std::size_t d = 0; d < copy_dims.depth; ++d) {
+            for (std::size_t h = 0; h < copy_dims.height; ++h) {
+                for (std::size_t w = 0; w < copy_dims.width; ++w) {
+                    for (std::size_t c = 0; c < copy_dims.nsamples; ++c) {
                         dst_tile_data[dst_start_index +
                             d * dst_hwc_slice_size +
                             h * dst_wc_slice_size +
@@ -290,37 +289,37 @@ inline void copy_tile_to_tile(
     }
     else if constexpr (InSpec == ImageLayoutSpec::DHWC && OutSpec == ImageLayoutSpec::CDHW) {
         // Source is DHWC, destination is CDHW
-        const std::size_t src_hwc_slice_size = src_dims.tile_height * src_dims.tile_width * src_dims.tile_nsamples;
-        const std::size_t dst_dhw_slice_size = dst_dims.tile_depth * dst_dims.tile_height * dst_dims.tile_width;
-        const std::size_t src_wc_slice_size = src_dims.tile_width * src_dims.tile_nsamples;
-        const std::size_t dst_hw_slice_size = dst_dims.tile_height * dst_dims.tile_width;
-        const std::size_t src_c_slice_size = src_dims.tile_nsamples;
-        const std::size_t dst_w_slice_size = dst_dims.tile_width;
+        const std::size_t src_hwc_slice_size = src_dims.height * src_dims.width * src_dims.nsamples;
+        const std::size_t dst_dhw_slice_size = dst_dims.depth * dst_dims.height * dst_dims.width;
+        const std::size_t src_wc_slice_size = src_dims.width * src_dims.nsamples;
+        const std::size_t dst_hw_slice_size = dst_dims.height * dst_dims.width;
+        const std::size_t src_c_slice_size = src_dims.nsamples;
+        const std::size_t dst_w_slice_size = dst_dims.width;
 
-        const std::size_t src_start_index = src_dims.tile_s +
-            src_dims.tile_x * src_c_slice_size +
-            src_dims.tile_y * src_wc_slice_size +
-            src_dims.tile_z * src_hwc_slice_size;
-        const std::size_t dst_start_index = dst_dims.tile_x +
-            dst_dims.tile_y * dst_w_slice_size +
-            dst_dims.tile_z * dst_hw_slice_size +
-            dst_dims.tile_s * dst_dhw_slice_size;
+        const std::size_t src_start_index = src_pos.s +
+            src_pos.x * src_c_slice_size +
+            src_pos.y * src_wc_slice_size +
+            src_pos.z * src_hwc_slice_size;
+        const std::size_t dst_start_index = dst_pos.x +
+            dst_pos.y * dst_w_slice_size +
+            dst_pos.z * dst_hw_slice_size +
+            dst_pos.s * dst_dhw_slice_size;
 
-        if (copy_nchans == 1 && src_dims.tile_nsamples == 1 && src_dims.tile_s == 0) {
+        if (copy_dims.nsamples == 1 && src_dims.nsamples == 1 && src_pos.s == 0) {
             // DHW: DHW
             copy_tile_to_tile<ImageLayoutSpec::CDHW, ImageLayoutSpec::CDHW, PixelType>(
                 dst_tile_data, src_tile_data,
                 dst_dims, src_dims,
-                copy_depth, copy_height, copy_width, 1
+                copy_dims, dst_pos, src_pos
             );
             return;
         }
 
         // Generic fallback (it is possible to do better)
-        for (std::size_t c = 0; c < copy_nchans; ++c) {
-            for (std::size_t d = 0; d < copy_depth; ++d) {
-                for (std::size_t h = 0; h < copy_height; ++h) {
-                    for (std::size_t w = 0; w < copy_width; ++w) {
+        for (std::size_t c = 0; c < copy_dims.nsamples; ++c) {
+            for (std::size_t d = 0; d < copy_dims.depth; ++d) {
+                for (std::size_t h = 0; h < copy_dims.height; ++h) {
+                    for (std::size_t w = 0; w < copy_dims.width; ++w) {
                         dst_tile_data[dst_start_index +
                             c * dst_dhw_slice_size +
                             d * dst_hw_slice_size +
@@ -338,31 +337,31 @@ inline void copy_tile_to_tile(
     }
     else if constexpr (InSpec == ImageLayoutSpec::CDHW && OutSpec == ImageLayoutSpec::DCHW) {
         // Source is CDHW, destination is DCHW
-        const std::size_t src_dhw_slice_size = src_dims.tile_depth * src_dims.tile_height * src_dims.tile_width;
-        const std::size_t dst_chw_slice_size = dst_dims.tile_nsamples * dst_dims.tile_height * dst_dims.tile_width;
-        const std::size_t src_hw_slice_size = src_dims.tile_height * src_dims.tile_width;
-        const std::size_t dst_hw_slice_size = dst_dims.tile_height * dst_dims.tile_width;
-        const std::size_t src_w_slice_size = src_dims.tile_width;
-        const std::size_t dst_w_slice_size = dst_dims.tile_width;
+        const std::size_t src_dhw_slice_size = src_dims.depth * src_dims.height * src_dims.width;
+        const std::size_t dst_chw_slice_size = dst_dims.nsamples * dst_dims.height * dst_dims.width;
+        const std::size_t src_hw_slice_size = src_dims.height * src_dims.width;
+        const std::size_t dst_hw_slice_size = dst_dims.height * dst_dims.width;
+        const std::size_t src_w_slice_size = src_dims.width;
+        const std::size_t dst_w_slice_size = dst_dims.width;
 
-        const std::size_t src_start_index = src_dims.tile_x +
-            src_dims.tile_y * src_w_slice_size +
-            src_dims.tile_z * src_hw_slice_size +
-            src_dims.tile_s * src_dhw_slice_size;
-        const std::size_t dst_start_index = dst_dims.tile_x +
-            dst_dims.tile_y * dst_w_slice_size +
-            dst_dims.tile_s * dst_hw_slice_size +
-            dst_dims.tile_z * dst_chw_slice_size;
+        const std::size_t src_start_index = src_pos.x +
+            src_pos.y * src_w_slice_size +
+            src_pos.z * src_hw_slice_size +
+            src_pos.s * src_dhw_slice_size;
+        const std::size_t dst_start_index = dst_pos.x +
+            dst_pos.y * dst_w_slice_size +
+            dst_pos.s * dst_hw_slice_size +
+            dst_pos.z * dst_chw_slice_size;
 
         // HW contiguous copy
-        if (copy_width == src_dims.tile_width && copy_width == dst_dims.tile_width) {
+        if (copy_dims.width == src_dims.width && copy_dims.width == dst_dims.width) {
             // hW copy
-            for (std::size_t c = 0; c < copy_nchans; ++c) {
-                for (std::size_t d = 0; d < copy_depth; ++d) {
+            for (std::size_t c = 0; c < copy_dims.nsamples; ++c) {
+                for (std::size_t d = 0; d < copy_dims.depth; ++d) {
                     std::memcpy(
                         &dst_tile_data[dst_start_index + d * dst_chw_slice_size + c * dst_hw_slice_size],
                         &src_tile_data[src_start_index + c * src_dhw_slice_size + d * src_hw_slice_size],
-                        copy_height * copy_width * sizeof(PixelType)
+                        copy_dims.height * copy_dims.width * sizeof(PixelType)
                     );
                 }
             }
@@ -370,13 +369,13 @@ inline void copy_tile_to_tile(
         }
 
         // Generic fallback
-        for (std::size_t c = 0; c < copy_nchans; ++c) {
-            for (std::size_t d = 0; d < copy_depth; ++d) {
-                for (std::size_t h = 0; h < copy_height; ++h) {
+        for (std::size_t c = 0; c < copy_dims.nsamples; ++c) {
+            for (std::size_t d = 0; d < copy_dims.depth; ++d) {
+                for (std::size_t h = 0; h < copy_dims.height; ++h) {
                     std::memcpy(
                         &dst_tile_data[dst_start_index + d * dst_chw_slice_size + c * dst_hw_slice_size + h * dst_w_slice_size],
                         &src_tile_data[src_start_index + c * src_dhw_slice_size + d * src_hw_slice_size + h * src_w_slice_size],
-                        copy_width * sizeof(PixelType)
+                        copy_dims.width * sizeof(PixelType)
                     );
                     // Note: the memcpy path could also be used when the inner for loop is the channels,
                     // however it is much more likely to have large width than large number of channels.
@@ -387,31 +386,31 @@ inline void copy_tile_to_tile(
     }
     else if constexpr (InSpec == ImageLayoutSpec::DCHW && OutSpec == ImageLayoutSpec::CDHW) {
         // Source is DCHW, destination is CDHW
-        const std::size_t src_chw_slice_size = src_dims.tile_nsamples * src_dims.tile_height * src_dims.tile_width;
-        const std::size_t dst_dhw_slice_size = dst_dims.tile_depth * dst_dims.tile_height * dst_dims.tile_width;
-        const std::size_t src_hw_slice_size = src_dims.tile_height * src_dims.tile_width;
-        const std::size_t dst_hw_slice_size = dst_dims.tile_height * dst_dims.tile_width;
-        const std::size_t src_w_slice_size = src_dims.tile_width;
-        const std::size_t dst_w_slice_size = dst_dims.tile_width;
+        const std::size_t src_chw_slice_size = src_dims.nsamples * src_dims.height * src_dims.width;
+        const std::size_t dst_dhw_slice_size = dst_dims.depth * dst_dims.height * dst_dims.width;
+        const std::size_t src_hw_slice_size = src_dims.height * src_dims.width;
+        const std::size_t dst_hw_slice_size = dst_dims.height * dst_dims.width;
+        const std::size_t src_w_slice_size = src_dims.width;
+        const std::size_t dst_w_slice_size = dst_dims.width;
 
-        const std::size_t src_start_index = src_dims.tile_s * src_chw_slice_size +
-            src_dims.tile_z * src_hw_slice_size +
-            src_dims.tile_y * src_w_slice_size +
-            src_dims.tile_x;
-        const std::size_t dst_start_index = dst_dims.tile_x +
-            dst_dims.tile_y * dst_w_slice_size +
-            dst_dims.tile_z * dst_hw_slice_size +
-            dst_dims.tile_s * dst_dhw_slice_size;
+        const std::size_t src_start_index = src_pos.x +
+            src_pos.y * src_w_slice_size +
+            src_pos.s * src_hw_slice_size +
+            src_pos.z * src_chw_slice_size;
+        const std::size_t dst_start_index = dst_pos.x +
+            dst_pos.y * dst_w_slice_size +
+            dst_pos.z * dst_hw_slice_size +
+            dst_pos.s * dst_dhw_slice_size;
 
         // HW contiguous copy
-        if (copy_width == src_dims.tile_width && copy_width == dst_dims.tile_width) {
+        if (copy_dims.width == src_dims.width && copy_dims.width == dst_dims.width) {
             // hW copy
-            for (std::size_t c = 0; c < copy_nchans; ++c) {
-                for (std::size_t d = 0; d < copy_depth; ++d) {
+            for (std::size_t c = 0; c < copy_dims.nsamples; ++c) {
+                for (std::size_t d = 0; d < copy_dims.depth; ++d) {
                     std::memcpy(
                         &dst_tile_data[dst_start_index + c * dst_dhw_slice_size + d * dst_hw_slice_size],
                         &src_tile_data[src_start_index + d * src_chw_slice_size + c * src_hw_slice_size],
-                        copy_height * copy_width * sizeof(PixelType)
+                        copy_dims.height * copy_dims.width * sizeof(PixelType)
                     );
                 }
             }
@@ -419,13 +418,13 @@ inline void copy_tile_to_tile(
         }
 
         // Generic fallback
-        for (std::size_t c = 0; c < copy_nchans; ++c) {
-            for (std::size_t d = 0; d < copy_depth; ++d) {
-                for (std::size_t h = 0; h < copy_height; ++h) {
+        for (std::size_t c = 0; c < copy_dims.nsamples; ++c) {
+            for (std::size_t d = 0; d < copy_dims.depth; ++d) {
+                for (std::size_t h = 0; h < copy_dims.height; ++h) {
                     std::memcpy(
                         &dst_tile_data[dst_start_index + c * dst_dhw_slice_size + d * dst_hw_slice_size + h * dst_w_slice_size],
                         &src_tile_data[src_start_index + d * src_chw_slice_size + c * src_hw_slice_size + h * src_w_slice_size],
-                        copy_width * sizeof(PixelType)
+                        copy_dims.width * sizeof(PixelType)
                     );
                 }
             }
@@ -433,37 +432,37 @@ inline void copy_tile_to_tile(
     }
     else if constexpr (InSpec == ImageLayoutSpec::DHWC && OutSpec == ImageLayoutSpec::DCHW) {
         // Source is DHWC, destination is DCHW
-        const std::size_t src_hwc_slice_size = src_dims.tile_height * src_dims.tile_width * src_dims.tile_nsamples;
-        const std::size_t dst_chw_slice_size = dst_dims.tile_nsamples * dst_dims.tile_height * dst_dims.tile_width;
-        const std::size_t src_wc_slice_size = src_dims.tile_width * src_dims.tile_nsamples;
-        const std::size_t dst_hw_slice_size = dst_dims.tile_height * dst_dims.tile_width;
-        const std::size_t src_c_slice_size = src_dims.tile_nsamples;
-        const std::size_t dst_w_slice_size = dst_dims.tile_width;
+        const std::size_t src_hwc_slice_size = src_dims.height * src_dims.width * src_dims.nsamples;
+        const std::size_t dst_chw_slice_size = dst_dims.nsamples * dst_dims.height * dst_dims.width;
+        const std::size_t src_wc_slice_size = src_dims.width * src_dims.nsamples;
+        const std::size_t dst_hw_slice_size = dst_dims.height * dst_dims.width;
+        const std::size_t src_c_slice_size = src_dims.nsamples;
+        const std::size_t dst_w_slice_size = dst_dims.width;
 
-        const std::size_t src_start_index = src_dims.tile_s +
-            src_dims.tile_x * src_c_slice_size +
-            src_dims.tile_y * src_wc_slice_size +
-            src_dims.tile_z * src_hwc_slice_size;
-        const std::size_t dst_start_index = dst_dims.tile_x +
-            dst_dims.tile_y * dst_w_slice_size +
-            dst_dims.tile_s * dst_hw_slice_size +
-            dst_dims.tile_z * dst_chw_slice_size;
+        const std::size_t src_start_index = src_pos.s +
+            src_pos.x * src_c_slice_size +
+            src_pos.y * src_wc_slice_size +
+            src_pos.z * src_hwc_slice_size;
+        const std::size_t dst_start_index = dst_pos.x +
+            dst_pos.y * dst_w_slice_size +
+            dst_pos.s * dst_hw_slice_size +
+            dst_pos.z * dst_chw_slice_size;
 
-        if (copy_nchans == 1 && src_dims.tile_nsamples == 1 && src_dims.tile_s == 0) {
+        if (copy_dims.nsamples == 1 && src_dims.nsamples == 1 && src_pos.s == 0) {
             // DCHW: DCHW
             copy_tile_to_tile<ImageLayoutSpec::DCHW, ImageLayoutSpec::DCHW, PixelType>(
                 dst_tile_data, src_tile_data,
                 dst_dims, src_dims,
-                copy_depth, copy_height, copy_width, 1
+                copy_dims, dst_pos, src_pos
             );
             return;
         }
 
         // Generic fallback (it is possible to do better)
-        for (std::size_t c = 0; c < copy_nchans; ++c) {
-            for (std::size_t d = 0; d < copy_depth; ++d) {
-                for (std::size_t h = 0; h < copy_height; ++h) {
-                    for (std::size_t w = 0; w < copy_width; ++w) {
+        for (std::size_t c = 0; c < copy_dims.nsamples; ++c) {
+            for (std::size_t d = 0; d < copy_dims.depth; ++d) {
+                for (std::size_t h = 0; h < copy_dims.height; ++h) {
+                    for (std::size_t w = 0; w < copy_dims.width; ++w) {
                         dst_tile_data[dst_start_index +
                             d * dst_chw_slice_size +
                             c * dst_hw_slice_size +
@@ -481,37 +480,37 @@ inline void copy_tile_to_tile(
     }
     else if constexpr (InSpec == ImageLayoutSpec::DCHW && OutSpec == ImageLayoutSpec::DHWC) {
         // Source is DCHW, destination is DHWC
-        const std::size_t src_chw_slice_size = src_dims.tile_nsamples * src_dims.tile_height * src_dims.tile_width;
-        const std::size_t dst_hwc_slice_size = dst_dims.tile_height * dst_dims.tile_width * dst_dims.tile_nsamples;
-        const std::size_t src_hw_slice_size = src_dims.tile_height * src_dims.tile_width;
-        const std::size_t dst_wc_slice_size = dst_dims.tile_width * dst_dims.tile_nsamples;
-        const std::size_t src_w_slice_size = src_dims.tile_width;
-        const std::size_t dst_c_slice_size = dst_dims.tile_nsamples;
+        const std::size_t src_chw_slice_size = src_dims.nsamples * src_dims.height * src_dims.width;
+        const std::size_t dst_hwc_slice_size = dst_dims.height * dst_dims.width * dst_dims.nsamples;
+        const std::size_t src_hw_slice_size = src_dims.height * src_dims.width;
+        const std::size_t dst_wc_slice_size = dst_dims.width * dst_dims.nsamples;
+        const std::size_t src_w_slice_size = src_dims.width;
+        const std::size_t dst_c_slice_size = dst_dims.nsamples;
 
-        const std::size_t src_start_index = src_dims.tile_x +
-            src_dims.tile_y * src_w_slice_size +
-            src_dims.tile_s * src_hw_slice_size +
-            src_dims.tile_z * src_chw_slice_size;
-        const std::size_t dst_start_index = dst_dims.tile_s +
-            dst_dims.tile_x * dst_c_slice_size +
-            dst_dims.tile_y * dst_wc_slice_size +
-            dst_dims.tile_z * dst_hwc_slice_size;
+        const std::size_t src_start_index = src_pos.x +
+            src_pos.y * src_w_slice_size +
+            src_pos.s * src_hw_slice_size +
+            src_pos.z * src_chw_slice_size;
+        const std::size_t dst_start_index = dst_pos.s +
+            dst_pos.x * dst_c_slice_size +
+            dst_pos.y * dst_wc_slice_size +
+            dst_pos.z * dst_hwc_slice_size;
 
-        if (copy_nchans == 1 && dst_dims.tile_nsamples == 1 && dst_dims.tile_s == 0) {
+        if (copy_dims.nsamples == 1 && dst_dims.nsamples == 1 && dst_pos.s == 0) {
             // DCHW: DCHW
             copy_tile_to_tile<ImageLayoutSpec::DCHW, ImageLayoutSpec::DCHW, PixelType>(
                 dst_tile_data, src_tile_data,
                 dst_dims, src_dims,
-                copy_depth, copy_height, copy_width, 1
+                copy_dims, dst_pos, src_pos
             );
             return;
         }
 
         // Generic fallback
-        for (std::size_t d = 0; d < copy_depth; ++d) {
-            for (std::size_t h = 0; h < copy_height; ++h) {
-                for (std::size_t w = 0; w < copy_width; ++w) {
-                    for (std::size_t c = 0; c < copy_nchans; ++c) {
+        for (std::size_t d = 0; d < copy_dims.depth; ++d) {
+            for (std::size_t h = 0; h < copy_dims.height; ++h) {
+                for (std::size_t w = 0; w < copy_dims.width; ++w) {
+                    for (std::size_t c = 0; c < copy_dims.nsamples; ++c) {
                         dst_tile_data[dst_start_index +
                             d * dst_hwc_slice_size +
                             h * dst_wc_slice_size +
@@ -532,191 +531,122 @@ inline void copy_tile_to_tile(
     }
 }
 
-/// Copy a tile (or a portion of a tile) into a larger image buffer
-/// Template parameters control memory layout and enable compile-time optimization
-/// @tparam PlanarConfig Whether tile data is chunky (interleaved) or planar (separate channels)
-/// @tparam OutSpec Output buffer layout (DHWC, DCHW, or CDHW)
 template <PlanarConfiguration PlanarConfig, ImageLayoutSpec OutSpec, typename PixelType>
 inline void copy_tile_to_buffer(
     std::span<const PixelType> tile_data,
     std::span<PixelType> output_buffer,
-    uint32_t tile_depth,
-    uint32_t tile_height,
-    uint32_t tile_width,
-    uint16_t tile_nsamples,         // Number of samples (channels) in tile
-    uint32_t tile_start_depth,      // Relative start depth in tile
-    uint32_t tile_start_height,
-    uint32_t tile_start_width,
-    uint16_t tile_start_sample,     // Starting sample/channel in tile
-    uint32_t output_depth,
-    uint32_t output_height,
-    uint32_t output_width,
-    uint16_t output_nchans,         // Total channels in output buffer
-    uint32_t output_start_depth,
-    uint32_t output_start_height,
-    uint32_t output_start_width,
-    uint16_t output_start_chan,
-    uint32_t copy_depth,
-    uint32_t copy_height,
-    uint32_t copy_width,
-    uint16_t copy_nchans) noexcept
+    const TileSize dst_dims,
+    const TileSize src_dims,
+    const TileSize copy_dims,
+    const TileCoordinates dst_pos,
+    const TileCoordinates src_pos) noexcept
 {
     // copy_tile_to_buffer inputs are sanitized by the caller
     // such that the tile to copy fits within both the tile and output buffer.
-    assert (copy_depth + output_start_depth <= output_depth);
-    assert (copy_height + output_start_height <= output_height);
-    assert (copy_width + output_start_width <= output_width);
-    assert (copy_nchans + output_start_chan <= output_nchans);
-    assert (copy_depth + tile_start_depth <= tile_depth);
-    assert (copy_height + tile_start_height <= tile_height);
-    assert (copy_width + tile_start_width <= tile_width);
-    assert (copy_nchans + tile_start_sample <= tile_nsamples);
-    assert (copy_depth > 0);
-    assert (copy_height > 0);
-    assert (copy_width > 0);
-    assert (copy_nchans > 0);
+    assert (copy_dims.depth + dst_pos.z <= dst_dims.depth);
+    assert (copy_dims.height + dst_pos.y <= dst_dims.height);
+    assert (copy_dims.width + dst_pos.x <= dst_dims.width);
+    assert (copy_dims.nsamples + dst_pos.s <= dst_dims.nsamples);
+    assert (copy_dims.depth + src_pos.z <= src_dims.depth);
+    assert (copy_dims.height + src_pos.y <= src_dims.height);
+    assert (copy_dims.width + src_pos.x <= src_dims.width);
+    assert (copy_dims.nsamples + src_pos.s <= src_dims.nsamples);
+    assert (copy_dims.depth > 0);
+    assert (copy_dims.height > 0);
+    assert (copy_dims.width > 0);
+    assert (copy_dims.nsamples > 0);
 
     if constexpr (PlanarConfig == PlanarConfiguration::Planar) {
-        assert (tile_nsamples == 1); // Planar tiles must have a single sample per tile
+        assert (src_dims.nsamples == 1); // Planar tiles must have a single sample per tile
     }
-
-    TileDimensions tile_dims{
-        static_cast<std::size_t>(tile_depth),
-        static_cast<std::size_t>(tile_height),
-        static_cast<std::size_t>(tile_width),
-        static_cast<std::size_t>(tile_nsamples),
-        static_cast<std::size_t>(tile_start_depth),
-        static_cast<std::size_t>(tile_start_height),
-        static_cast<std::size_t>(tile_start_width),
-        static_cast<std::size_t>(tile_start_sample)
-    };
-
-    TileDimensions output_dims{
-        static_cast<std::size_t>(output_depth),
-        static_cast<std::size_t>(output_height),
-        static_cast<std::size_t>(output_width),
-        static_cast<std::size_t>(output_nchans),
-        static_cast<std::size_t>(output_start_depth),
-        static_cast<std::size_t>(output_start_height),
-        static_cast<std::size_t>(output_start_width),
-        static_cast<std::size_t>(output_start_chan)
-    };
 
     // Chunky is equivalent to DHWC layout
     if constexpr (PlanarConfig == PlanarConfiguration::Chunky) {
         copy_tile_to_tile<OutSpec, ImageLayoutSpec::DHWC, PixelType>(
             output_buffer, tile_data,
-            output_dims, tile_dims,
-            copy_depth, copy_height, copy_width, copy_nchans
+            dst_dims, src_dims,
+            copy_dims, dst_pos, src_pos
         );
     }
     else if constexpr (PlanarConfig == PlanarConfiguration::Planar) {
         // Planar tiles are treated as CDHW with a single channel per tile
         copy_tile_to_tile<OutSpec, ImageLayoutSpec::CDHW, PixelType>(
             output_buffer, tile_data,
-            output_dims, tile_dims,
-            copy_depth, copy_height, copy_width, copy_nchans
+            dst_dims, src_dims,
+            copy_dims, dst_pos, src_pos
         );
     } else {
         static_assert(false, "Unsupported PlanarConfiguration");
     }
 }
 
-/// Copy data from a larger image buffer into a tile (or a portion of a tile)
-/// Handles tiles that extend beyond the input buffer boundaries by using replicate padding
-/// Template parameters control memory layout and enable compile-time optimization
-/// @tparam PlanarConfig Whether tile data is chunky (interleaved) or planar (separate channels)
-/// @tparam InSpec Input buffer layout (DHWC, DCHW, or CDHW)
 template <PlanarConfiguration PlanarConfig, ImageLayoutSpec InSpec, typename PixelType>
 inline void fetch_tile_from_buffer(
     std::span<const PixelType> input_buffer,
     std::span<PixelType> tile_data,
-    uint32_t input_depth,
-    uint32_t input_height,
-    uint32_t input_width,
-    uint16_t input_nchans,         // Total channels in input buffer
-    uint32_t input_start_depth,
-    uint32_t input_start_height,
-    uint32_t input_start_width,
-    uint16_t input_start_chan,
-    uint32_t tile_depth,
-    uint32_t tile_height,
-    uint32_t tile_width,
-    uint16_t tile_nsamples) noexcept
+    const TileSize dst_dims,
+    const TileSize src_dims,
+    const TileCoordinates src_pos) noexcept
 {
     // Validate that the region to copy fits within the tile
-    assert (tile_depth > 0);
-    assert (tile_height > 0);
-    assert (tile_width > 0);
-    assert (tile_nsamples > 0);
+    assert (dst_dims.depth > 0);
+    assert (dst_dims.height > 0);
+    assert (dst_dims.width > 0);
+    assert (dst_dims.nsamples > 0);
 
     if constexpr (PlanarConfig == PlanarConfiguration::Planar) {
-        assert (tile_nsamples == 1); // Planar tiles must have a single sample per tile
+        assert (dst_dims.nsamples == 1); // Planar tiles must have a single sample per tile
     }
 
-    TileDimensions input_dims{
-        static_cast<std::size_t>(input_depth),
-        static_cast<std::size_t>(input_height),
-        static_cast<std::size_t>(input_width),
-        static_cast<std::size_t>(input_nchans),
-        static_cast<std::size_t>(input_start_depth),
-        static_cast<std::size_t>(input_start_height),
-        static_cast<std::size_t>(input_start_width),
-        static_cast<std::size_t>(input_start_chan)
-    };
-
-    TileDimensions tile_dims{
-        static_cast<std::size_t>(tile_depth),
-        static_cast<std::size_t>(tile_height),
-        static_cast<std::size_t>(tile_width),
-        static_cast<std::size_t>(tile_nsamples),
-        static_cast<std::size_t>(0),
-        static_cast<std::size_t>(0),
-        static_cast<std::size_t>(0),
-        static_cast<std::size_t>(0)
-    };
-
     // Calculate the actual region we can copy from the input buffer
-    const std::size_t actual_copy_depth = std::min(static_cast<std::size_t>(tile_depth), 
-        input_dims.tile_depth > input_dims.tile_z ? input_dims.tile_depth - input_dims.tile_z : 0u);
-    const std::size_t actual_copy_height = std::min(static_cast<std::size_t>(tile_height),
-        input_dims.tile_height > input_dims.tile_y ? input_dims.tile_height - input_dims.tile_y : 0u);
-    const std::size_t actual_copy_width = std::min(static_cast<std::size_t>(tile_width),
-        input_dims.tile_width > input_dims.tile_x ? input_dims.tile_width - input_dims.tile_x : 0u);
-    const std::size_t actual_copy_nchans = std::min(static_cast<std::size_t>(tile_nsamples),
-        input_dims.tile_nsamples > input_dims.tile_s ? input_dims.tile_nsamples - input_dims.tile_s : 0u);
+    const uint32_t actual_copy_depth = std::min(dst_dims.depth, 
+        src_dims.depth > src_pos.z ? src_dims.depth - src_pos.z : 0u);
+    const uint32_t actual_copy_height = std::min(dst_dims.height,
+        src_dims.height > src_pos.y ? src_dims.height - src_pos.y : 0u);
+    const uint32_t actual_copy_width = std::min(dst_dims.width,
+        src_dims.width > src_pos.x ? src_dims.width - src_pos.x : 0u);
+    const uint32_t actual_copy_nchans = std::min(dst_dims.nsamples,
+        src_dims.nsamples > src_pos.s ? src_dims.nsamples - src_pos.s : 0u);
 
     if (actual_copy_depth == 0 || actual_copy_height == 0 || actual_copy_width == 0 || actual_copy_nchans == 0) {
         // Nothing to copy from input buffer, entire tile region will be padding
         // This shouldn't occur, but just in case, we handle it gracefully
-        for (std::size_t i = 0; i < tile_depth * tile_height * tile_width * tile_nsamples; ++i) {
+        for (std::size_t i = 0; i < dst_dims.depth * dst_dims.height * dst_dims.width * dst_dims.nsamples; ++i) {
             tile_data[i] = PixelType{}; // Default initialize
         }
         return;
     }
 
+    TileSize copy_dims{
+        actual_copy_width,
+        actual_copy_height,
+        actual_copy_depth,
+        actual_copy_nchans
+    };
+    TileCoordinates dst_pos{0, 0, 0, 0};
+
     // Chunky is equivalent to DHWC layout
     if constexpr (PlanarConfig == PlanarConfiguration::Chunky) {
         copy_tile_to_tile<ImageLayoutSpec::DHWC, InSpec, PixelType>(
             tile_data, input_buffer,
-            tile_dims, input_dims,
-            actual_copy_depth, actual_copy_height, actual_copy_width, actual_copy_nchans
+            dst_dims, src_dims,
+            copy_dims, dst_pos, src_pos
         );
     }
     else if constexpr (PlanarConfig == PlanarConfiguration::Planar) {
         // Planar tiles are treated as CDHW with a single channel per tile
         copy_tile_to_tile<ImageLayoutSpec::CDHW, InSpec, PixelType>(
             tile_data, input_buffer,
-            tile_dims, input_dims,
-            actual_copy_depth, actual_copy_height, actual_copy_width, actual_copy_nchans
+            dst_dims, src_dims,
+            copy_dims, dst_pos, src_pos
         );
     }
 
     // Now handle padding with replicate border mode
-    const bool needs_padding = (actual_copy_depth < tile_dims.tile_depth) || 
-                               (actual_copy_height < tile_dims.tile_height) || 
-                               (actual_copy_width < tile_dims.tile_width) ||
-                               (actual_copy_nchans < tile_dims.tile_nsamples);
+    const bool needs_padding = (actual_copy_depth < dst_dims.depth) || 
+                               (actual_copy_height < dst_dims.height) || 
+                               (actual_copy_width < dst_dims.width) ||
+                               (actual_copy_nchans < dst_dims.nsamples);
     
     if (!needs_padding) {
         return;
@@ -726,25 +656,25 @@ inline void fetch_tile_from_buffer(
     // We need to handle this differently based on the tile layout
     if constexpr (PlanarConfig == PlanarConfiguration::Chunky) {
         // DHWC layout
-        const std::size_t tile_hwc_slice_size = tile_dims.tile_height * tile_dims.tile_width * tile_dims.tile_nsamples;
-        const std::size_t tile_wc_slice_size = tile_dims.tile_width * tile_dims.tile_nsamples;
-        const std::size_t tile_c_slice_size = tile_dims.tile_nsamples;
+        const std::size_t tile_hwc_slice_size = dst_dims.height * dst_dims.width * dst_dims.nsamples;
+        const std::size_t tile_wc_slice_size = dst_dims.width * dst_dims.nsamples;
+        const std::size_t tile_c_slice_size = dst_dims.nsamples;
         
         // Pad channels (if needed) - replicate last channel
-        if (actual_copy_nchans < tile_dims.tile_nsamples) {
+        if (actual_copy_nchans < dst_dims.nsamples) {
             for (std::size_t d = 0; d < actual_copy_depth; ++d) {
                 for (std::size_t h = 0; h < actual_copy_height; ++h) {
                     for (std::size_t w = 0; w < actual_copy_width; ++w) {
                         const std::size_t src_idx = d * tile_hwc_slice_size +
                                                     h * tile_wc_slice_size +
-                                                    w * tile_dims.tile_nsamples +
+                                                    w * dst_dims.nsamples +
                                                     actual_copy_nchans - 1;
                         const PixelType edge_value = tile_data[src_idx];
                         
-                        for (uint16_t c = actual_copy_nchans; c < tile_dims.tile_nsamples; ++c) {
+                        for (uint16_t c = actual_copy_nchans; c < dst_dims.nsamples; ++c) {
                             const std::size_t dst_idx = d * tile_hwc_slice_size +
                                                         h * tile_wc_slice_size +
-                                                        w * tile_dims.tile_nsamples +
+                                                        w * dst_dims.nsamples +
                                                         c;
                             tile_data[dst_idx] = edge_value;
                         }
@@ -758,17 +688,17 @@ inline void fetch_tile_from_buffer(
         // to contain constant data rather than replicated data.
         
         // Pad width (replicate rightmost column)
-        if (actual_copy_width < tile_dims.tile_width) {
+        if (actual_copy_width < dst_dims.width) {
             for (std::size_t d = 0; d < actual_copy_depth; ++d) {
                 for (std::size_t h = 0; h < actual_copy_height; ++h) {
                     const std::size_t src_offset = d * tile_hwc_slice_size +
                                                    h * tile_wc_slice_size +
-                                                   (actual_copy_width - 1) * tile_dims.tile_nsamples;
+                                                   (actual_copy_width - 1) * dst_dims.nsamples;
                     
-                    for (std::size_t w = actual_copy_width; w < tile_dims.tile_width; ++w) {
+                    for (std::size_t w = actual_copy_width; w < dst_dims.width; ++w) {
                         const std::size_t dst_offset = d * tile_hwc_slice_size +
                                                        h * tile_wc_slice_size +
-                                                       w * tile_dims.tile_nsamples;
+                                                       w * dst_dims.nsamples;
                         std::memcpy(&tile_data[dst_offset], &tile_data[src_offset], tile_c_slice_size * sizeof(PixelType));
                     }
                 }
@@ -776,12 +706,12 @@ inline void fetch_tile_from_buffer(
         }
         
         // Pad height (replicate bottom row)
-        if (actual_copy_height < tile_dims.tile_height) {
+        if (actual_copy_height < dst_dims.height) {
             for (std::size_t d = 0; d < actual_copy_depth; ++d) {
                 const std::size_t src_offset = d * tile_hwc_slice_size +
                                                (actual_copy_height - 1) * tile_wc_slice_size;
                 
-                for (uint32_t h = actual_copy_height; h < tile_dims.tile_height; ++h) {
+                for (uint32_t h = actual_copy_height; h < dst_dims.height; ++h) {
                     const std::size_t dst_offset = d * tile_hwc_slice_size +
                                                    h * tile_wc_slice_size;
                     std::memcpy(&tile_data[dst_offset], &tile_data[src_offset], 
@@ -791,10 +721,10 @@ inline void fetch_tile_from_buffer(
         }
         
         // Pad depth (replicate farthest slice)
-        if (actual_copy_depth < tile_dims.tile_depth) {
+        if (actual_copy_depth < dst_dims.depth) {
             const std::size_t src_offset = (actual_copy_depth - 1) * tile_hwc_slice_size;
             
-            for (uint32_t d = actual_copy_depth; d < tile_dims.tile_depth; ++d) {
+            for (uint32_t d = actual_copy_depth; d < dst_dims.depth; ++d) {
                 const std::size_t dst_offset = d * tile_hwc_slice_size;
                 std::memcpy(&tile_data[dst_offset],
                             &tile_data[src_offset],
@@ -804,11 +734,11 @@ inline void fetch_tile_from_buffer(
     }
     else if constexpr (PlanarConfig == PlanarConfiguration::Planar) {
         // CDHW layout (planar - single channel per tile)
-        const std::size_t tile_hw_slice_size = tile_dims.tile_height * tile_dims.tile_width;
-        const std::size_t tile_w_slice_size = tile_dims.tile_width;
+        const std::size_t tile_hw_slice_size = dst_dims.height * dst_dims.width;
+        const std::size_t tile_w_slice_size = dst_dims.width;
         
         // Pad width (replicate rightmost column)
-        if (actual_copy_width < tile_dims.tile_width) {
+        if (actual_copy_width < dst_dims.width) {
             for (std::size_t d = 0; d < actual_copy_depth; ++d) {
                 for (std::size_t h = 0; h < actual_copy_height; ++h) {
                     const std::size_t src_idx = d * tile_hw_slice_size +
@@ -816,7 +746,7 @@ inline void fetch_tile_from_buffer(
                                                 actual_copy_width - 1;
                     const PixelType edge_value = tile_data[src_idx];
                     
-                    for (std::size_t w = actual_copy_width; w < tile_dims.tile_width; ++w) {
+                    for (std::size_t w = actual_copy_width; w < dst_dims.width; ++w) {
                         const std::size_t dst_idx = d * tile_hw_slice_size +
                                                     h * tile_w_slice_size +
                                                     w;
@@ -827,12 +757,12 @@ inline void fetch_tile_from_buffer(
         }
         
         // Pad height (replicate bottom row)
-        if (actual_copy_height < tile_dims.tile_height) {
+        if (actual_copy_height < dst_dims.height) {
             for (std::size_t d = 0; d < actual_copy_depth; ++d) {
                 const std::size_t src_offset = d * tile_hw_slice_size +
                                                (actual_copy_height - 1) * tile_w_slice_size;
                 
-                for (std::size_t h = actual_copy_height; h < tile_dims.tile_height; ++h) {
+                for (std::size_t h = actual_copy_height; h < dst_dims.height; ++h) {
                     const std::size_t dst_offset = d * tile_hw_slice_size +
                                                    h * tile_w_slice_size;
                     std::memcpy(&tile_data[dst_offset], &tile_data[src_offset], 
@@ -842,10 +772,10 @@ inline void fetch_tile_from_buffer(
         }
         
         // Pad depth (replicate farthest slice)
-        if (actual_copy_depth < tile_dims.tile_depth) {
+        if (actual_copy_depth < dst_dims.depth) {
             const std::size_t src_offset = (actual_copy_depth - 1) * tile_hw_slice_size;
             
-            for (std::size_t d = actual_copy_depth; d < tile_dims.tile_depth; ++d) {
+            for (std::size_t d = actual_copy_depth; d < dst_dims.depth; ++d) {
                 const std::size_t dst_offset = d * tile_hw_slice_size;
                 std::memcpy(&tile_data[dst_offset],
                             &tile_data[src_offset],
@@ -998,13 +928,7 @@ Predictor TiledImageInfo<PixelType>::predictor() const noexcept {
 }
 
 template <typename PixelType>
-Result<TileInfo> TiledImageInfo<PixelType>::get_tile_info(
-    uint32_t tile_x, uint32_t tile_y, uint32_t plane) const noexcept {
-    return get_tile_info_3d(tile_x, tile_y, 0, plane);
-}
-
-template <typename PixelType>
-Result<TileInfo> TiledImageInfo<PixelType>::get_tile_info_3d(
+Result<Tile> TiledImageInfo<PixelType>::get_tile_info(
     uint32_t tile_x, uint32_t tile_y, uint32_t tile_z, uint32_t plane) const noexcept {
     
     if (tile_x >= tiles_across_ || tile_y >= tiles_down_ || tile_z >= tiles_deep_) [[unlikely]] {
@@ -1032,21 +956,23 @@ Result<TileInfo> TiledImageInfo<PixelType>::get_tile_info_3d(
         return Err(Error::Code::OutOfBounds, "Tile index out of bounds");
     }
     
-    TileInfo info;
-    info.tile_x = tile_x;
-    info.tile_y = tile_y;
-    info.tile_z = tile_z;
-    info.pixel_x = tile_x * tile_width_;
-    info.pixel_y = tile_y * tile_height_;
-    info.pixel_z = tile_z * tile_depth_;
-    info.width = std::min(tile_width_, shape_.image_width() - info.pixel_x);
-    info.height = std::min(tile_height_, shape_.image_height() - info.pixel_y);
-    info.depth = std::min(tile_depth_, shape_.image_depth() - info.pixel_z);
-    info.offset = tile_offsets_[tile_index];
-    info.byte_count = tile_byte_counts_[tile_index];
-    info.tile_index = tile_index;
+    // Calculate pixel coordinates and actual dimensions
+    uint32_t pixel_x = tile_x * tile_width_;
+    uint32_t pixel_y = tile_y * tile_height_;
+    uint32_t pixel_z = tile_z * tile_depth_;
+    uint32_t actual_width = std::min(tile_width_, shape_.image_width() - pixel_x); // TODO: should we really clamp here ? Using TileSize for that doesn't seem appropriate as its the destination size not the tile size...
+    uint32_t actual_height = std::min(tile_height_, shape_.image_height() - pixel_y);
+    uint32_t actual_depth = std::min(tile_depth_, shape_.image_depth() - pixel_z);
     
-    return Ok(info);
+    Tile tile;
+    tile.id.index = tile_index;
+    tile.id.coords = TileCoordinates{pixel_x, pixel_y, pixel_z, plane};
+    tile.id.size = TileSize{actual_width, actual_height, actual_depth, 
+                            shape_.planar_configuration() == PlanarConfiguration::Planar ? 1u : shape_.samples_per_pixel()};
+    tile.location.offset = tile_offsets_[tile_index];
+    tile.location.length = tile_byte_counts_[tile_index];
+    
+    return Ok(tile);
 }
 
 template <typename PixelType>
@@ -1155,7 +1081,7 @@ Predictor StrippedImageInfo<PixelType>::predictor() const noexcept {
 }
 
 template <typename PixelType>
-Result<StripInfo> StrippedImageInfo<PixelType>::get_strip_info(
+Result<Tile> StrippedImageInfo<PixelType>::get_strip_info(
     uint32_t strip_index, uint32_t plane) const noexcept {
     
     // For planar configuration, calculate strips per plane
@@ -1175,15 +1101,19 @@ Result<StripInfo> StrippedImageInfo<PixelType>::get_strip_info(
         return Err(Error::Code::OutOfBounds, "Strip index out of bounds");
     }
     
-    StripInfo info;
-    info.strip_index = actual_strip_index;
-    info.pixel_y = strip_index * rows_per_strip_;  // Use logical strip_index for Y position
-    info.width = shape_.image_width();
-    info.height = std::min(rows_per_strip_, shape_.image_height() - info.pixel_y);
-    info.offset = strip_offsets_[actual_strip_index];
-    info.byte_count = strip_byte_counts_[actual_strip_index];
+    // Calculate pixel Y coordinate and actual height
+    uint32_t pixel_y = strip_index * rows_per_strip_;  // Use logical strip_index for Y position
+    uint32_t actual_height = std::min(rows_per_strip_, shape_.image_height() - pixel_y);
     
-    return Ok(info);
+    Tile tile;
+    tile.id.index = actual_strip_index;
+    tile.id.coords = TileCoordinates{0, pixel_y, 0, plane};
+    tile.id.size = TileSize{shape_.image_width(), actual_height, 1u, // same comment than for tiles
+                            shape_.planar_configuration() == PlanarConfiguration::Planar ? 1u : shape_.samples_per_pixel()};
+    tile.location.offset = strip_offsets_[actual_strip_index];
+    tile.location.length = strip_byte_counts_[actual_strip_index];
+    
+    return Ok(tile);
 }
 
 template <typename PixelType>

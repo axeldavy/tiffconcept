@@ -41,8 +41,8 @@
 /// }
 /// ```
 
-#include "result.hpp"
-#include "types.hpp"
+#include "types/result.hpp"
+#include "types/tiff_spec.hpp"
 #include "reader_base.hpp"
-#include "tag_spec.hpp"
+#include "types/tag_spec.hpp"
 #include "image_shape.hpp"

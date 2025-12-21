@@ -5,9 +5,9 @@
 #include <bit>
 #include <cstring>
 #include <span>
-#include "../result.hpp"
-#include "../tag_spec.hpp"
-#include "../types.hpp"
+#include "../../types/result.hpp"
+#include "../../types/tag_spec.hpp"
+#include "../../types/tiff_spec.hpp"
 
 namespace tiffconcept {
 
