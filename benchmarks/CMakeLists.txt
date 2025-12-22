@@ -84,3 +84,34 @@ if(UNIX AND NOT APPLE)
 elseif(WIN32)
     target_compile_definitions(tiff_benchmarks PRIVATE _WIN32)
 endif()
+
+# Add standalone benchmark for reading directories
+add_executable(benchmark_read_directory
+    benchmark_read_directory.cpp
+)
+
+# Link against ZSTD and libtiff
+target_link_libraries(benchmark_read_directory
+    zstd_static
+)
+
+if(TIFF_FOUND)
+    target_link_libraries(benchmark_read_directory ${TIFF_LIBRARIES})
+    target_include_directories(benchmark_read_directory PRIVATE ${TIFF_INCLUDE_DIRS})
+else()
+    message(FATAL_ERROR "libtiff is required for benchmark_read_directory")
+endif()
+
+# Add compiler warnings and optimizations
+if(MSVC)
+    target_compile_options(benchmark_read_directory PRIVATE /W4 /O2)
+else()
+    target_compile_options(benchmark_read_directory PRIVATE -Wall -Wextra -O3 -march=native -DNDEBUG)
+endif()
+
+# Platform-specific libraries
+if(UNIX AND NOT APPLE)
+    target_compile_definitions(benchmark_read_directory PRIVATE __unix__)
+elseif(WIN32)
+    target_compile_definitions(benchmark_read_directory PRIVATE _WIN32)
+endif()
