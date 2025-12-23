@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <concepts>
 #include <cstddef>
+#include <cstring>
 #include <span>
 #include <vector>
 #include "../reader_base.hpp"
@@ -102,6 +103,8 @@ protected:
 public:
     using ReadViewType = buffer_impl::BorrowedBufferReadView;
     using WriteViewType = buffer_impl::BorrowedBufferWriteView;
+
+    static constexpr bool read_must_allocate = false;
     
     BufferViewBase() noexcept = default;
     
@@ -139,16 +142,27 @@ public:
         }
         
         std::size_t bytes_to_read = std::min(size, buffer_.size() - offset);
-        
-        // Convert to const span for read view
-        std::span<const std::byte> const_span;
-        if constexpr (AccessPolicy::can_write) {
-            const_span = std::span<const std::byte>(buffer_.data() + offset, bytes_to_read);
-        } else {
-            const_span = std::span<const std::byte>(buffer_.data() + offset, bytes_to_read);
-        }
+
+        std::span<const std::byte> const_span = std::span<const std::byte>(buffer_.data() + offset, bytes_to_read);;
         
         return Ok(buffer_impl::BorrowedBufferReadView(const_span));
+    }
+
+    [[nodiscard]] Result<void> read_into(void* dest_buffer, std::size_t offset, std::size_t size) const noexcept
+        requires (AccessPolicy::can_read) {
+        if (!is_valid()) [[unlikely]] {
+            return Err(Error::Code::ReadError, "Buffer not set");
+        }
+
+        if (offset >= buffer_.size()) [[unlikely]] {
+            return Err(Error::Code::OutOfBounds, "Read offset beyond buffer size");
+        }
+
+        std::size_t bytes_to_read = std::min(size, buffer_.size() - offset);
+
+        std::memcpy(dest_buffer, buffer_.data() + offset, bytes_to_read);
+
+        return Ok();
     }
     
     /// Zero-copy write (only available if can_write is true)
@@ -258,6 +272,8 @@ protected:
 public:
     using ReadViewType = buffer_impl::BorrowedBufferReadView;
     using WriteViewType = buffer_impl::BorrowedBufferWriteView;
+
+    static constexpr bool read_must_allocate = false;
     
     BufferBase() noexcept = default;
     
@@ -289,6 +305,22 @@ public:
         std::span<const std::byte> const_span(buffer_.data() + offset, bytes_to_read);
         
         return Ok(buffer_impl::BorrowedBufferReadView(const_span));
+    }
+
+    [[nodiscard]] Result<void> read_into(void* dest_buffer, std::size_t offset, std::size_t size) const noexcept 
+        requires (AccessPolicy::can_read) {
+        if (!is_valid()) [[unlikely]] {
+            return Err(Error::Code::ReadError, "Buffer not initialized");
+        }
+        
+        if (offset >= buffer_.size()) [[unlikely]] {
+            return Err(Error::Code::OutOfBounds, "Read offset beyond buffer size");
+        }
+        
+        std::size_t bytes_to_read = std::min(size, buffer_.size() - offset);
+        std::memcpy(dest_buffer, buffer_.data() + offset, bytes_to_read);
+        
+        return Ok();
     }
     
     /// Zero-copy write (only available if can_write is true)

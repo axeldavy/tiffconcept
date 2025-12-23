@@ -176,6 +176,8 @@ protected:
 public:
     using ReadViewType = windows_impl::OwnedBufferReadView;
     using WriteViewType = windows_impl::OwnedBufferWriteView;
+
+    static constexpr bool read_must_allocate = true;
     
     WindowsFileBase() noexcept = default;
     
@@ -270,7 +272,11 @@ public:
             return Err(Error::Code::OutOfBounds, "Read offset beyond file size");
         }
         
-        std::size_t bytes_to_read = std::min(size, size_ - offset);
+        //std::size_t bytes_to_read = std::min(size, size_ - offset); won't compile with msvc
+        std::size_t bytes_to_read = size;
+        if (bytes_to_read > (size_ - offset)) {
+            bytes_to_read = size_ - offset;
+        }
         
         // Allocate buffer
         auto buffer = std::shared_ptr<std::byte[]>(new std::byte[bytes_to_read]);
@@ -296,6 +302,47 @@ public:
         std::span<const std::byte> data_span(buffer.get(), static_cast<std::size_t>(bytes_read));
         
         return Ok(windows_impl::OwnedBufferReadView(data_span, buffer));
+    }
+
+    [[nodiscard]] Result<void> read_into(void* buffer, std::size_t offset, std::size_t size) const noexcept
+        requires (AccessPolicy::can_read) {
+        if (!is_valid()) {
+            return Err(Error::Code::ReadError, "File not open");
+        }
+
+        if (offset >= size_) {
+            return Err(Error::Code::OutOfBounds, "Read offset beyond file size");
+        }
+
+        if (size == 0) {
+            return Ok();
+        }
+
+        //std::size_t bytes_to_read = std::min(size, size_ - offset); won't compile with msvc
+        std::size_t bytes_to_read = size;
+        if (bytes_to_read > (size_ - offset)) {
+            bytes_to_read = size_ - offset;
+        }
+
+        // Setup OVERLAPPED structure for positioned read (thread-safe)
+        OVERLAPPED overlapped = {};
+        overlapped.Offset = static_cast<DWORD>(offset & 0xFFFFFFFF);
+        overlapped.OffsetHigh = static_cast<DWORD>(offset >> 32);
+
+        DWORD bytes_read = 0;
+        if (!ReadFile(file_handle_, buffer, static_cast<DWORD>(bytes_to_read), &bytes_read, &overlapped)) {
+            DWORD error = GetLastError();
+            if (error != ERROR_IO_PENDING) {
+                return Err(Error::Code::ReadError, "ReadFile failed with error: " + std::to_string(error));
+            }
+
+            // Wait for async operation to complete
+            if (!GetOverlappedResult(file_handle_, &overlapped, &bytes_read, TRUE)) {
+                return Err(Error::Code::ReadError, "GetOverlappedResult failed");
+            }
+        }
+
+        return Ok();
     }
     
     /// Thread-safe write using WriteFile with OVERLAPPED (only available if can_write is true)

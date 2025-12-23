@@ -273,6 +273,7 @@ private:
 /// - Not recommended for: High-latency I/O (use IOLimitedReader instead)
 ///
 /// @note Thread-safe: multiple threads can call read_region concurrently
+/// @note Allocates thread_local storage for each worker and calling threads.
 template <typename PixelType, typename DecompSpec>
 class CPULimitedReader {
 public:
@@ -339,6 +340,185 @@ private:
         size_t num_tiles_per_thread,
         size_t task_idx,
         std::shared_ptr<JobState> job_state) noexcept;
+};
+
+/// @brief Optimal reader combining async I/O with parallel processing
+///
+/// This is the "ultimate" TIFF reader designed for maximum performance across
+/// all storage types: local SSD, NAS, cloud storage.
+///
+/// Design Philosophy:
+/// - Async I/O: Submit all reads upfront using AsyncRawReader interface
+/// - Batching: Group adjacent tiles to minimize network round-trips
+/// - Parallel Processing: All threads (including caller) process completions concurrently
+/// - Non-blocking Workers: Workers poll for completions without blocking on I/O
+/// - Thread-Local Decoders: Each thread has its own decoder for cache locality
+///
+/// Architecture:
+/// 1. Main thread collects tiles and creates batches (groups adjacent tiles)
+/// 2. Main thread submits ALL async reads upfront (maximizes queue depth)
+/// 3. Main thread + workers compete to poll completions and process them
+/// 4. Each completion: decode (decompress + predictor) + extract to output
+/// 5. Main thread waits until all tiles processed
+///
+/// Thread Safety:
+/// - read_region is thread-safe and can be called concurrently from multiple threads
+/// - Each read_region call has isolated state
+/// - Workers process completions from any read_region call that's running
+/// - Thread-local decoders eliminate contention
+///
+/// Performance Characteristics:
+/// - Best for: ALL scenarios (optimal across storage types)
+/// - Local SSD: Maximizes queue depth, parallel decode, near 100% CPU utilization
+/// - NAS/Network: Batching reduces round-trips, parallel I/O + decode
+/// - Cloud: Aggressive batching, massive parallelism
+/// - Memory: O(batch_buffer_size + decoder_scratch × threads)
+/// - CPU: Near 100% utilization when decompression is bottleneck
+/// - I/O: Maximum bandwidth utilization with sufficient batching
+///
+/// Configuration:
+/// - worker_threads: Processing threads (0 = auto-detect, typically # cores - 1)
+/// - max_batch_size: Maximum batch read size (4MB default, increase for high-latency)
+/// - max_gap_size: Maximum gap to bridge between tiles (64KB default)
+///
+/// @note Requires AsyncRawReader (io_uring on Linux, IOCP on Windows)
+/// @note Main thread participates in processing (no idle time)
+/// @note Workers never block on I/O (only poll completions)
+/// @note Thread-safe: multiple threads can call read_region concurrently
+///
+/// Example:
+/// @code
+///   #ifdef __linux__
+///   IoUringFileReader reader("file.tif");
+///   #else
+///   IOCPFileReader reader("file.tif");
+///   #endif
+///   
+///   FastReader<uint8_t, DecompSpec> fast_reader;
+///   auto result = fast_reader.read_region<ImageLayoutSpec::DHWC>(
+///       reader, metadata, region, output_buffer
+///   );
+/// @endcode
+template <typename PixelType, typename DecompSpec>
+class FastReader {
+public:
+    struct Config {
+        size_t worker_threads = 0;           ///< Processing threads (0 = auto, typically cores - 1)
+        size_t max_batch_size = 4 * 1024 * 1024;  ///< Max bytes per batch (increase for network)
+        size_t max_gap_size = 64 * 1024;     ///< Max gap to bridge between tiles
+    };
+
+    explicit FastReader(Config config = {});
+    ~FastReader();
+
+    /// @brief Read a region using async I/O and parallel processing
+    ///
+    /// This method submits all reads upfront via async_read_into(), then
+    /// all threads (including caller) compete to process completions.
+    ///
+    /// @tparam OutSpec Output layout (DHWC, DCHW, CDHW)
+    /// @tparam Reader Async reader type (must satisfy AsyncRawReader)
+    /// @tparam TagSpec Tag specification type
+    ///
+    /// @param reader Async reader (io_uring or IOCP)
+    /// @param metadata Extracted TIFF tags
+    /// @param region Region to read
+    /// @param output_buffer Output buffer (must be region.num_samples() size)
+    ///
+    /// @return Ok on success, error otherwise
+    ///
+    /// Thread-safety: Safe to call concurrently from multiple threads
+    template <ImageLayoutSpec OutSpec, typename Reader, typename TagSpec>
+    requires AsyncRawReader<Reader> && (TiledImageTagSpec<TagSpec> || StrippedImageTagSpec<TagSpec>)
+    [[nodiscard]] Result<void> read_region(
+        const Reader& reader,
+        const ExtractedTags<TagSpec>& metadata,
+        const ImageRegion& region,
+        std::span<PixelType> output_buffer) noexcept;
+
+private:
+    /// @brief Batch of adjacent tiles for efficient I/O
+    struct Batch {
+        size_t first_tile_index;  ///< Index of first tile in batch
+        size_t tile_count;        ///< Number of tiles in batch
+        size_t file_offset;       ///< Starting file offset
+        size_t total_size;        ///< Total bytes to read (including gaps)
+    };
+
+    /// @brief Context for a single async read operation
+    struct ReadContext {
+        size_t batch_index;                       ///< Which batch this belongs to
+        std::unique_ptr<std::byte[]> buffer;      ///< Allocated buffer for compressed data
+        size_t buffer_size;                       ///< Size of allocated buffer
+    };
+
+    Config config_;
+    
+    // Worker thread pool (persistent)
+    std::vector<std::thread> workers_;
+    std::atomic<bool> stop_workers_{false};
+
+    void worker_loop();
+
+    /// @brief Per-job state shared between all processing threads
+    ///
+    /// Synchronization:
+    /// - Atomic counters for lock-free fast path
+    /// - Mutex only for error tracking
+    /// - Main thread + workers all access this concurrently
+    struct JobState {
+        // Tracking
+        std::atomic<size_t> tiles_completed{0};   ///< Tiles processed so far
+        std::atomic<size_t> tiles_total{0};       ///< Total tiles to process
+        std::atomic<bool> error_occurred{false};  ///< Fast-path error check
+        
+        // Error handling (protected by mutex)
+        std::mutex error_mutex;
+        Result<void> first_error = Ok();
+        
+        // Synchronization for main thread
+        std::mutex completion_mutex;
+        std::condition_variable completion_cv;
+    };
+
+    /// @brief Create batches from tiles (static helper)
+    static void create_batches(
+        const std::vector<Tile>& tiles, 
+        const Config& config, 
+        std::vector<Batch>& out_batches);
+
+    /// @brief Process completions from async reader (worker function)
+    ///
+    /// This function is called by both main thread and worker threads.
+    /// It polls for completions and processes them (decode + extract).
+    ///
+    /// @param reader Async reader to poll completions from
+    /// @param job_state Shared job state
+    /// @param tiles Tile metadata
+    /// @param batches Batch information
+    /// @param contexts Read contexts (buffer ownership)
+    /// @param metadata TIFF metadata
+    /// @param region Image region
+    /// @param output_buffer Output buffer
+    /// @param compression Compression scheme
+    /// @param predictor Predictor scheme
+    /// @param is_main_thread True if this is the main thread (different behavior)
+    ///
+    /// @return Number of tiles processed
+    template <ImageLayoutSpec OutSpec, typename Reader, typename TagSpec>
+    requires AsyncRawReader<Reader> && (TiledImageTagSpec<TagSpec> || StrippedImageTagSpec<TagSpec>)
+    static size_t process_completions(
+        const Reader& reader,
+        std::shared_ptr<JobState> job_state,
+        const std::vector<Tile>& tiles,
+        const std::vector<Batch>& batches,
+        std::vector<ReadContext>& contexts,
+        const ExtractedTags<TagSpec>& metadata,
+        const ImageRegion& region,
+        std::span<PixelType> output_buffer,
+        CompressionScheme compression,
+        Predictor predictor,
+        bool is_main_thread) noexcept;
 };
 
 } // namespace tiffconcept

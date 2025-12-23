@@ -26,13 +26,19 @@
 #if defined(__linux__) || defined(__unix__) || defined(__APPLE__)
     #include "../tiffconcept/include/tiffconcept/readers/reader_unix_pread.hpp"
     #include "../tiffconcept/include/tiffconcept/readers/reader_unix_mmap.hpp"
-    using FileReader = tiffconcept::PreadFileReader;
+    #ifdef HAVE_LIBURING
+        #include "../tiffconcept/include/tiffconcept/readers/reader_unix_io_uring.hpp"
+        using FileReader = tiffconcept::IoUringFileReader;
+    #else
+        using FileReader = tiffconcept::PreadFileReader;
+    #endif
     using MmapReader = tiffconcept::MmapFileReader;
 #elif defined(_WIN32) || defined(_WIN64)
     #include "../tiffconcept/include/tiffconcept/readers/reader_windows.hpp"
     #include "../tiffconcept/include/tiffconcept/readers/reader_windows_mmap.hpp"
-    // Use Windows memory-mapped file reader (best performance)
-    using FileReader = tiffconcept::WindowsFileReader;
+    #include "../tiffconcept/include/tiffconcept/readers/reader_windows_async.hpp"
+    using FileReader = tiffconcept::IOCPFileReader;
+    //using FileReader = tiffconcept::WindowsFileReader;
     using MmapReader = tiffconcept::WindowsMmapFileReader;
 #else
     #include "../tiffconcept/include/tiffconcept/readers/reader_stream.hpp"
@@ -58,6 +64,9 @@ using IOLimitedReaderType = IOLimitedReader<T, DecompSpec>;
 
 template <typename T, typename DecompSpec>
 using CPULimitedReaderType = CPULimitedReader<T, DecompSpec>;
+
+template <typename T, typename DecompSpec>
+using FastReaderType = FastReader<T, DecompSpec>;
 
 // ============================================================================
 // Metadata Parsing Benchmarks - Single Page
@@ -1272,92 +1281,76 @@ BENCHMARK(BM_LibTIFF_Metadata_ExtractAllPages)
 // SimpleReader benchmarks
 BENCHMARK(BM_Read_SizeVariation<uint8_t, SimpleReaderType<uint8_t, DecompressorSpec<NoneDecompressorDesc, ZstdDecompressorDesc>>>)
     ->Args({64, 1, 0, 0})      // 64x64, 1ch, None, Little
-    ->Args({256, 1, 0, 0})     // 256x256, 1ch, None, Little
     ->Args({512, 3, 0, 0})     // 512x512, 3ch, None, Little
-    ->Args({1024, 3, 0, 0})    // 1024x1024, 3ch, None, Little
-    ->Args({2048, 3, 0, 0})    // 2048x2048, 3ch, None, Little
-    ->Args({4096, 3, 0, 0})    // 4096x4096, 3ch, None, Little
+    ->Args({512, 64, 0, 0})    // 512x512, 64ch, None, Little
     ->Args({8192, 1, 0, 0})    // 8192x8192, 1ch, None, Little
     ->Args({8192, 1, 1, 0})    // 8192x8192, 1ch, ZSTD, Little
-    ->Args({512, 8, 0, 0})     // 512x512, 8ch, None, Little
-    ->Args({512, 16, 0, 0})    // 512x512, 16ch, None, Little
-    ->Args({512, 32, 0, 0})    // 512x512, 32ch, None, Little
-    ->Args({512, 64, 0, 0})    // 512x512, 64ch, None, Little
-    ->Args({512, 3, 1, 0})     // 512x512, 3ch, ZSTD, Little
-    ->Args({2048, 3, 1, 0})    // 2048x2048, 3ch, ZSTD, Little
+    ->Args({8192, 1, 1, 1})    // 8192x8192, 1ch, ZSTD, Big
     ->Name("TiffConcept/Read/SimpleReader/SizeVariation/uint8")
     ->Unit(benchmark::kMillisecond);
 
 // IOLimitedReader benchmarks
 BENCHMARK(BM_Read_SizeVariation<uint8_t, IOLimitedReaderType<uint8_t, DecompressorSpec<NoneDecompressorDesc, ZstdDecompressorDesc>>>)
     ->Args({64, 1, 0, 0})      // 64x64, 1ch, None, Little
-    ->Args({256, 1, 0, 0})     // 256x256, 1ch, None, Little
     ->Args({512, 3, 0, 0})     // 512x512, 3ch, None, Little
-    ->Args({1024, 3, 0, 0})    // 1024x1024, 3ch, None, Little
-    ->Args({2048, 3, 0, 0})    // 2048x2048, 3ch, None, Little
-    ->Args({4096, 3, 0, 0})    // 4096x4096, 3ch, None, Little
+    ->Args({512, 64, 0, 0})    // 512x512, 64ch, None, Little
     ->Args({8192, 1, 0, 0})    // 8192x8192, 1ch, None, Little
     ->Args({8192, 1, 1, 0})    // 8192x8192, 1ch, ZSTD, Little
-    ->Args({512, 8, 0, 0})     // 512x512, 8ch, None, Little
-    ->Args({512, 16, 0, 0})    // 512x512, 16ch, None, Little
-    ->Args({512, 32, 0, 0})    // 512x512, 32ch, None, Little
-    ->Args({512, 64, 0, 0})    // 512x512, 64ch, None, Little
-    ->Args({512, 3, 1, 0})     // 512x512, 3ch, ZSTD, Little
-    ->Args({2048, 3, 1, 0})    // 2048x2048, 3ch, ZSTD, Little
+    ->Args({8192, 1, 1, 1})    // 8192x8192, 1ch, ZSTD, Big
     ->Name("TiffConcept/Read/IOLimitedReader/SizeVariation/uint8")
     ->Unit(benchmark::kMillisecond);
 
 // CPULimitedReader benchmarks
 BENCHMARK(BM_Read_SizeVariation<uint8_t, CPULimitedReaderType<uint8_t, DecompressorSpec<NoneDecompressorDesc, ZstdDecompressorDesc>>>)
     ->Args({64, 1, 0, 0})      // 64x64, 1ch, None, Little
-    ->Args({256, 1, 0, 0})     // 256x256, 1ch, None, Little
     ->Args({512, 3, 0, 0})     // 512x512, 3ch, None, Little
-    ->Args({1024, 3, 0, 0})    // 1024x1024, 3ch, None, Little
-    ->Args({2048, 3, 0, 0})    // 2048x2048, 3ch, None, Little
-    ->Args({4096, 3, 0, 0})    // 4096x4096, 3ch, None, Little
+    ->Args({512, 64, 0, 0})    // 512x512, 64ch, None, Little
     ->Args({8192, 1, 0, 0})    // 8192x8192, 1ch, None, Little
     ->Args({8192, 1, 1, 0})    // 8192x8192, 1ch, ZSTD, Little
-    ->Args({512, 8, 0, 0})     // 512x512, 8ch, None, Little
-    ->Args({512, 16, 0, 0})    // 512x512, 16ch, None, Little
-    ->Args({512, 32, 0, 0})    // 512x512, 32ch, None, Little
-    ->Args({512, 64, 0, 0})    // 512x512, 64ch, None, Little
-    ->Args({512, 3, 1, 0})     // 512x512, 3ch, ZSTD, Little
-    ->Args({2048, 3, 1, 0})    // 2048x2048, 3ch, ZSTD, Little
+    ->Args({8192, 1, 1, 1})    // 8192x8192, 1ch, ZSTD, Big
     ->Name("TiffConcept/Read/CPULimitedReader/SizeVariation/uint8")
     ->Unit(benchmark::kMillisecond);
 
 // SimpleReader uint16_t
 BENCHMARK(BM_Read_SizeVariation<uint16_t, SimpleReaderType<uint16_t, DecompressorSpec<NoneDecompressorDesc, ZstdDecompressorDesc>>>)
     ->Args({512, 3, 0, 0})     // 512x512, 3ch, None, Little
-    ->Args({1024, 3, 0, 0})    // 1024x1024, 3ch, None, Little
     ->Args({2048, 3, 0, 0})    // 2048x2048, 3ch, None, Little
-    ->Args({512, 16, 0, 0})    // 512x512, 16ch, None, Little
-    ->Args({512, 3, 1, 0})     // 512x512, 3ch, ZSTD, Little
-    ->Args({512, 3, 1, 1})    // 2048x2048, 3ch, ZSTD, Big
     ->Name("TiffConcept/Read/SimpleReader/SizeVariation/uint16")
     ->Unit(benchmark::kMillisecond);
 
 // IOLimitedReader uint16_t
 BENCHMARK(BM_Read_SizeVariation<uint16_t, IOLimitedReaderType<uint16_t, DecompressorSpec<NoneDecompressorDesc, ZstdDecompressorDesc>>>)
     ->Args({512, 3, 0, 0})     // 512x512, 3ch, None, Little
-    ->Args({1024, 3, 0, 0})    // 1024x1024, 3ch, None, Little
     ->Args({2048, 3, 0, 0})    // 2048x2048, 3ch, None, Little
-    ->Args({512, 16, 0, 0})    // 512x512, 16ch, None, Little
-    ->Args({512, 3, 1, 0})     // 512x512, 3ch, ZSTD, Little
-    ->Args({512, 3, 1, 1})    // 2048x2048, 3ch, ZSTD, Big
     ->Name("TiffConcept/Read/IOLimitedReader/SizeVariation/uint16")
     ->Unit(benchmark::kMillisecond);
 
 // CPULimitedReader uint16_t
 BENCHMARK(BM_Read_SizeVariation<uint16_t, CPULimitedReaderType<uint16_t, DecompressorSpec<NoneDecompressorDesc, ZstdDecompressorDesc>>>)
     ->Args({512, 3, 0, 0})     // 512x512, 3ch, None, Little
-    ->Args({1024, 3, 0, 0})    // 1024x1024, 3ch, None, Little
     ->Args({2048, 3, 0, 0})    // 2048x2048, 3ch, None, Little
-    ->Args({512, 16, 0, 0})    // 512x512, 16ch, None, Little
-    ->Args({512, 3, 1, 0})     // 512x512, 3ch, ZSTD, Little
-    ->Args({512, 3, 1, 1})    // 2048x2048, 3ch, ZSTD, Big
     ->Name("TiffConcept/Read/CPULimitedReader/SizeVariation/uint16")
     ->Unit(benchmark::kMillisecond);
+
+#if defined(HAVE_LIBURING) || defined(_WIN32)
+// FastReader benchmarks (requires async I/O support)
+BENCHMARK(BM_Read_SizeVariation<uint8_t, FastReaderType<uint8_t, DecompressorSpec<NoneDecompressorDesc, ZstdDecompressorDesc>>>)
+    ->Args({64, 1, 0, 0})      // 64x64, 1ch, None, Little
+    ->Args({512, 3, 0, 0})     // 512x512, 3ch, None, Little
+    ->Args({512, 64, 0, 0})    // 512x512, 64ch, None, Little
+    ->Args({8192, 1, 0, 0})    // 8192x8192, 1ch, None, Little
+    ->Args({8192, 1, 1, 0})    // 8192x8192, 1ch, ZSTD, Little
+    ->Args({8192, 1, 1, 1})    // 8192x8192, 1ch, ZSTD, Big
+    ->Name("TiffConcept/Read/FastReader/SizeVariation/uint8")
+    ->Unit(benchmark::kMillisecond);
+
+// FastReader uint16_t
+BENCHMARK(BM_Read_SizeVariation<uint16_t, FastReaderType<uint16_t, DecompressorSpec<NoneDecompressorDesc, ZstdDecompressorDesc>>>)
+    ->Args({512, 3, 0, 0})     // 512x512, 3ch, None, Little
+    ->Args({2048, 3, 0, 0})    // 2048x2048, 3ch, None, Little
+    ->Name("TiffConcept/Read/FastReader/SizeVariation/uint16")
+    ->Unit(benchmark::kMillisecond);
+#endif // HAVE_LIBURING || _WIN32
 
 
 #ifdef HAVE_LIBTIFF
@@ -1366,26 +1359,16 @@ BENCHMARK(BM_LibTIFF_Read_SizeVariation<uint8_t>)
     ->Args({64, 1, 0})
     ->Args({256, 1, 0})
     ->Args({512, 3, 0})
-    ->Args({1024, 3, 0})
-    ->Args({2048, 3, 0})
-    ->Args({4096, 3, 0})
+    ->Args({512, 64, 0})
     ->Args({8192, 1, 0})
     ->Args({8192, 1, 1})
-    ->Args({512, 8, 0})
-    ->Args({512, 16, 0})
-    ->Args({512, 32, 0})
-    ->Args({512, 64, 0})
-    ->Args({512, 3, 1})
-    ->Args({2048, 3, 1})
+    ->Args({8192, 1, 1})
     ->Name("LibTIFF/Read/SizeVariation/uint8")
     ->Unit(benchmark::kMillisecond);
 
 BENCHMARK(BM_LibTIFF_Read_SizeVariation<uint16_t>)
     ->Args({512, 3, 0})
-    ->Args({1024, 3, 0})
     ->Args({2048, 3, 0})
-    ->Args({512, 16, 0})
-    ->Args({512, 3, 1})
     ->Name("LibTIFF/Read/SizeVariation/uint16")
     ->Unit(benchmark::kMillisecond);
 #endif // HAVE_LIBTIFF
@@ -1397,9 +1380,6 @@ BENCHMARK(BM_LibTIFF_Read_SizeVariation<uint16_t>)
 // SimpleReader
 BENCHMARK(BM_Read_PartialRegion<uint8_t, SimpleReaderType<uint8_t, DecompressorSpec<NoneDecompressorDesc>>>)
     ->Args({1024, 128})   // Read 128x128 from 1024x1024
-    ->Args({1024, 256})   // Read 256x256 from 1024x1024
-    ->Args({2048, 256})   // Read 256x256 from 2048x2048
-    ->Args({2048, 512})   // Read 512x512 from 2048x2048
     ->Args({4096, 512})   // Read 512x512 from 4096x4096
     ->Args({4096, 1024})  // Read 1024x1024 from 4096x4096
     ->Name("TiffConcept/Read/SimpleReader/PartialRegion/uint8")
@@ -1408,9 +1388,6 @@ BENCHMARK(BM_Read_PartialRegion<uint8_t, SimpleReaderType<uint8_t, DecompressorS
 // IOLimitedReader
 BENCHMARK(BM_Read_PartialRegion<uint8_t, IOLimitedReaderType<uint8_t, DecompressorSpec<NoneDecompressorDesc>>>)
     ->Args({1024, 128})   // Read 128x128 from 1024x1024
-    ->Args({1024, 256})   // Read 256x256 from 1024x1024
-    ->Args({2048, 256})   // Read 256x256 from 2048x2048
-    ->Args({2048, 512})   // Read 512x512 from 2048x2048
     ->Args({4096, 512})   // Read 512x512 from 4096x4096
     ->Args({4096, 1024})  // Read 1024x1024 from 4096x4096
     ->Name("TiffConcept/Read/IOLimitedReader/PartialRegion/uint8")
@@ -1419,22 +1396,26 @@ BENCHMARK(BM_Read_PartialRegion<uint8_t, IOLimitedReaderType<uint8_t, Decompress
 // CPULimitedReader
 BENCHMARK(BM_Read_PartialRegion<uint8_t, CPULimitedReaderType<uint8_t, DecompressorSpec<NoneDecompressorDesc>>>)
     ->Args({1024, 128})   // Read 128x128 from 1024x1024
-    ->Args({1024, 256})   // Read 256x256 from 1024x1024
-    ->Args({2048, 256})   // Read 256x256 from 2048x2048
-    ->Args({2048, 512})   // Read 512x512 from 2048x2048
     ->Args({4096, 512})   // Read 512x512 from 4096x4096
     ->Args({4096, 1024})  // Read 1024x1024 from 4096x4096
     ->Name("TiffConcept/Read/CPULimitedReader/PartialRegion/uint8")
     ->Unit(benchmark::kMillisecond);
+
+#if defined(HAVE_LIBURING) || defined(_WIN32)
+// FastReader
+BENCHMARK(BM_Read_PartialRegion<uint8_t, FastReaderType<uint8_t, DecompressorSpec<NoneDecompressorDesc>>>)
+    ->Args({1024, 128})   // Read 128x128 from 1024x1024
+    ->Args({4096, 512})   // Read 512x512 from 4096x4096
+    ->Args({4096, 1024})  // Read 1024x1024 from 4096x4096
+    ->Name("TiffConcept/Read/FastReader/PartialRegion/uint8")
+    ->Unit(benchmark::kMillisecond);
+#endif // HAVE_LIBURING || _WIN32
 
 
 #ifdef HAVE_LIBTIFF
 // Read - Partial Regions
 BENCHMARK(BM_LibTIFF_Read_PartialRegion<uint8_t>)
     ->Args({1024, 128})
-    ->Args({1024, 256})
-    ->Args({2048, 256})
-    ->Args({2048, 512})
     ->Args({4096, 512})
     ->Args({4096, 1024})
     ->Name("LibTIFF/Read/PartialRegion/uint8")
@@ -1448,10 +1429,6 @@ BENCHMARK(BM_LibTIFF_Read_PartialRegion<uint8_t>)
 // SimpleReader uint8_t
  BENCHMARK(BM_Read_3DVolume<uint8_t, SimpleReaderType<uint8_t, DecompressorSpec<NoneDecompressorDesc>>>)
      ->Args({128, 16})   // 128x128x16
-     ->Args({128, 32})   // 128x128x32
-     ->Args({256, 16})   // 256x256x16
-     ->Args({256, 32})   // 256x256x32
-     ->Args({256, 64})   // 256x256x64
      ->Args({512, 32})   // 512x512x32
      ->Name("TiffConcept/Read/SimpleReader/3DVolume/uint8")
      ->Unit(benchmark::kMillisecond);
@@ -1459,10 +1436,6 @@ BENCHMARK(BM_LibTIFF_Read_PartialRegion<uint8_t>)
 // IOLimitedReader uint8_t
  BENCHMARK(BM_Read_3DVolume<uint8_t, IOLimitedReaderType<uint8_t, DecompressorSpec<NoneDecompressorDesc>>>)
      ->Args({128, 16})   // 128x128x16
-     ->Args({128, 32})   // 128x128x32
-     ->Args({256, 16})   // 256x256x16
-     ->Args({256, 32})   // 256x256x32
-     ->Args({256, 64})   // 256x256x64
      ->Args({512, 32})   // 512x512x32
      ->Name("TiffConcept/Read/IOLimitedReader/3DVolume/uint8")
      ->Unit(benchmark::kMillisecond);
@@ -1470,34 +1443,46 @@ BENCHMARK(BM_LibTIFF_Read_PartialRegion<uint8_t>)
 // CPULimitedReader uint8_t
  BENCHMARK(BM_Read_3DVolume<uint8_t, CPULimitedReaderType<uint8_t, DecompressorSpec<NoneDecompressorDesc>>>)
      ->Args({128, 16})   // 128x128x16
-     ->Args({128, 32})   // 128x128x32
-     ->Args({256, 16})   // 256x256x16
-     ->Args({256, 32})   // 256x256x32
-     ->Args({256, 64})   // 256x256x64
      ->Args({512, 32})   // 512x512x32
      ->Name("TiffConcept/Read/CPULimitedReader/3DVolume/uint8")
      ->Unit(benchmark::kMillisecond);
 
 // SimpleReader uint16_t
  BENCHMARK(BM_Read_3DVolume<uint16_t, SimpleReaderType<uint16_t, DecompressorSpec<NoneDecompressorDesc>>>)
-     ->Args({256, 32})   // 256x256x32
+     ->Args({128, 16})   // 128x128x16
      ->Args({512, 32})   // 512x512x32
      ->Name("TiffConcept/Read/SimpleReader/3DVolume/uint16")
      ->Unit(benchmark::kMillisecond);
 
 // IOLimitedReader uint16_t
  BENCHMARK(BM_Read_3DVolume<uint16_t, IOLimitedReaderType<uint16_t, DecompressorSpec<NoneDecompressorDesc>>>)
-     ->Args({256, 32})   // 256x256x32
+     ->Args({128, 16})   // 128x128x16
      ->Args({512, 32})   // 512x512x32
      ->Name("TiffConcept/Read/IOLimitedReader/3DVolume/uint16")
      ->Unit(benchmark::kMillisecond);
 
 // CPULimitedReader uint16_t
  BENCHMARK(BM_Read_3DVolume<uint16_t, CPULimitedReaderType<uint16_t, DecompressorSpec<NoneDecompressorDesc>>>)
-     ->Args({256, 32})   // 256x256x32
+     ->Args({128, 16})   // 128x128x16
      ->Args({512, 32})   // 512x512x32
      ->Name("TiffConcept/Read/CPULimitedReader/3DVolume/uint16")
      ->Unit(benchmark::kMillisecond);
+
+#if defined(HAVE_LIBURING) || defined(_WIN32)
+// FastReader uint8_t
+ BENCHMARK(BM_Read_3DVolume<uint8_t, FastReaderType<uint8_t, DecompressorSpec<NoneDecompressorDesc>>>)
+     ->Args({128, 16})   // 128x128x16
+     ->Args({512, 32})   // 512x512x32
+     ->Name("TiffConcept/Read/FastReader/3DVolume/uint8")
+     ->Unit(benchmark::kMillisecond);
+
+// FastReader uint16_t
+ BENCHMARK(BM_Read_3DVolume<uint16_t, FastReaderType<uint16_t, DecompressorSpec<NoneDecompressorDesc>>>)
+     ->Args({128, 16})   // 128x128x16
+     ->Args({512, 32})   // 512x512x32
+     ->Name("TiffConcept/Read/FastReader/3DVolume/uint16")
+     ->Unit(benchmark::kMillisecond);
+#endif // HAVE_LIBURING || _WIN32
 
 
 
@@ -1507,10 +1492,7 @@ BENCHMARK(BM_LibTIFF_Read_PartialRegion<uint8_t>)
 // SimpleReader
 BENCHMARK(BM_Read_MultiPage<uint8_t, SimpleReaderType<uint8_t, DecompressorSpec<NoneDecompressorDesc>>>)
     ->Args({10, 0})    // 10 pages, read page 0
-    ->Args({10, 5})    // 10 pages, read page 5
     ->Args({10, 9})    // 10 pages, read page 9
-    ->Args({50, 0})    // 50 pages, read page 0
-    ->Args({50, 25})   // 50 pages, read page 25
     ->Args({50, 49})   // 50 pages, read page 49
     ->Name("TiffConcept/Read/SimpleReader/MultiPage/uint8")
     ->Unit(benchmark::kMillisecond);
@@ -1518,10 +1500,7 @@ BENCHMARK(BM_Read_MultiPage<uint8_t, SimpleReaderType<uint8_t, DecompressorSpec<
 // IOLimitedReader
 BENCHMARK(BM_Read_MultiPage<uint8_t, IOLimitedReaderType<uint8_t, DecompressorSpec<NoneDecompressorDesc>>>)
     ->Args({10, 0})    // 10 pages, read page 0
-    ->Args({10, 5})    // 10 pages, read page 5
     ->Args({10, 9})    // 10 pages, read page 9
-    ->Args({50, 0})    // 50 pages, read page 0
-    ->Args({50, 25})   // 50 pages, read page 25
     ->Args({50, 49})   // 50 pages, read page 49
     ->Name("TiffConcept/Read/IOLimitedReader/MultiPage/uint8")
     ->Unit(benchmark::kMillisecond);
@@ -1529,20 +1508,26 @@ BENCHMARK(BM_Read_MultiPage<uint8_t, IOLimitedReaderType<uint8_t, DecompressorSp
 // CPULimitedReader
 BENCHMARK(BM_Read_MultiPage<uint8_t, CPULimitedReaderType<uint8_t, DecompressorSpec<NoneDecompressorDesc>>>)
     ->Args({10, 0})    // 10 pages, read page 0
-    ->Args({10, 5})    // 10 pages, read page 5
     ->Args({10, 9})    // 10 pages, read page 9
-    ->Args({50, 0})    // 50 pages, read page 0
-    ->Args({50, 25})   // 50 pages, read page 25
     ->Args({50, 49})   // 50 pages, read page 49
     ->Name("TiffConcept/Read/CPULimitedReader/MultiPage/uint8")
     ->Unit(benchmark::kMillisecond);
+
+#if defined(HAVE_LIBURING) || defined(_WIN32)
+// FastReader
+BENCHMARK(BM_Read_MultiPage<uint8_t, FastReaderType<uint8_t, DecompressorSpec<NoneDecompressorDesc>>>)
+    ->Args({10, 0})    // 10 pages, read page 0
+    ->Args({10, 9})    // 10 pages, read page 9
+    ->Args({50, 49})   // 50 pages, read page 49
+    ->Name("TiffConcept/Read/FastReader/MultiPage/uint8")
+    ->Unit(benchmark::kMillisecond);
+#endif // HAVE_LIBURING || _WIN32
 
 
 #ifdef HAVE_LIBTIFF
 // Read - Multi-Page
 BENCHMARK(BM_LibTIFF_Read_MultiPage<uint8_t>)
     ->Args({10, 0})
-    ->Args({10, 5})
     ->Args({10, 9})
     ->Args({50, 0})
     ->Args({50, 25})

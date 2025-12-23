@@ -154,6 +154,8 @@ protected:
 public:
     using ReadViewType = pread_impl::OwnedBufferReadView;
     using WriteViewType = pread_impl::OwnedBufferWriteView;
+
+    static constexpr bool read_must_allocate = true;
     
     PreadFileBase() noexcept = default;
     
@@ -229,11 +231,11 @@ public:
     /// Thread-safe read using pread (only available if can_read is true)
     [[nodiscard]] Result<ReadViewType> read(std::size_t offset, std::size_t size) const noexcept 
         requires (AccessPolicy::can_read) {
-        if (!is_valid()) {
+        if (!is_valid()) [[unlikely]] {
             return Err(Error::Code::ReadError, "File not open");
         }
         
-        if (offset >= size_) {
+        if (offset >= size_) [[unlikely]] {
             return Err(Error::Code::OutOfBounds, "Read offset beyond file size");
         }
         
@@ -244,14 +246,44 @@ public:
         
         ssize_t bytes_read = ::pread(fd_, buffer.get(), bytes_to_read, static_cast<off_t>(offset));
         
-        if (bytes_read < 0) {
+        if (bytes_read < 0) [[unlikely]] {
             return Err(Error::Code::ReadError, 
                        "pread failed: " + std::string(std::strerror(errno)));
+        }
+    
+        if (bytes_read < static_cast<ssize_t>(bytes_to_read)) [[unlikely]] {
+            return Err(Error::Code::UnexpectedEndOfFile, "pread returned fewer bytes than requested");
         }
         
         std::span<const std::byte> data_span(buffer.get(), static_cast<std::size_t>(bytes_read));
         
         return Ok(pread_impl::OwnedBufferReadView(data_span, buffer));
+    }
+
+    [[nodiscard]] Result<void> read_into(void* dest_buffer, std::size_t offset, std::size_t size) const noexcept
+        requires (AccessPolicy::can_read) {
+        if (!is_valid()) [[unlikely]] {
+            return Err(Error::Code::ReadError, "File not open");
+        }
+
+        if (offset >= size_) [[unlikely]] {
+            return Err(Error::Code::OutOfBounds, "Read offset beyond file size");
+        }
+
+        std::size_t bytes_to_read = std::min(size, size_ - offset);
+
+        ssize_t bytes_read = ::pread(fd_, dest_buffer, bytes_to_read, static_cast<off_t>(offset));
+
+        if (bytes_read < 0) [[unlikely]] {
+            return Err(Error::Code::ReadError,
+                       "pread failed: " + std::string(std::strerror(errno)));
+        }
+
+        if (bytes_read < static_cast<ssize_t>(bytes_to_read)) [[unlikely]] {
+            return Err(Error::Code::UnexpectedEndOfFile, "pread returned fewer bytes than requested");
+        }
+
+        return Ok();
     }
     
     /// Thread-safe write using pwrite (only available if can_write is true)

@@ -120,6 +120,8 @@ protected:
 public:
     using ReadViewType = mmap_impl::MmapReadView;
     using WriteViewType = mmap_impl::MmapWriteView<AccessPolicy>;
+
+    static constexpr bool read_must_allocate = false;
     
     MmapFileBase() noexcept = default;
     
@@ -231,6 +233,24 @@ public:
         std::span<const std::byte> data_span(base + offset, bytes_to_read);
         
         return Ok(mmap_impl::MmapReadView(data_span, mmap_handle_));
+    }
+
+    [[nodiscard]] Result<void> read_into(void* buffer, std::size_t offset, std::size_t size) const noexcept
+        requires (AccessPolicy::can_read) {
+        if (!is_valid()) {
+            return Err(Error::Code::ReadError, "File not open");
+        }
+
+        if (offset >= size_) {
+            return Err(Error::Code::OutOfBounds, "Read offset beyond file size");
+        }
+
+        std::size_t bytes_to_read = std::min(size, size_ - offset);
+
+        auto* base = static_cast<const std::byte*>(mmap_handle_.get());
+        std::memcpy(buffer, base + offset, bytes_to_read);
+
+        return Ok();
     }
     
     /// Zero-copy write (only available if can_write is true)

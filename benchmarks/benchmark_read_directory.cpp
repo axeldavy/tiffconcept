@@ -26,10 +26,17 @@
 // Platform-specific file readers
 #if defined(__linux__) || defined(__unix__) || defined(__APPLE__)
     #include "../tiffconcept/include/tiffconcept/readers/reader_unix_pread.hpp"
+    //using FileReader = tiffconcept::PreadFileReader;
+    #ifdef HAVE_LIBURING
+    #include "../tiffconcept/include/tiffconcept/readers/reader_unix_io_uring.hpp"
+    using AsyncFileReader = tiffconcept::IoUringFileReader;
     using FileReader = tiffconcept::PreadFileReader;
+    #endif
 #elif defined(_WIN32) || defined(_WIN64)
     #include "../tiffconcept/include/tiffconcept/readers/reader_windows.hpp"
     using FileReader = tiffconcept::WindowsFileReader;
+    #include "../tiffconcept/include/tiffconcept/readers/reader_windows_async.hpp"
+    using AsyncFileReader = tiffconcept::IOCPFileReader;
 #else
     #include "../tiffconcept/include/tiffconcept/readers/reader_stream.hpp"
     using FileReader = tiffconcept::StreamFileReader;
@@ -266,6 +273,7 @@ enum class ReaderType {
     Simple,
     IOLimited,
     CPULimited,
+    Fast,
     Libtiff
 };
 
@@ -332,7 +340,7 @@ size_t dispatch_and_read(
     ReaderType reader_type) {
     
     // Extract image shape
-    ImageShape shape;
+    static ImageShape shape;
     auto shape_result = shape.update_from_metadata(tags);
     if (!shape_result.is_ok()) return 0;
     
@@ -358,18 +366,32 @@ size_t dispatch_and_read(
     Result<void> read_result = Ok();
     switch (reader_type) {
         case ReaderType::Simple: {
-            SimpleReader<PixelType, BenchDecompSpec> reader{};
+            static SimpleReader<PixelType, BenchDecompSpec> reader{};
             read_result = reader.template read_region<ImageLayoutSpec::DHWC>(file_reader, tags, region, buffer);
             break;
         }
         case ReaderType::IOLimited: {
-            IOLimitedReader<PixelType, BenchDecompSpec> reader{};
+            static IOLimitedReader<PixelType, BenchDecompSpec> reader{};
             read_result = reader.template read_region<ImageLayoutSpec::DHWC>(file_reader, tags, region, buffer);
             break;
         }
         case ReaderType::CPULimited: {
-            CPULimitedReader<PixelType, BenchDecompSpec> reader{};
+            static CPULimitedReader<PixelType, BenchDecompSpec> reader{};
             read_result = reader.template read_region<ImageLayoutSpec::DHWC>(file_reader, tags, region, buffer);
+            break;
+        }
+        case ReaderType::Fast: {
+#if defined(HAVE_LIBURING) || defined(_WIN32)
+            // Create async reader for this file
+            AsyncFileReader async_reader;
+            auto open_res = async_reader.open(file_reader.path());
+            if (!open_res.is_ok()) return 0;
+            
+            static FastReader<PixelType, BenchDecompSpec> reader{};
+            read_result = reader.template read_region<ImageLayoutSpec::DHWC>(async_reader, tags, region, buffer);
+#else
+            return 0;  // FastReader not available
+#endif
             break;
         }
         default:
@@ -423,7 +445,7 @@ void print_usage(const char* prog_name) {
     std::cout << "Usage: " << prog_name << " <directory> <reader> [tile_size]\n";
     std::cout << "\nArguments:\n";
     std::cout << "  directory  : Path to directory containing TIFF files\n";
-    std::cout << "  reader     : One of: simple, io, cpu, libtiff\n";
+    std::cout << "  reader     : One of: simple, io, cpu, fast, libtiff\n";
     std::cout << "  tile_size  : Optional. Size of square tile to read from origin.\n";
     std::cout << "               If omitted, reads full image.\n";
     std::cout << "\nExamples:\n";
@@ -464,12 +486,19 @@ int main(int argc, char** argv) {
     } else if (reader_str == "cpu") {
         reader_type = ReaderType::CPULimited;
         reader_name = "CPULimitedReader";
+    } else if (reader_str == "fast") {
+        reader_type = ReaderType::Fast;
+        reader_name = "FastReader";
+#if !defined(HAVE_LIBURING) && !defined(_WIN32)
+        std::cerr << "FastReader not available (requires liburing on Linux or Windows IOCP)\n";
+        return 1;
+#endif
     } else if (reader_str == "libtiff") {
         reader_type = ReaderType::Libtiff;
         reader_name = "Libtiff";
     } else {
         std::cerr << "Unknown reader: " << reader_str << "\n";
-        std::cerr << "Valid options: simple, io, cpu, libtiff\n";
+        std::cerr << "Valid options: simple, io, cpu, fast, libtiff\n";
         return 1;
     }
     
@@ -511,6 +540,7 @@ int main(int argc, char** argv) {
     Statistics stats;
     size_t success_count = 0;
     size_t fail_count = 0;
+    for (size_t i = 0; i < 1000; i++) {
     
     for (const auto& path : tiff_files) {
         std::cout << "Reading: " << fs::path(path).filename().string() << " ... " << std::flush;
@@ -535,6 +565,8 @@ int main(int argc, char** argv) {
             fail_count++;
         }
     }
+
+}
     
     std::cout << "\n=== Summary ===\n";
     std::cout << "Successful: " << success_count << "/" << tiff_files.size() << "\n";

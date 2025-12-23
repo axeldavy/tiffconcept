@@ -179,6 +179,16 @@ target_link_libraries(test_write_strategies
 # Platform-specific libraries
 if(UNIX AND NOT APPLE)
     # Linux-specific libraries
+    # Find liburing for async I/O support
+    find_library(LIBURING_LIBRARY uring)
+    if(NOT LIBURING_LIBRARY)
+        message(WARNING "liburing not found. IoUringFileReader tests will be disabled.")
+        set(HAVE_LIBURING OFF)
+    else()
+        message(STATUS "Found liburing: ${LIBURING_LIBRARY}")
+        set(HAVE_LIBURING ON)
+    endif()
+    
     target_compile_definitions(test_compressor_decompressor PRIVATE __unix__)
     target_compile_definitions(test_encoder PRIVATE __unix__)
     target_compile_definitions(test_error_handling PRIVATE __unix__)
@@ -193,6 +203,14 @@ if(UNIX AND NOT APPLE)
     target_compile_definitions(test_tiff_file PRIVATE __unix__)
     target_compile_definitions(test_tiff_writer PRIVATE __unix__)
     target_compile_definitions(test_write_strategies PRIVATE __unix__)
+    
+    # Link liburing and define HAVE_LIBURING for tests that use async readers
+    if(HAVE_LIBURING)
+        target_link_libraries(test_reader_writer ${LIBURING_LIBRARY})
+        target_link_libraries(test_image_reader ${LIBURING_LIBRARY})
+        target_compile_definitions(test_reader_writer PRIVATE HAVE_LIBURING)
+        target_compile_definitions(test_image_reader PRIVATE HAVE_LIBURING)
+    endif()
 elseif(WIN32)
     # Windows-specific libraries
     target_compile_definitions(test_compressor_decompressor PRIVATE _WIN32)

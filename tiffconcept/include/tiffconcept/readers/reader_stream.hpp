@@ -163,6 +163,8 @@ protected:
 public:
     using ReadViewType = stream_impl::OwnedBufferReadView;
     using WriteViewType = stream_impl::OwnedBufferWriteView;
+
+    static constexpr bool read_must_allocate = true;
     
     StreamFileBase() noexcept = default;
     
@@ -274,6 +276,34 @@ public:
         std::span<const std::byte> data_span(buffer.get(), actual_read);
         
         return Ok(stream_impl::OwnedBufferReadView(data_span, buffer));
+    }
+
+    [[nodiscard]] Result<void> read_into(void* dest_buffer, std::size_t offset, std::size_t size) const noexcept 
+        requires (AccessPolicy::can_read) {
+        if (!is_valid()) {
+            return Err(Error::Code::ReadError, "File not open");
+        }
+        
+        if (offset >= size_) {
+            return Err(Error::Code::OutOfBounds, "Read offset beyond file size");
+        }
+        
+        std::size_t bytes_to_read = std::min(size, size_ - offset);
+        
+        // Lock for seek+read operations
+        std::lock_guard<std::mutex> lock(mutex_);
+        
+        stream_.seekg(static_cast<std::streamoff>(offset), std::ios::beg);
+        if (!stream_) {
+            return Err(Error::Code::ReadError, "Failed to seek to offset");
+        }
+        
+        stream_.read(reinterpret_cast<char*>(dest_buffer), static_cast<std::streamsize>(bytes_to_read));
+        if (!stream_ && !stream_.eof()) {
+            return Err(Error::Code::ReadError, "Failed to read from file");
+        }
+        
+        return Ok();
     }
     
     /// Thread-safe write (only available if can_write is true)
