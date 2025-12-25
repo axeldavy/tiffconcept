@@ -333,9 +333,9 @@ template <typename PixelType, typename DecompSpec>
 class FastReader {
 public:
     struct Config {
-        size_t worker_threads = 0;           ///< Processing threads (0 = auto, typically cores - 1)
+        size_t worker_threads = 0;           ///< Processing threads, including thread calling read_region (0 = auto, typically number of cores)
         size_t max_batch_size = 0;           ///< Max bytes per batch (0 = auto)
-        size_t max_gap_size = 64 * 1024;     ///< Max gap to bridge between tiles
+        size_t max_gap_size = 64 * 1024;     ///< Max gap to bridge between tiles. Clamped to max_batch_size // 2
     };
 
     explicit FastReader(Config config = {});

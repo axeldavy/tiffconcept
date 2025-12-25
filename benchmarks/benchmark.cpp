@@ -1278,7 +1278,7 @@ static void BM_LibTIFF_Write_MultiPage(benchmark::State& state) {
 // ============================================================================
 // Benchmark Registration
 // ============================================================================
-
+#if 0
 // Metadata Parsing - Single Page. does not depend much on image size
 // Params: width, format, endianness
 BENCHMARK(BM_Metadata_ParseIFD_SinglePage)
@@ -1357,7 +1357,7 @@ BENCHMARK(BM_LibTIFF_Metadata_ExtractAllPages)
     ->Unit(benchmark::kMillisecond);
 
 #endif // HAVE_LIBTIFF
-
+#endif
 // Read - Size Variations
 // Params: width, channels, compression, endianness
 

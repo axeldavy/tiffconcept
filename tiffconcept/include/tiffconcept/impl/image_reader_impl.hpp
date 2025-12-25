@@ -952,11 +952,11 @@ FastReader<PixelType, DecompSpec>::FastReader(Config config)
     : config_(config) {
     
     if (config_.worker_threads == 0) {
-        config_.worker_threads = std::thread::hardware_concurrency();
-        if (config_.worker_threads == 0) {
-            config_.worker_threads = 1;
-        }
+        config_.worker_threads = std::max(1u, std::thread::hardware_concurrency());
     }
+
+    // minus one to account for main thread participation
+    config_.worker_threads -= 1;
     
     // Spawn worker threads
     for (size_t i = 0; i < config_.worker_threads; ++i) {
@@ -1024,9 +1024,11 @@ Result<void> FastReader<PixelType, DecompSpec>::read_region(
         }
         
         ~BatchSubmissionGuard() {
-            // Wait for any pending operations to complete
-            while (reader.pending_operations() > 0) {
-                (void)reader.wait_completions(1);
+            if (reader.flush_async_operations()) {
+                // Wait for any pending operations to complete
+                while (reader.pending_operations() > 0) {
+                    (void)reader.wait_completions(1);
+                }
             }
         }
         
@@ -1180,8 +1182,10 @@ Result<void> FastReader<PixelType, DecompSpec>::read_region(
             job_guard.queue()->push(std::move(tile_job));
         }
 
-        // Wake workers after adding jobs
-        worker_wake_cv_.notify_all();
+        // Wake workers after adding jobs, unless there is just work for one
+        if (job_guard.queue()->size() > 1) {
+            worker_wake_cv_.notify_all();
+        }
         
         return true;
     };
@@ -1328,6 +1332,7 @@ void FastReader<PixelType, DecompSpec>::create_batches(
     std::size_t max_batch_size = config.max_batch_size == 0 ? 
                                  max_batch_size_hint : 
                                  config.max_batch_size;
+    std::size_t max_gap_size = std::min(config.max_gap_size, max_batch_size / 2);
     
     for (size_t i = 1; i < tiles.size(); ++i) {
         const auto& tile = tiles[i];
@@ -1338,7 +1343,7 @@ void FastReader<PixelType, DecompSpec>::create_batches(
         size_t new_size = new_end - current_offset;
         
         // Break batch if gap is too large or size exceeds limit
-        bool break_batch = (gap > config.max_gap_size) ||
+        bool break_batch = (gap > max_gap_size) ||
                           (new_size > max_batch_size);
         
         if (break_batch) {
@@ -1387,6 +1392,9 @@ Result<void> FastReader<PixelType, DecompSpec>::submit_batches(
     }
     
     size_t submission_limit = reader.available_async_ops();
+    if (submission_limit == 0) {
+        return Ok(); // No capacity to submit more yet
+    }
     
     // Submit as many batches as possible within queue depth limit
     while (next_batch_idx < batches.size() && submission_limit > 0) {
@@ -1404,17 +1412,6 @@ Result<void> FastReader<PixelType, DecompSpec>::submit_batches(
         );
         
         if (!handle_res) {
-            // Error submitting read - wait for pending operations and return error
-            auto flush_res = reader.flush_async_operations();
-            if (!flush_res) {
-                return handle_res.error();
-            }
-            
-            // Wait for all pending operations to complete
-            while (reader.pending_operations() > 0) {
-                (void)reader.wait_completions(1);
-            }
-            
             return handle_res.error();
         }
         
