@@ -111,11 +111,7 @@ MmapFileReader RawReaderTest<MmapFileReader>::create_reader() {
 // Specialization for IoUringFileReader
 template <>
 IoUringFileReader RawReaderTest<IoUringFileReader>::create_reader() {
-    IoUringFileReader::Config config;
-    config.queue_depth = 32;  // Smaller queue for tests
-    config.use_sqpoll = false;  // Don't require elevated privileges
-    config.use_iopoll = false;  // Not all systems support this
-    return IoUringFileReader(test_file_path.string(), config);
+    return IoUringFileReader(test_file_path.string());
 }
 #endif
 #endif
@@ -853,12 +849,7 @@ TEST(AsyncReaderTests, IoUringBasicAsyncRead) {
     
     fs::path test_file = create_test_file("async_test_iouring.bin", test_data);
     
-    IoUringFileReader::Config config;
-    config.queue_depth = 32;
-    config.use_sqpoll = false;
-    config.use_iopoll = false;
-    
-    IoUringFileReader reader(test_file.string(), config);
+    IoUringFileReader reader(test_file.string());
     ASSERT_TRUE(reader.is_valid());
     
     // Test single async read
@@ -867,7 +858,7 @@ TEST(AsyncReaderTests, IoUringBasicAsyncRead) {
     ASSERT_TRUE(handle_res.is_ok());
     
     // Submit to kernel
-    ASSERT_TRUE(reader.submit_pending().is_ok());
+    ASSERT_TRUE(reader.flush_async_operations().is_ok());
     
     // Wait for completion
     auto completions = reader.wait_completions(1);
@@ -875,8 +866,8 @@ TEST(AsyncReaderTests, IoUringBasicAsyncRead) {
     
     auto& [handle, result] = completions[0];
     ASSERT_TRUE(result.is_ok());
-    EXPECT_EQ(result.value().size(), 1024);
-    EXPECT_EQ(std::memcmp(result.value().data().data(), test_data.data(), 1024), 0);
+    EXPECT_EQ(result.value(), 1024);
+    EXPECT_EQ(std::memcmp(buffer.data(), test_data.data(), 1024), 0);
     
     fs::remove(test_file);
 }
@@ -890,27 +881,22 @@ TEST(AsyncReaderTests, IoUringMultipleAsyncReads) {
     
     fs::path test_file = create_test_file("async_test_iouring_multi.bin", test_data);
     
-    IoUringFileReader::Config config;
-    config.queue_depth = 64;
-    config.use_sqpoll = false;
-    config.use_iopoll = false;
-    
-    IoUringFileReader reader(test_file.string(), config);
+    IoUringFileReader reader(test_file.string());
     ASSERT_TRUE(reader.is_valid());
     
     // Submit multiple async reads
     std::vector<std::vector<std::byte>> buffers(8);
-    std::vector<typename IoUringFileReader::AsyncOperationHandle> handles;
+    std::vector<uint64_t> handles;
     
     for (size_t i = 0; i < 8; ++i) {
         buffers[i].resize(1024);
         auto handle_res = reader.async_read_into(buffers[i], i * 2048, 1024);
         ASSERT_TRUE(handle_res.is_ok());
-        handles.push_back(std::move(handle_res.value()));
+        handles.push_back(handle_res.value());
     }
     
     // Submit all to kernel
-    ASSERT_TRUE(reader.submit_pending().is_ok());
+    ASSERT_TRUE(reader.flush_async_operations().is_ok());
     
     // Wait for all completions
     auto completions = reader.wait_completions(8);
@@ -919,7 +905,7 @@ TEST(AsyncReaderTests, IoUringMultipleAsyncReads) {
     // Verify all reads succeeded
     for (auto& [handle, result] : completions) {
         ASSERT_TRUE(result.is_ok());
-        EXPECT_EQ(result.value().size(), 1024);
+        EXPECT_EQ(result.value(), 1024);
     }
     
     fs::remove(test_file);
@@ -940,7 +926,7 @@ TEST(AsyncReaderTests, IoUringPollCompletions) {
     std::vector<std::byte> buffer(2048);
     auto handle_res = reader.async_read_into(buffer, 0, 2048);
     ASSERT_TRUE(handle_res.is_ok());
-    ASSERT_TRUE(reader.submit_pending().is_ok());
+    ASSERT_TRUE(reader.flush_async_operations().is_ok());
     
     // Poll for completion (may return empty initially)
     size_t max_polls = 1000;
@@ -952,7 +938,7 @@ TEST(AsyncReaderTests, IoUringPollCompletions) {
         if (!completions.empty()) {
             ASSERT_EQ(completions.size(), 1);
             ASSERT_TRUE(completions[0].second.is_ok());
-            EXPECT_EQ(completions[0].second.value().size(), 2048);
+            EXPECT_EQ(completions[0].second.value(), 2048);
             completed = true;
             break;
         }
@@ -978,7 +964,7 @@ TEST(AsyncReaderTests, IoUringWaitWithTimeout) {
     std::vector<std::byte> buffer(2048);
     auto handle_res = reader.async_read_into(buffer, 0, 2048);
     ASSERT_TRUE(handle_res.is_ok());
-    ASSERT_TRUE(reader.submit_pending().is_ok());
+    ASSERT_TRUE(reader.flush_async_operations().is_ok());
     
     // Wait with timeout (should complete quickly)
     auto completions = reader.wait_completions_for(
@@ -988,7 +974,7 @@ TEST(AsyncReaderTests, IoUringWaitWithTimeout) {
     
     ASSERT_EQ(completions.size(), 1);
     ASSERT_TRUE(completions[0].second.is_ok());
-    EXPECT_EQ(completions[0].second.value().size(), 2048);
+    EXPECT_EQ(completions[0].second.value(), 2048);
     
     fs::remove(test_file);
 }
@@ -1042,7 +1028,7 @@ TEST(AsyncReaderTests, IOCPBasicAsyncRead) {
     ASSERT_TRUE(handle_res.is_ok());
     
     // Submit (no-op for IOCP, but API compatible)
-    ASSERT_TRUE(reader.submit_pending().is_ok());
+    ASSERT_TRUE(reader.flush_async_operations().is_ok());
     
     // Wait for completion
     auto completions = reader.wait_completions(1);
@@ -1050,8 +1036,8 @@ TEST(AsyncReaderTests, IOCPBasicAsyncRead) {
     
     auto& [handle, result] = completions[0];
     ASSERT_TRUE(result.is_ok());
-    EXPECT_EQ(result.value().size(), 1024);
-    EXPECT_EQ(std::memcmp(result.value().data().data(), test_data.data(), 1024), 0);
+    EXPECT_EQ(result.value(), 1024);
+    EXPECT_EQ(std::memcmp(buffer.data(), test_data.data(), 1024), 0);
     
     fs::remove(test_file);
 }
@@ -1074,13 +1060,13 @@ TEST(AsyncReaderTests, IOCPMultipleAsyncReads) {
     
     // Submit multiple async reads
     std::vector<std::vector<std::byte>> buffers(8);
-    std::vector<typename IOCPFileReader::AsyncOperationHandle> handles;
+    std::vector<uint64_t> handles;
     
     for (size_t i = 0; i < 8; ++i) {
         buffers[i].resize(1024);
         auto handle_res = reader.async_read_into(buffers[i], i * 2048, 1024);
         ASSERT_TRUE(handle_res.is_ok());
-        handles.push_back(std::move(handle_res.value()));
+        handles.push_back(handle_res.value());
     }
     
     // Wait for all completions
@@ -1090,7 +1076,7 @@ TEST(AsyncReaderTests, IOCPMultipleAsyncReads) {
     // Verify all reads succeeded
     for (auto& [handle, result] : completions) {
         ASSERT_TRUE(result.is_ok());
-        EXPECT_EQ(result.value().size(), 1024);
+        EXPECT_EQ(result.value(), 1024);
     }
     
     fs::remove(test_file);
@@ -1122,7 +1108,7 @@ TEST(AsyncReaderTests, IOCPPollCompletions) {
         if (!completions.empty()) {
             ASSERT_EQ(completions.size(), 1);
             ASSERT_TRUE(completions[0].second.is_ok());
-            EXPECT_EQ(completions[0].second.value().size(), 2048);
+            EXPECT_EQ(completions[0].second.value(), 2048);
             completed = true;
             break;
         }
@@ -1157,7 +1143,7 @@ TEST(AsyncReaderTests, IOCPWaitWithTimeout) {
     
     ASSERT_EQ(completions.size(), 1);
     ASSERT_TRUE(completions[0].second.is_ok());
-    EXPECT_EQ(completions[0].second.value().size(), 2048);
+    EXPECT_EQ(completions[0].second.value(), 2048);
     
     fs::remove(test_file);
 }

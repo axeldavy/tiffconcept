@@ -215,6 +215,10 @@ public:
             size_ = 0;
         }
     }
+
+    [[nodiscard]] Result<std::size_t> hint_batch_size() const noexcept {
+        return 4096;  // 4 KB default
+    }
     
     /// Zero-copy read (only available if can_read is true)
     [[nodiscard]] Result<ReadViewType> read(std::size_t offset, std::size_t size) const noexcept 

@@ -242,6 +242,10 @@ public:
             size_ = 0;
         }
     }
+
+    [[nodiscard]] Result<std::size_t> hint_batch_size() const noexcept {
+        return 65536;  // 64 KB default
+    }
     
     /// Thread-safe read (only available if can_read is true)
     [[nodiscard]] Result<ReadViewType> read(std::size_t offset, std::size_t size) const noexcept 

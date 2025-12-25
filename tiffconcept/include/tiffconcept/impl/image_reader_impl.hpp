@@ -5,7 +5,9 @@
 #include <condition_variable>
 #include <deque>
 #include <functional>
+#include <iostream>
 #include <mutex>
+#include <shared_mutex>
 #include <span>
 #include <thread>
 #include <vector>
@@ -225,10 +227,34 @@ inline Result<void> collect_tiles_for_region(
     
     // Fall back to stripped mode
     if constexpr (StrippedImageTagSpec<TagSpec>) {
-        // Extract strip tags directly
-        const auto& rows_per_strip = optional::unwrap_value(metadata.template get<TagCode::RowsPerStrip>());
-        const auto& strip_offsets = optional::unwrap_value(metadata.template get<TagCode::StripOffsets>());
-        const auto& strip_byte_counts = optional::unwrap_value(metadata.template get<TagCode::StripByteCounts>());
+        // Extract strip tags - check if they exist first
+        const auto& rows_per_strip_opt = metadata.template get<TagCode::RowsPerStrip>();
+        const auto& strip_offsets_opt = metadata.template get<TagCode::StripOffsets>();
+        const auto& strip_byte_counts_opt = metadata.template get<TagCode::StripByteCounts>();
+        
+        // Check if all required strip tags are present
+        using RowsPerStripTag = typename TagSpec::template get_tag<TagCode::RowsPerStrip>;
+        using StripOffsetsTag = typename TagSpec::template get_tag<TagCode::StripOffsets>;
+        using StripByteCountsTag = typename TagSpec::template get_tag<TagCode::StripByteCounts>;
+        
+        bool strips_available = true;
+        if constexpr (RowsPerStripTag::is_optional) {
+            if (!rows_per_strip_opt.has_value()) strips_available = false;
+        }
+        if constexpr (StripOffsetsTag::is_optional) {
+            if (!strip_offsets_opt.has_value()) strips_available = false;
+        }
+        if constexpr (StripByteCountsTag::is_optional) {
+            if (!strip_byte_counts_opt.has_value()) strips_available = false;
+        }
+        
+        if (!strips_available) {
+            return Err(Error::Code::InvalidTag, "No valid tile or strip tags found");
+        }
+        
+        const auto& rows_per_strip = optional::unwrap_value(rows_per_strip_opt);
+        const auto& strip_offsets = optional::unwrap_value(strip_offsets_opt);
+        const auto& strip_byte_counts = optional::unwrap_value(strip_byte_counts_opt);
         
         // Calculate strip ranges that overlap the region
         uint32_t strips_per_plane = (shape.image_height() + rows_per_strip - 1) / rows_per_strip;
@@ -474,500 +500,6 @@ requires (std::is_same_v<PixelType, uint8_t> ||
     }
     
     return Ok();
-}
-
-// ============================================================================
-// IOLimitedReader Implementation
-// ============================================================================
-//
-// Design Overview:
-// ----------------
-// This reader is optimized for high-latency I/O scenarios (e.g., network file
-// systems, cloud storage, or slow disks) where the bottleneck is primarily the
-// number and latency of I/O operations rather than CPU processing.
-//
-// Key Strategies:
-// 1. **Batching**: Adjacent tiles in the file are grouped into larger read
-//    requests to minimize the number of I/O round-trips. Small gaps between
-//    tiles are bridged to avoid issuing separate reads.
-//
-// 2. **Parallel I/O**: A persistent thread pool issues multiple read requests
-//    concurrently, allowing overlapping I/O operations to maximize throughput
-//    on high-latency storage.
-//
-// 3. **Serial Decoding**: The calling thread performs all decompression and
-//    extraction. This design choice provides:
-//    - Better cache locality when writing to the output buffer
-//    - Allows the caller to control parallelization strategy
-//    - Simplifies synchronization (no concurrent writes to output buffer)
-//
-// Thread Safety:
-// --------------
-// - read_region() is thread-safe and can be called concurrently from multiple
-//   threads. Each call maintains its own job state and decoder.
-// - The I/O thread pool is shared across all read_region() calls.
-// - Decoder pool uses a mutex, but contention is low since decoding is
-//   serialized per read_region() call.
-//
-// Performance Characteristics:
-// ----------------------------
-// - Best for: High-latency I/O with light to moderate compression
-// - Memory: O(total_batch_size) per concurrent read_region() call
-// - Concurrency: I/O threads × concurrent read_region() calls
-// - Not recommended for: Local SSD/memory-mapped files or heavy compression
-//   (use SimpleReader or CPULimitedReader instead)
-//
-// Invariants:
-// -----------
-// - Tiles are sorted by file offset (guaranteed by collect_tiles_for_region)
-// - Batches cover all tiles exactly once, in order
-// - tasks_in_flight == 0 implies all I/O threads have finished their work
-// - Reader reference remains valid until all I/O tasks complete
-// - Decoder is returned to pool before read_region() returns
-//
-// ============================================================================
-
-template <typename PixelType, typename DecompSpec>
-IOLimitedReader<PixelType, DecompSpec>::IOLimitedReader(Config config) 
-    : config_(config) {
-    if (config_.io_threads == 0) {
-        config_.io_threads = std::thread::hardware_concurrency();
-        if (config_.io_threads == 0) config_.io_threads = 1;
-    }
-    
-    // Spawn persistent worker threads for I/O operations
-    for (size_t i = 0; i < config_.io_threads; ++i) {
-        threads_.emplace_back(&IOLimitedReader::worker_loop, this);
-    }
-}
-
-template <typename PixelType, typename DecompSpec>
-IOLimitedReader<PixelType, DecompSpec>::~IOLimitedReader() {
-    // Signal all workers to stop and wait for them to finish
-    {
-        std::lock_guard lock(queue_mutex_);
-        stop_threads_ = true;
-    }
-    queue_cv_.notify_all();
-    
-    for (auto& t : threads_) {
-        if (t.joinable()) t.join();
-    }
-}
-
-template <typename PixelType, typename DecompSpec>
-std::unique_ptr<TileDecoder<PixelType, DecompSpec>> IOLimitedReader<PixelType, DecompSpec>::acquire_decoder() {
-    std::lock_guard lock(decoder_pool_mutex_);
-    
-    auto current_thread = std::this_thread::get_id();
-    
-    // First pass: try to find a decoder that was last used by this thread
-    // (the idea is to improve cache locality when reusing decoder storage)
-    for (auto it = decoder_pool_.begin(); it != decoder_pool_.end(); ++it) {
-        if (it->last_thread_id == current_thread) {
-            auto decoder = std::move(it->decoder);
-            decoder_pool_.erase(it);
-            return decoder;
-        }
-    }
-    
-    // Second pass: take any available decoder
-    if (!decoder_pool_.empty()) {
-        auto decoder = std::move(decoder_pool_.back().decoder);
-        decoder_pool_.pop_back();
-        return decoder;
-    }
-    
-    // No decoder available, allocate new one
-    return std::make_unique<TileDecoder<PixelType, DecompSpec>>();
-}
-
-template <typename PixelType, typename DecompSpec>
-void IOLimitedReader<PixelType, DecompSpec>::release_decoder(
-    std::unique_ptr<TileDecoder<PixelType, DecompSpec>> decoder) {
-    std::lock_guard lock(decoder_pool_mutex_);
-    
-    // Return decoder to pool tagged with current thread ID for future reuse
-    // This improves cache locality when the same thread calls read_region again
-    decoder_pool_.push_back({
-        std::move(decoder), 
-        std::this_thread::get_id()
-    });
-}
-
-template <typename PixelType, typename DecompSpec>
-void IOLimitedReader<PixelType, DecompSpec>::worker_loop() {
-    // Persistent worker thread that executes I/O tasks from the shared queue
-    while (true) {
-        IOTask task;
-        {
-            std::unique_lock lock(queue_mutex_);
-            queue_cv_.wait(lock, [this] { 
-                return stop_threads_ || !pending_tasks_.empty(); 
-            });
-            
-            // Exit if shutdown requested and no work remains
-            if (stop_threads_ && pending_tasks_.empty()) return;
-            
-            task = std::move(pending_tasks_.front());
-            pending_tasks_.pop_front();
-        }
-
-        // Execute I/O task (reads from storage and reports completion)
-        if (task) {
-            task();
-        }
-    }
-}
-
-template <typename PixelType, typename DecompSpec>
-void IOLimitedReader<PixelType, DecompSpec>::create_batches(
-    const std::vector<Tile>& tiles, 
-    const Config& config, 
-    std::vector<Batch>& out_batches) {
-    // Group adjacent tiles into batches to minimize I/O round-trips
-    //
-    // Algorithm:
-    // - Start with the first tile
-    // - For each subsequent tile, check if it's close enough to merge:
-    //   * Gap between tiles ≤ max_gap_size (avoid reading too much unused data)
-    //   * Total batch size ≤ max_batch_size (avoid excessive memory usage)
-    // - If not mergeable, finalize current batch and start a new one
-    //
-    // Precondition: tiles are sorted by file offset (collect_tiles_for_region)
-    // Postcondition: batches cover all tiles exactly once, in order
-    
-    if (tiles.empty()) return;
-
-    size_t start_idx = 0;
-    size_t current_offset = tiles[0].location.offset;
-    size_t current_end = current_offset + tiles[0].location.length;
-
-    for (size_t i = 1; i < tiles.size(); ++i) {
-        const auto& tile = tiles[i];
-        
-        // Calculate gap between end of current batch and start of this tile
-        size_t gap = tile.location.offset - current_end;
-        size_t new_end = tile.location.offset + tile.location.length;
-        size_t new_size = new_end - current_offset;
-
-        // Break batch if gap is too large or total size exceeds limit
-        bool break_batch = (gap > config.max_gap_size) || 
-                          (new_size > config.max_batch_size);
-
-        if (break_batch) {
-            // Finalize current batch
-            out_batches.push_back({
-                start_idx, 
-                i - start_idx, 
-                current_offset, 
-                current_end - current_offset
-            });
-            
-            // Start new batch with current tile
-            start_idx = i;
-            current_offset = tile.location.offset;
-            current_end = current_offset + tile.location.length;
-        } else {
-            // Extend current batch to include this tile
-            // Use max() to handle potential overlaps (though shouldn't occur)
-            current_end = std::max(current_end, new_end);
-        }
-    }
-    
-    // Finalize last batch
-    out_batches.push_back({
-        start_idx, 
-        tiles.size() - start_idx, 
-        current_offset, 
-        current_end - current_offset
-    });
-}
-
-template <typename PixelType, typename DecompSpec>
-template <ImageLayoutSpec OutSpec, typename Reader, typename TagSpec>
-requires RawReader<Reader> && (TiledImageTagSpec<TagSpec> || StrippedImageTagSpec<TagSpec>)
-Result<void> IOLimitedReader<PixelType, DecompSpec>::read_region(
-    const Reader& reader,
-    const ExtractedTags<TagSpec>& metadata,
-    const ImageRegion& region,
-    std::span<PixelType> output_buffer) noexcept {
-
-    // ========================================================================
-    // Phase 1: Preparation (thread-local, no synchronization needed)
-    // ========================================================================
-    
-    // Identify which tiles overlap the requested region
-    std::vector<Tile> tiles;
-    auto collect_res = collect_tiles_for_region(region, metadata, tiles);
-    if (!collect_res) return collect_res;
-
-    if (tiles.empty()) return Ok();
-
-    // Group tiles into batches for efficient I/O
-    std::vector<Batch> batches;
-    create_batches(tiles, config_, batches);
-
-    if (batches.empty()) return Ok();
-
-    // ========================================================================
-    // Phase 2: Setup Job State (per-call state for coordinating I/O and processing)
-    // ========================================================================
-    
-    /// @brief Completed batch with loaded data
-    struct CompletedBatch {
-        size_t batch_index;                             // Which batch this is
-        std::shared_ptr<std::vector<std::byte>> data;   // Batch data from I/O
-    };
-
-    /// @brief Per-job state shared between I/O threads and processing thread
-    /// 
-    /// Synchronization strategy:
-    /// - mutex protects: completed_queue, first_error
-    /// - atomics for: tasks_in_flight, error_occurred
-    /// - cv notifies processing thread when: data arrives, error occurs, or I/O completes
-    struct JobState {
-        std::mutex mutex;                           // Protects completed_queue and first_error
-        std::condition_variable cv;                 // Signals processing thread
-        std::deque<CompletedBatch> completed_queue; // FIFO queue of loaded batches
-        
-        // Tracking state
-        std::atomic<size_t> tasks_in_flight{0};     // Number of I/O operations in progress
-        std::atomic<bool> error_occurred{false};    // Fast path: check without lock
-        Result<void> first_error = Ok();            // First error encountered (if any)
-    };
-
-    auto job_state = std::make_shared<JobState>();
-    job_state->tasks_in_flight.store(batches.size(), std::memory_order_release);
-
-    // ========================================================================
-    // Phase 3: Submit I/O Tasks to Worker Thread Pool
-    // ========================================================================
-    {
-        std::lock_guard lock(queue_mutex_);
-        for (size_t i = 0; i < batches.size(); ++i) {
-            const auto& batch = batches[i];
-            
-            // Each task captures:
-            // - job_state by shared_ptr (keeps it alive)
-            // - reader by reference (MUST wait for tasks before returning!)
-            // - batch parameters by value (safe, copied at capture)
-            pending_tasks_.push_back(
-                [&reader, offset=batch.file_offset, size=batch.total_size, 
-                 batch_idx=i, job_state]() {
-                    try {
-                        // Use shared_ptr to allow processing thread to hold reference
-                        auto data_ptr = std::make_shared<std::vector<std::byte>>(size);
-                        // Perform I/O operation
-                        auto res = reader.read_into(data_ptr->data(), offset, size);
-                        
-                        // Report result to job state
-                        {
-                            std::lock_guard lock(job_state->mutex);
-                            if (res.is_ok()) {
-                                // Success: Store data for processing
-                                job_state->completed_queue.push_back({
-                                    batch_idx, 
-                                    std::move(data_ptr)
-                                });
-                            } else {
-                                // Failure: Record first error only
-                                // Use acquire-release for atomic check without lock
-                                bool expected = false;
-                                if (job_state->error_occurred.compare_exchange_strong(
-                                        expected, true, 
-                                        std::memory_order_release, 
-                                        std::memory_order_relaxed)) {
-                                    job_state->first_error = res.error();
-                                }
-                            }
-                        }
-                    } catch (...) {
-                        // Exception in reader (should not happen, but defend against it)
-                        std::lock_guard lock(job_state->mutex);
-                        bool expected = false;
-                        if (job_state->error_occurred.compare_exchange_strong(
-                                expected, true, 
-                                std::memory_order_release, 
-                                std::memory_order_relaxed)) {
-                            job_state->first_error = Err(Error::Code::Unknown, 
-                                                        "Exception in I/O operation");
-                        }
-                    }
-                    
-                    // Decrement in-flight counter and wake processing thread
-                    job_state->tasks_in_flight.fetch_sub(1, std::memory_order_release);
-                    job_state->cv.notify_one();
-                }
-            );
-        }
-    }
-    queue_cv_.notify_all(); // Wake I/O worker threads
-
-    // ========================================================================
-    // Phase 4: Process Results on Calling Thread (decode + extract)
-    // ========================================================================
-    
-    /// @brief RAII wrapper for decoder acquisition/release
-    struct ScopedDecoder {
-        IOLimitedReader* reader;
-        std::unique_ptr<TileDecoder<PixelType, DecompSpec>> decoder;
-        
-        ScopedDecoder(IOLimitedReader* r) 
-            : reader(r), decoder(r->acquire_decoder()) {}
-        
-        ~ScopedDecoder() { 
-            if (decoder) reader->release_decoder(std::move(decoder)); 
-        }
-        
-        TileDecoder<PixelType, DecompSpec>& get() { return *decoder; }
-    };
-    
-    ScopedDecoder scoped_decoder(this);
-    auto& decoder = scoped_decoder.get();
-    
-    size_t batches_processed = 0;
-    Result<void> final_result = Ok();
-
-    // Get compression and predictor from tags
-    CompressionScheme compression = optional::extract_tag_or<TagCode::Compression, TagSpec>(
-        metadata, CompressionScheme::None
-    );
-    
-    Predictor predictor = Predictor::None;
-    if constexpr (TagSpec::template has_tag<TagCode::Predictor>()) {
-        predictor = optional::extract_tag_or<TagCode::Predictor, TagSpec>(
-            metadata, Predictor::None
-        );
-    }
-
-    // Process batches as they arrive from I/O threads
-    while (batches_processed < batches.size()) {
-        std::unique_lock lock(job_state->mutex);
-        
-        // Wait for: data available, error occurred, or all I/O complete
-        job_state->cv.wait(lock, [&] { 
-            return !job_state->completed_queue.empty() || 
-                   job_state->error_occurred.load(std::memory_order_acquire) || 
-                   job_state->tasks_in_flight.load(std::memory_order_acquire) == 0; 
-        });
-
-        // Check for I/O errors (early exit on failure)
-        if (job_state->error_occurred.load(std::memory_order_acquire)) {
-            final_result = job_state->first_error;
-            break; // Skip to wait_for_io_completion
-        }
-
-        // Process all available batches
-        while (!job_state->completed_queue.empty()) {
-            auto item = job_state->completed_queue.front();
-            job_state->completed_queue.pop_front();
-            
-            // Release lock during CPU-intensive decoding/extraction
-            // This allows I/O threads to continue queueing results
-            lock.unlock();
-
-            const auto& batch = batches[item.batch_index];
-            const auto& buffer = *item.data;
-
-            // Process each tile in this batch
-            for (size_t i = 0; i < batch.tile_count; ++i) {
-                try {
-                    const auto& tile = tiles[batch.first_tile_index + i];
-                    
-                    // Calculate tile's position within the batch buffer
-                    size_t offset_in_batch = tile.location.offset - batch.file_offset;
-                    
-                    // Validate buffer bounds (should never fail if batching logic is correct)
-                    if (offset_in_batch + tile.location.length > buffer.size()) [[unlikely]] {
-                        std::lock_guard err_lock(job_state->mutex);
-                        job_state->error_occurred.store(true, std::memory_order_release);
-                        job_state->first_error = Err(Error::Code::OutOfBounds, 
-                                                    "Tile outside batch buffer");
-                        final_result = job_state->first_error;
-                        goto wait_for_io_completion;
-                    }
-
-                    // Create span for this tile's compressed data
-                    std::span<const std::byte> compressed_span(
-                        buffer.data() + offset_in_batch, 
-                        tile.location.length
-                    );
-
-                    // Decode tile (decompress + predictor)
-                    auto decode_res = decoder.decode(
-                        compressed_span,
-                        tile.id.size.width,
-                        tile.id.size.height * tile.id.size.depth,
-                        compression,
-                        predictor,
-                        tile.id.size.nsamples
-                    );
-
-                    if (!decode_res) {
-                        std::lock_guard err_lock(job_state->mutex);
-                        job_state->error_occurred.store(true, std::memory_order_release);
-                        job_state->first_error = decode_res.error();
-                        final_result = decode_res.error();
-                        goto wait_for_io_completion;
-                    }
-
-                    // Extract tile data to output buffer (with layout conversion)
-                    auto extract_res = extract_tile_to_buffer<OutSpec, PixelType>(
-                        tile, region, metadata, decode_res.value(), output_buffer
-                    );
-
-                    if (!extract_res) {
-                        std::lock_guard err_lock(job_state->mutex);
-                        job_state->error_occurred.store(true, std::memory_order_release);
-                        job_state->first_error = extract_res.error();
-                        final_result = extract_res.error();
-                        goto wait_for_io_completion;
-                    }
-                } catch (...) {
-                    // Exception during decode/extract (should not happen, but defend against it)
-                    std::lock_guard err_lock(job_state->mutex);
-                    job_state->error_occurred.store(true, std::memory_order_release);
-                    job_state->first_error = Err(Error::Code::Unknown, 
-                                                "Exception during tile processing");
-                    final_result = job_state->first_error;
-                    goto wait_for_io_completion;
-                }
-            }
-
-            batches_processed++;
-            
-            // Re-acquire lock for next wait iteration
-            lock.lock();
-        }
-        
-        // Success case: all batches processed
-        if (batches_processed == batches.size()) {
-            break;
-        }
-    }
-
-wait_for_io_completion:
-    // ========================================================================
-    // Phase 5: CRITICAL - Wait for All I/O Tasks to Complete
-    // ========================================================================
-    //
-    // We MUST wait for all I/O tasks to finish before returning because:
-    // 1. Tasks hold a reference to 'reader' (passed by reference)
-    // 2. Tasks hold a shared_ptr to job_state
-    // 3. Returning early would invalidate these references, causing UB
-    //
-    // This wait ensures all tasks have completed, even if we're exiting early
-    // due to an error. The I/O threads may still be reading, and we must let
-    // them finish before the reader reference becomes invalid.
-    {
-        std::unique_lock lock(job_state->mutex);
-        job_state->cv.wait(lock, [&] {
-            return job_state->tasks_in_flight.load(std::memory_order_acquire) == 0; 
-        });
-    }
-
-    return final_result;
 }
 
 // ============================================================================
@@ -1420,11 +952,7 @@ FastReader<PixelType, DecompSpec>::FastReader(Config config)
     : config_(config) {
     
     if (config_.worker_threads == 0) {
-        // Auto-detect: use hardware concurrency minus 1 (main thread participates)
         config_.worker_threads = std::thread::hardware_concurrency();
-        if (config_.worker_threads > 1) {
-            config_.worker_threads -= 1;  // Reserve one for main thread
-        }
         if (config_.worker_threads == 0) {
             config_.worker_threads = 1;
         }
@@ -1450,78 +978,6 @@ FastReader<PixelType, DecompSpec>::~FastReader() {
 }
 
 template <typename PixelType, typename DecompSpec>
-void FastReader<PixelType, DecompSpec>::worker_loop() {
-    // Worker threads don't block - they just check for work periodically
-    // This allows them to process completions from any concurrent read_region() call
-    
-    while (!stop_workers_.load(std::memory_order_acquire)) {
-        // Workers sleep briefly when no work is available
-        // This is fine because:
-        // 1. Main threads do most of the work anyway
-        // 2. Workers wake up quickly when work arrives
-        // 3. Prevents busy-waiting and wasting CPU
-        std::this_thread::sleep_for(std::chrono::microseconds(100));
-    }
-}
-
-template <typename PixelType, typename DecompSpec>
-void FastReader<PixelType, DecompSpec>::create_batches(
-    const std::vector<Tile>& tiles,
-    const Config& config,
-    std::vector<Batch>& out_batches) {
-    
-    // Same batching algorithm as IOLimitedReader
-    // Group adjacent tiles to minimize I/O round-trips
-    
-    if (tiles.empty()) {
-        return;
-    }
-    
-    size_t start_idx = 0;
-    size_t current_offset = tiles[0].location.offset;
-    size_t current_end = current_offset + tiles[0].location.length;
-    
-    for (size_t i = 1; i < tiles.size(); ++i) {
-        const auto& tile = tiles[i];
-        
-        // Calculate gap and potential new batch size
-        size_t gap = tile.location.offset - current_end;
-        size_t new_end = tile.location.offset + tile.location.length;
-        size_t new_size = new_end - current_offset;
-        
-        // Break batch if gap is too large or size exceeds limit
-        bool break_batch = (gap > config.max_gap_size) ||
-                          (new_size > config.max_batch_size);
-        
-        if (break_batch) {
-            // Finalize current batch
-            out_batches.push_back({
-                start_idx,
-                i - start_idx,
-                current_offset,
-                current_end - current_offset
-            });
-            
-            // Start new batch
-            start_idx = i;
-            current_offset = tile.location.offset;
-            current_end = tile.location.offset + tile.location.length;
-        } else {
-            // Extend current batch
-            current_end = new_end;
-        }
-    }
-    
-    // Finalize last batch
-    out_batches.push_back({
-        start_idx,
-        tiles.size() - start_idx,
-        current_offset,
-        current_end - current_offset
-    });
-}
-
-template <typename PixelType, typename DecompSpec>
 template <ImageLayoutSpec OutSpec, typename Reader, typename TagSpec>
 requires AsyncRawReader<Reader> && (TiledImageTagSpec<TagSpec> || StrippedImageTagSpec<TagSpec>)
 Result<void> FastReader<PixelType, DecompSpec>::read_region(
@@ -1529,6 +985,76 @@ Result<void> FastReader<PixelType, DecompSpec>::read_region(
     const ExtractedTags<TagSpec>& metadata,
     const ImageRegion& region,
     std::span<PixelType> output_buffer) noexcept {
+
+    // ========================================================================
+    // Phase 0: A few RAII structures
+    // ========================================================================
+
+    /// @brief RAII wrapper for job registration/unregistration
+    struct ActiveJobGuard {
+        FastReader* reader;
+        std::shared_ptr<ActiveJob> job;
+        
+        ActiveJobGuard(FastReader* r, std::shared_ptr<JobQueue> queue) 
+            : reader(r), job(std::make_shared<ActiveJob>()) {
+            job->job_queue = std::move(queue);
+            job->active.store(true, std::memory_order_release);
+            reader->register_active_job(job);
+        }
+        
+        ~ActiveJobGuard() {
+            reader->unregister_active_job(job);
+        }
+        
+        std::shared_ptr<JobQueue> queue() const { return job->job_queue; }
+    };
+
+    /// @brief RAII wrapper for batch submission and cleanup
+    struct BatchSubmissionGuard {
+        const Reader& reader;
+        const std::vector<Batch>& batches;
+        std::size_t next_batch_idx = 0;
+        std::vector<uint64_t> submission_handles;
+        std::vector<std::shared_ptr<std::byte[]>> storage_buffers;
+        
+        BatchSubmissionGuard(const Reader& r, const std::vector<Batch>& b)
+            : reader(r), batches(b) {
+            submission_handles.resize(batches.size());
+            storage_buffers.resize(batches.size());
+        }
+        
+        ~BatchSubmissionGuard() {
+            // Wait for any pending operations to complete
+            while (reader.pending_operations() > 0) {
+                (void)reader.wait_completions(1);
+            }
+        }
+        
+        Result<void> submit_next_batches() {
+            return FastReader<PixelType, DecompSpec>::submit_batches(
+                reader, batches, next_batch_idx, 
+                submission_handles, storage_buffers
+            );
+        }
+        
+        std::shared_ptr<std::byte[]> get_batch_buffer(uint64_t handle) {
+            for (std::size_t i = 0; i < batches.size(); ++i) {
+                if (submission_handles[i] == handle) {
+                    return std::move(storage_buffers[i]);
+                }
+            }
+            return nullptr;
+        }
+        
+        std::size_t find_batch_index(uint64_t handle) const {
+            for (std::size_t i = 0; i < batches.size(); ++i) {
+                if (submission_handles[i] == handle) {
+                    return i;
+                }
+            }
+            return batches.size(); // Invalid index
+        }
+    };
     
     // ========================================================================
     // Phase 1: Collect tiles and create batches
@@ -1544,11 +1070,391 @@ Result<void> FastReader<PixelType, DecompSpec>::read_region(
         return Ok();
     }
     
-    // Create batches for efficient I/O
     std::vector<Batch> batches;
-    create_batches(tiles, config_, batches);
+    auto hint_batch_size_result = reader.hint_batch_size();
+    std::size_t batch_size_hint = hint_batch_size_result ? hint_batch_size_result.value() : 4 * 1024 * 1024;
+    create_batches(tiles, config_, batch_size_hint, batches);
     
-    // Extract compression and predictor settings
+    if (batches.empty()) {
+        return Ok();
+    }
+    
+    // ========================================================================
+    // Phase 2: Setup job state and register with worker pool (RAII)
+    // ========================================================================
+    
+    auto job_state = std::make_shared<JobState>();
+    job_state->tiles_total.store(tiles.size(), std::memory_order_release);
+    
+    auto job_queue = std::make_shared<JobQueue>(tiles.size());
+    ActiveJobGuard job_guard{this, job_queue};
+    
+    // ========================================================================
+    // Phase 3: Setup batch submission state (RAII)
+    // ========================================================================
+    
+    BatchSubmissionGuard batch_guard{reader, batches};
+    
+    // ========================================================================
+    // Phase 4: Initial submission
+    // ========================================================================
+    
+    auto submit_res = batch_guard.submit_next_batches();
+    if (submit_res.is_error()) {
+        return submit_res.error();
+    }
+    
+    // ========================================================================
+    // Phase 5: Main processing loop
+    // ========================================================================
+    
+    auto record_error = [&job_state](Error error) {
+        bool expected = false;
+        if (job_state->error_occurred.compare_exchange_strong(
+                expected, true,
+                std::memory_order_release,
+                std::memory_order_relaxed)) {
+            std::lock_guard lock(job_state->error_mutex);
+            job_state->first_error = error;
+        }
+    };
+    
+    auto process_completion = [&](uint64_t handle, Result<size_t> io_result) -> bool {
+        std::size_t batch_idx = batch_guard.find_batch_index(handle);
+        if (batch_idx >= batches.size()) {
+            return false; // Invalid handle
+        }
+
+        if (io_result.is_error()) {
+            record_error(io_result.error());
+            return false;
+        }
+
+        if (io_result.value() != batches[batch_idx].total_size) {
+            record_error(Error(Error::Code::ReadError, 
+                             "Incomplete read for batch"));
+            return false;
+        }
+        
+        const auto& batch = batches[batch_idx];
+        auto batch_buffer = batch_guard.get_batch_buffer(handle);
+        
+        // Create and queue tile jobs for this batch
+        for (size_t tile_idx = batch.first_tile_index;
+             tile_idx < batch.first_tile_index + batch.tile_count;
+             ++tile_idx) {
+            
+            const auto& tile = tiles[tile_idx];
+            
+            // Create tile job with processing lambda
+            TileJob tile_job([&tile, &metadata, &region, output_buffer, 
+                             job_state, batch_buffer, batch]() {
+                
+                std::size_t tile_offset_in_batch = 
+                    tile.location.offset - batch.file_offset;
+                
+                std::span<const std::byte> compressed_data(
+                    batch_buffer.get() + tile_offset_in_batch,
+                    tile.location.length
+                );
+                
+                auto result = FastReader<PixelType, DecompSpec>::process_tile<OutSpec, TagSpec>(
+                    tile, metadata, region, output_buffer, 
+                    compressed_data
+                );
+                
+                if (result.is_error()) {
+                    bool expected = false;
+                    if (job_state->error_occurred.compare_exchange_strong(
+                            expected, true,
+                            std::memory_order_release,
+                            std::memory_order_relaxed)) {
+                        std::lock_guard lock(job_state->error_mutex);
+                        job_state->first_error = result.error();
+                    }
+                }
+                
+                job_state->tiles_completed.fetch_add(1, std::memory_order_release);
+            });
+            
+            job_guard.queue()->push(std::move(tile_job));
+        }
+
+        // Wake workers after adding jobs
+        worker_wake_cv_.notify_all();
+        
+        return true;
+    };
+    
+    auto process_one_available_tile = [&]() {
+        TileJob tile_job;
+        if (job_guard.queue()->try_pop(tile_job)) {
+            if (tile_job.process) {
+                tile_job.process();
+            }
+            
+            if (job_state->error_occurred.load(std::memory_order_acquire)) {
+                return false;
+            }
+        }
+        return true;
+    };
+    
+    // Main loop: submit batches and process completions
+    while (job_state->tiles_completed.load(std::memory_order_acquire) < tiles.size()) {
+        // Check for errors
+        if (job_state->error_occurred.load(std::memory_order_acquire)) {
+            break;
+        }
+        
+        // Submit more batches if available
+        auto submit_res = batch_guard.submit_next_batches();
+        if (submit_res.is_error()) {
+            record_error(submit_res.error());
+            break;
+        }
+        
+        // Poll for completions
+        auto completions = reader.poll_completions(0);
+        
+        if (completions.empty() && job_queue.get()->empty()) {
+            // Wait briefly for completions
+            completions = reader.wait_completions_for(
+                std::chrono::milliseconds(1), 0
+            );
+            
+            if (completions.empty()) {
+                continue;
+            }
+        }
+        
+        // Process all completions
+        for (auto& [handle, result] : completions) {
+            process_completion(handle, result);
+        }
+        
+        // Process one tile (not all of them to avoid worker starvation)
+        if (!process_one_available_tile()) {
+            break;
+        }
+    }
+    
+    // Note: BatchSubmissionGuard destructor will wait for pending I/O
+    // and ActiveJobGuard destructor will unregister the job
+    
+    // ========================================================================
+    // Phase 6: Return final result
+    // ========================================================================
+    
+    if (job_state->error_occurred.load(std::memory_order_acquire)) {
+        std::lock_guard lock(job_state->error_mutex);
+        return job_state->first_error;
+    }
+    
+    return Ok();
+}
+
+
+template <typename PixelType, typename DecompSpec>
+void FastReader<PixelType, DecompSpec>::register_active_job(std::shared_ptr<ActiveJob> job) {
+    std::unique_lock lock(active_jobs_mutex_);
+    active_jobs_.push_back(job);
+}
+
+template <typename PixelType, typename DecompSpec>
+void FastReader<PixelType, DecompSpec>::unregister_active_job(std::shared_ptr<ActiveJob> job) {
+    std::unique_lock lock(active_jobs_mutex_);
+    job->active.store(false, std::memory_order_release);
+    active_jobs_.erase(
+        std::remove(active_jobs_.begin(), active_jobs_.end(), job),
+        active_jobs_.end()
+    );
+}
+
+template <typename PixelType, typename DecompSpec>
+bool FastReader<PixelType, DecompSpec>::try_steal_tile(TileJob& out_job) {
+    std::shared_lock lock(active_jobs_mutex_);
+    
+    // Try to steal from any active job
+    for (auto& job : active_jobs_) {
+        if (job->active.load(std::memory_order_acquire) && 
+            job->job_queue->try_pop(out_job)) {
+            return true;
+        }
+    }
+    
+    return false;
+}
+
+template <typename PixelType, typename DecompSpec>
+void FastReader<PixelType, DecompSpec>::worker_loop() {
+    while (!stop_workers_.load(std::memory_order_acquire)) {
+        TileJob job;
+        
+        // Try to steal a tile from any active job
+        if (!try_steal_tile(job)) {
+            // No work available, wait for notification or timeout
+            std::unique_lock<std::mutex> lock(worker_wake_mutex_);
+            // The try_steal_tile() check above handles spurious wakeups
+            worker_wake_cv_.wait_for(lock, std::chrono::milliseconds(50));
+            continue;
+        }
+        
+        // Execute the tile processing function
+        if (job.process) {
+            job.process();
+        }
+    }
+}
+
+template <typename PixelType, typename DecompSpec>
+void FastReader<PixelType, DecompSpec>::create_batches(
+    const std::vector<Tile>& tiles,
+    const Config& config,
+    std::size_t max_batch_size_hint,
+    std::vector<Batch>& out_batches) {
+    
+    // Same batching algorithm as IOLimitedReader
+    // Group adjacent tiles to minimize I/O round-trips
+    
+    if (tiles.empty()) {
+        return;
+    }
+    
+    size_t start_idx = 0;
+    size_t current_offset = tiles[0].location.offset;
+    size_t current_end = current_offset + tiles[0].location.length;
+    //size_t tot_size_before = 0; // sum of size of batches before this batch
+    std::size_t max_batch_size = config.max_batch_size == 0 ? 
+                                 max_batch_size_hint : 
+                                 config.max_batch_size;
+    
+    for (size_t i = 1; i < tiles.size(); ++i) {
+        const auto& tile = tiles[i];
+        
+        // Calculate gap and potential new batch size
+        size_t gap = tile.location.offset - current_end;
+        size_t new_end = tile.location.offset + tile.location.length;
+        size_t new_size = new_end - current_offset;
+        
+        // Break batch if gap is too large or size exceeds limit
+        bool break_batch = (gap > config.max_gap_size) ||
+                          (new_size > max_batch_size);
+        
+        if (break_batch) {
+            // Finalize current batch (do not include i).
+            out_batches.push_back({
+                start_idx,
+                i - start_idx,
+                current_offset,
+                current_end - current_offset//,
+                //tot_size_before
+            });
+            //tot_size_before += current_end - current_offset;
+
+            // Start new batch. Each batch has at least one item.
+            start_idx = i;
+            current_offset = tile.location.offset;
+            current_end = tile.location.offset + tile.location.length;
+        } else {
+            // Extend current batch
+            current_end = new_end;
+        }
+    }
+    
+    // Finalize last batch
+    out_batches.push_back({
+        start_idx,
+        tiles.size() - start_idx,
+        current_offset,
+        current_end - current_offset//,
+        //tot_size_before
+    });
+}
+
+template <typename PixelType, typename DecompSpec>
+template <typename Reader>
+requires AsyncRawReader<Reader>
+Result<void> FastReader<PixelType, DecompSpec>::submit_batches(
+    const Reader& reader,
+    const std::vector<Batch>& batches,
+    std::size_t& next_batch_idx,
+    std::vector<uint64_t>& submission_handles,
+    std::vector<std::shared_ptr<std::byte[]>>& storage_buffer) noexcept {
+    
+    if (next_batch_idx >= batches.size()) {
+        return Ok();
+    }
+    
+    size_t submission_limit = reader.available_async_ops();
+    
+    // Submit as many batches as possible within queue depth limit
+    while (next_batch_idx < batches.size() && submission_limit > 0) {
+        const auto& batch = batches[next_batch_idx];
+        
+        // Allocate memory for this batch
+        auto batch_buffer = std::shared_ptr<std::byte[]>(new std::byte[batch.total_size]);
+        std::span<std::byte> buffer_span(batch_buffer.get(), batch.total_size);
+        
+        // Submit async read
+        auto handle_res = reader.async_read_into(
+            buffer_span,
+            batch.file_offset,
+            batch.total_size
+        );
+        
+        if (!handle_res) {
+            // Error submitting read - wait for pending operations and return error
+            auto flush_res = reader.flush_async_operations();
+            if (!flush_res) {
+                return handle_res.error();
+            }
+            
+            // Wait for all pending operations to complete
+            while (reader.pending_operations() > 0) {
+                (void)reader.wait_completions(1);
+            }
+            
+            return handle_res.error();
+        }
+        
+        // Store handle and buffer
+        submission_handles[next_batch_idx] = handle_res.value();
+        storage_buffer[next_batch_idx] = std::move(batch_buffer);
+        ++next_batch_idx;
+        --submission_limit;
+    }
+    
+    // Flush submissions
+    auto flush_res = reader.flush_async_operations();
+    if (!flush_res) {
+        return flush_res.error();
+    }
+    
+    return Ok();
+}
+
+template <typename PixelType, typename DecompSpec>
+TileDecoder<PixelType, DecompSpec>& FastReader<PixelType, DecompSpec>::get_decoder() noexcept {
+    // Get thread-local decoder (initialized once per worker thread)
+    thread_local TileDecoder<PixelType, DecompSpec> thread_decoder;
+    return thread_decoder;
+}
+
+template <typename PixelType, typename DecompSpec>
+template <ImageLayoutSpec OutSpec, typename TagSpec>
+requires (TiledImageTagSpec<TagSpec> || StrippedImageTagSpec<TagSpec>)
+Result<void> FastReader<PixelType, DecompSpec>::process_tile(
+    const Tile& tile,
+    const ExtractedTags<TagSpec>& metadata,
+    const ImageRegion& region,
+    std::span<PixelType> output_buffer,
+    std::span<const std::byte> compressed_data) noexcept {
+    
+    // Get thread-local decoder (initialized once per worker thread)
+    auto& thread_decoder = get_decoder();
+    
+    // Extract compression and predictor from metadata (cheap operation)
     CompressionScheme compression = optional::extract_tag_or<TagCode::Compression, TagSpec>(
         metadata, CompressionScheme::None
     );
@@ -1560,259 +1466,35 @@ Result<void> FastReader<PixelType, DecompSpec>::read_region(
         );
     }
     
-    // ========================================================================
-    // Phase 2: Submit ALL async reads upfront
-    // ========================================================================
+    // Decode tile
+    auto decode_res = thread_decoder.decode(
+        compressed_data,
+        tile.id.size.width,
+        tile.id.size.height * tile.id.size.depth,
+        compression,
+        predictor,
+        tile.id.size.nsamples
+    );
     
-    std::vector<typename Reader::AsyncOperationHandle> handles;
-    std::vector<ReadContext> contexts;
-    handles.reserve(batches.size());
-    contexts.reserve(batches.size());
-    
-    for (size_t batch_idx = 0; batch_idx < batches.size(); ++batch_idx) {
-        const auto& batch = batches[batch_idx];
-        
-        // Allocate buffer for this batch
-        auto buffer = std::make_unique<std::byte[]>(batch.total_size);
-        std::span<std::byte> buffer_span(buffer.get(), batch.total_size);
-        
-        // Submit async read
-        auto handle_res = reader.async_read_into(
-            buffer_span,
-            batch.file_offset,
-            batch.total_size
-        );
-        
-        if (!handle_res) {
-            return handle_res.error();
-        }
-        
-        handles.push_back(std::move(handle_res.value()));
-        contexts.push_back(ReadContext{
-            batch_idx,
-            std::move(buffer),
-            batch.total_size
-        });
+    if (decode_res.is_error()) {
+        return decode_res.error();
     }
     
-    // Force submission to OS (critical for io_uring, no-op for IOCP)
-    auto submit_res = reader.submit_pending();
-    if (!submit_res) {
-        return submit_res.error();
-    }
+    // Extract to output buffer
+    auto extract_res = extract_tile_to_buffer<OutSpec, PixelType>(
+        tile,
+        region,
+        metadata,
+        decode_res.value(),
+        output_buffer
+    );
     
-    // ========================================================================
-    // Phase 3: Create shared job state
-    // ========================================================================
-    
-    auto job_state = std::make_shared<JobState>();
-    job_state->tiles_total.store(tiles.size(), std::memory_order_release);
-    
-    // ========================================================================
-    // Phase 4: Main thread + workers process completions
-    // ========================================================================
-    
-    // Main thread participates in processing
-    // Workers will also pick up completions if available
-    while (job_state->tiles_completed.load(std::memory_order_acquire) < tiles.size()) {
-        
-        // Check for errors (fast path)
-        if (job_state->error_occurred.load(std::memory_order_acquire)) {
-            break;
-        }
-        
-        // Process completions (main thread)
-        size_t processed = process_completions<OutSpec, Reader, TagSpec>(
-            reader,
-            job_state,
-            tiles,
-            batches,
-            contexts,
-            metadata,
-            region,
-            output_buffer,
-            compression,
-            predictor,
-            true  // is_main_thread
-        );
-        
-        // If no completions available, wait briefly before retrying
-        if (processed == 0) {
-            // Wait with timeout (allows checking for completion)
-            auto completions = reader.wait_completions_for(
-                std::chrono::milliseconds(1),
-                0  // Get all available
-            );
-            
-            // Process any completions that arrived
-            if (!completions.empty()) {
-                // Re-process with completions available
-                continue;
-            }
-        }
-    }
-    
-    // ========================================================================
-    // Phase 5: Wait for any remaining work
-    // ========================================================================
-    
-    // Ensure all tiles are complete
-    {
-        std::unique_lock lock(job_state->completion_mutex);
-        job_state->completion_cv.wait(lock, [&] {
-            return job_state->tiles_completed.load(std::memory_order_acquire) >= tiles.size();
-        });
-    }
-    
-    // Check for errors
-    if (job_state->error_occurred.load(std::memory_order_acquire)) {
-        std::lock_guard lock(job_state->error_mutex);
-        return job_state->first_error;
+    if (extract_res.is_error()) {
+        return extract_res.error();
     }
     
     return Ok();
 }
 
-template <typename PixelType, typename DecompSpec>
-template <ImageLayoutSpec OutSpec, typename Reader, typename TagSpec>
-requires AsyncRawReader<Reader> && (TiledImageTagSpec<TagSpec> || StrippedImageTagSpec<TagSpec>)
-size_t FastReader<PixelType, DecompSpec>::process_completions(
-    const Reader& reader,
-    std::shared_ptr<JobState> job_state,
-    const std::vector<Tile>& tiles,
-    const std::vector<Batch>& batches,
-    std::vector<ReadContext>& contexts,
-    const ExtractedTags<TagSpec>& metadata,
-    const ImageRegion& region,
-    std::span<PixelType> output_buffer,
-    CompressionScheme compression,
-    Predictor predictor,
-    [[maybe_unused]] bool is_main_thread) noexcept {
-    
-    // Thread-local decoder (one per thread, never shared)
-    thread_local TileDecoder<PixelType, DecompSpec> decoder;
-    
-    // Poll for completions (non-blocking)
-    auto completions = reader.poll_completions(0);  // Get all available
-    
-    if (completions.empty()) {
-        return 0;
-    }
-    
-    size_t tiles_processed = 0;
-    
-    for (auto& [handle, result] : completions) {
-        // Check if job already failed
-        if (job_state->error_occurred.load(std::memory_order_acquire)) {
-            break;
-        }
-        
-        // Check I/O result
-        if (!result) {
-            // Record first error
-            bool expected = false;
-            if (job_state->error_occurred.compare_exchange_strong(
-                    expected, true,
-                    std::memory_order_release,
-                    std::memory_order_relaxed)) {
-                std::lock_guard lock(job_state->error_mutex);
-                job_state->first_error = result.error();
-            }
-            continue;
-        }
-        
-        // Find which batch this completion corresponds to
-        // Note: In a production implementation, you'd store the batch_idx
-        // in the handle or use a map. For now, we'll find it.
-        size_t batch_idx = 0;
-        for (size_t i = 0; i < contexts.size(); ++i) {
-            if (contexts[i].buffer != nullptr) {
-                // Match by buffer pointer (simple but effective)
-                if (result.value().data().data() == 
-                    reinterpret_cast<const std::byte*>(contexts[i].buffer.get())) {
-                    batch_idx = i;
-                    break;
-                }
-            }
-        }
-        
-        const auto& batch = batches[batch_idx];
-        const auto& batch_data = result.value().data();
-        
-        // Process each tile in this batch
-        for (size_t i = 0; i < batch.tile_count; ++i) {
-            const auto& tile = tiles[batch.first_tile_index + i];
-            
-            // Calculate tile's offset within batch
-            size_t tile_offset_in_batch = tile.location.offset - batch.file_offset;
-            
-            // Extract compressed data for this tile
-            std::span<const std::byte> compressed_data(
-                batch_data.data() + tile_offset_in_batch,
-                tile.location.length
-            );
-            
-            // Decode tile
-            auto decode_res = decoder.decode(
-                compressed_data,
-                tile.id.size.width,
-                tile.id.size.height * tile.id.size.depth,
-                compression,
-                predictor,
-                tile.id.size.nsamples
-            );
-            
-            if (!decode_res) {
-                // Record first error
-                bool expected = false;
-                if (job_state->error_occurred.compare_exchange_strong(
-                        expected, true,
-                        std::memory_order_release,
-                        std::memory_order_relaxed)) {
-                    std::lock_guard lock(job_state->error_mutex);
-                    job_state->first_error = decode_res.error();
-                }
-                break;
-            }
-            
-            // Extract to output buffer
-            auto extract_res = extract_tile_to_buffer<OutSpec, PixelType>(
-                tile,
-                region,
-                metadata,
-                decode_res.value(),
-                output_buffer
-            );
-            
-            if (!extract_res) {
-                // Record first error
-                bool expected = false;
-                if (job_state->error_occurred.compare_exchange_strong(
-                        expected, true,
-                        std::memory_order_release,
-                        std::memory_order_relaxed)) {
-                    std::lock_guard lock(job_state->error_mutex);
-                    job_state->first_error = extract_res.error();
-                }
-                break;
-            }
-            
-            tiles_processed++;
-        }
-        
-        // Update completion counter
-        size_t completed = job_state->tiles_completed.fetch_add(
-            batch.tile_count,
-            std::memory_order_acq_rel
-        ) + batch.tile_count;
-        
-        // Notify main thread if all tiles complete
-        if (completed >= job_state->tiles_total.load(std::memory_order_acquire)) {
-            job_state->completion_cv.notify_one();
-        }
-    }
-    
-    return tiles_processed;
-}
 
 } // namespace tiffconcept

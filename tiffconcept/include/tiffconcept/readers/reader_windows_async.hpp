@@ -107,36 +107,6 @@ class IOCPFileReader {
 public:
     using ReadViewType = iocp_impl::OwnedBufferReadView;
     
-    /// Non-copyable handle for async operations (satisfies AsyncRawReader concept)
-    struct AsyncOperationHandle {
-        uint64_t id;
-        
-        AsyncOperationHandle() noexcept : id(0) {}
-        explicit AsyncOperationHandle(uint64_t id_) noexcept : id(id_) {}
-        
-        // Non-copyable
-        AsyncOperationHandle(const AsyncOperationHandle&) = delete;
-        AsyncOperationHandle& operator=(const AsyncOperationHandle&) = delete;
-        
-        // Movable
-        AsyncOperationHandle(AsyncOperationHandle&& other) noexcept : id(other.id) {
-            other.id = 0;
-        }
-        AsyncOperationHandle& operator=(AsyncOperationHandle&& other) noexcept {
-            if (this != &other) {
-                id = other.id;
-                other.id = 0;
-            }
-            return *this;
-        }
-        
-        bool operator==(const AsyncOperationHandle& other) const noexcept {
-            return id == other.id;
-        }
-    };
-    
-    using AsyncReadResult = Result<ReadViewType>;
-    
     static constexpr bool read_must_allocate = true;
     
     /// Configuration for IOCP setup
@@ -301,6 +271,12 @@ public:
     // RawReader Interface (Synchronous Operations)
     // ========================================================================
     
+    [[nodiscard]] Result<std::size_t> hint_batch_size() const noexcept {
+        // Windows doesn't have a specific block size like Linux st_blksize
+        // Use a reasonable default for batching consecutive reads
+        return 65536;  // 64 KB default
+    }
+
     /// Synchronous read with allocation (fallback for compatibility)
     [[nodiscard]] Result<ReadViewType> read(std::size_t offset, std::size_t size) const noexcept {
         if (!is_valid()) [[unlikely]] {
@@ -431,6 +407,23 @@ public:
     // ========================================================================
     // AsyncRawReader Interface (Asynchronous Operations)
     // ========================================================================
+
+    /// Create independent clone for parallel access
+    [[nodiscard]] IOCPFileReader clone() const noexcept {
+        if (!is_valid()) [[unlikely]] {
+            return IOCPFileReader();
+        }
+        // Re-open same file with same config (stored during open)
+        IOCPFileReader cloned(path_);
+        return cloned;
+    }
+
+    /// Get available async operation slots
+    [[nodiscard]] std::size_t available_async_ops() const noexcept {
+        // IOCP has no practical limit on pending operations
+        // Return a large number to indicate effectively unlimited
+        return std::numeric_limits<std::size_t>::max();
+    }
     
     /// Submit async read into user-provided buffer
     /// 
@@ -441,7 +434,7 @@ public:
     /// @param offset File offset to read from
     /// @param size Number of bytes to read
     /// @return Handle for tracking this operation
-    [[nodiscard]] Result<AsyncOperationHandle> async_read_into(
+    [[nodiscard]] Result<uint64_t> async_read_into(
         std::span<std::byte> buffer, 
         std::size_t offset, 
         std::size_t size) const noexcept {
@@ -478,9 +471,7 @@ public:
         {
             std::lock_guard lock(context_mutex_);
             operation_contexts_[user_data] = OperationContext{
-                std::move(overlapped),
-                buffer.data(),
-                bytes_to_read
+                std::move(overlapped)
             };
         }
         
@@ -514,18 +505,18 @@ public:
         // Track pending operation
         pending_ops_.fetch_add(1, std::memory_order_release);
         
-        return Ok(AsyncOperationHandle{user_data});
+        return Ok(uint64_t{user_data});
     }
     
     /// Poll for completed operations (non-blocking)
-    [[nodiscard]] std::vector<std::pair<AsyncOperationHandle, AsyncReadResult>> 
+    [[nodiscard]] std::vector<std::pair<uint64_t, Result<std::size_t>>> 
     poll_completions(std::size_t max_completions = 0) const noexcept {
         
         if (!is_valid()) [[unlikely]] {
             return {};
         }
         
-        std::vector<std::pair<AsyncOperationHandle, AsyncReadResult>> results;
+        std::vector<std::pair<uint64_t, Result<std::size_t>>> results;
         
         // Poll with zero timeout
         std::size_t count = 0;
@@ -555,14 +546,14 @@ public:
     }
     
     /// Wait for at least one completion (blocking)
-    [[nodiscard]] std::vector<std::pair<AsyncOperationHandle, AsyncReadResult>> 
+    [[nodiscard]] std::vector<std::pair<uint64_t, Result<std::size_t>>> 
     wait_completions(std::size_t max_completions = 0) const noexcept {
         
         if (!is_valid()) [[unlikely]] {
             return {};
         }
         
-        std::vector<std::pair<AsyncOperationHandle, AsyncReadResult>> results;
+        std::vector<std::pair<uint64_t, Result<std::size_t>>> results;
         
         // Wait for first completion (blocking)
         DWORD bytes_transferred = 0;
@@ -604,7 +595,7 @@ public:
     }
     
     /// Wait for completions with timeout
-    [[nodiscard]] std::vector<std::pair<AsyncOperationHandle, AsyncReadResult>> 
+    [[nodiscard]] std::vector<std::pair<uint64_t, Result<std::size_t>>> 
     wait_completions_for(std::chrono::milliseconds timeout, 
                         std::size_t max_completions = 0) const noexcept {
         
@@ -612,7 +603,7 @@ public:
             return {};
         }
         
-        std::vector<std::pair<AsyncOperationHandle, AsyncReadResult>> results;
+        std::vector<std::pair<uint64_t, Result<std::size_t>>> results;
         
         DWORD timeout_ms = static_cast<DWORD>(timeout.count());
         
@@ -663,17 +654,15 @@ public:
     /// 
     /// Windows IOCP submits operations immediately, so this is a no-op.
     /// Provided for API compatibility with io_uring-based readers.
-    [[nodiscard]] Result<std::size_t> submit_pending() const noexcept {
+    [[nodiscard]] Result<void> flush_async_operations() const noexcept {
         // No-op on Windows - operations are submitted immediately
-        return Ok(static_cast<std::size_t>(0));
+        return Ok();
     }
 
 private:
-    /// Context for a pending operation
+    /// Context for a pending operation - just keeps OVERLAPPED alive until completion
     struct OperationContext {
         std::unique_ptr<OVERLAPPED> overlapped;  ///< OVERLAPPED structure (must persist)
-        void* buffer;                            ///< User-provided buffer
-        std::size_t size;                        ///< Expected read size
     };
     
     /// Find user data from OVERLAPPED pointer
@@ -688,7 +677,7 @@ private:
     }
     
     /// Process a completed operation
-    [[nodiscard]] std::pair<AsyncOperationHandle, AsyncReadResult> 
+    [[nodiscard]] std::pair<uint64_t, Result<std::size_t>> 
     process_completion(OVERLAPPED* overlapped, BOOL success, DWORD bytes_transferred) const noexcept {
         
         // Find user data from OVERLAPPED
@@ -697,40 +686,21 @@ private:
         // Decrement pending counter
         pending_ops_.fetch_sub(1, std::memory_order_release);
         
-        // Retrieve operation context
-        OperationContext ctx{};
+        // Retrieve and remove operation context
         {
             std::lock_guard lock(context_mutex_);
-            auto it = operation_contexts_.find(user_data);
-            if (it != operation_contexts_.end()) {
-                ctx = std::move(it->second);
-                operation_contexts_.erase(it);
-            }
+            operation_contexts_.erase(user_data);
         }
         
         // Check for errors
         if (!success) [[unlikely]] {
             DWORD error = GetLastError();
-            return {AsyncOperationHandle{user_data}, Err(Error::Code::ReadError, 
+            return {uint64_t{user_data}, Err(Error::Code::ReadError, 
                    "IOCP read failed (Error " + std::to_string(error) + ")")};
         }
         
-        // Check for short read
-        if (bytes_transferred < static_cast<DWORD>(ctx.size)) [[unlikely]] {
-            return {AsyncOperationHandle{user_data}, Err(Error::Code::UnexpectedEndOfFile, 
-                   "IOCP read returned fewer bytes than requested")};
-        }
-        
-        // Success - wrap buffer in ReadView
-        // Note: We don't own the buffer, so we can't use shared_ptr here
-        // The caller must ensure buffer remains valid
-        std::span<const std::byte> data_span(
-            static_cast<const std::byte*>(ctx.buffer), 
-            bytes_transferred
-        );
-        
-        // Return view without ownership (buffer owned by caller)
-        return {AsyncOperationHandle{user_data}, Ok(ReadViewType(data_span, nullptr))};
+        // Return number of bytes read
+        return {uint64_t{user_data}, Ok(static_cast<std::size_t>(bytes_transferred))};
     }
     
     HANDLE file_handle_{INVALID_HANDLE_VALUE};

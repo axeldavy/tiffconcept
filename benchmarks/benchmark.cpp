@@ -22,6 +22,8 @@
 #include <tiffio.h>
 #endif
 
+//#undef HAVE_LIBURING
+
 /// StreamFileReader from reader_stream is fine, but is not multithread friendly.
 #if defined(__linux__) || defined(__unix__) || defined(__APPLE__)
     #include "../tiffconcept/include/tiffconcept/readers/reader_unix_pread.hpp"
@@ -60,9 +62,6 @@ template <typename T, typename DecompSpec>
 using SimpleReaderType = SimpleReader<T, DecompSpec>;
 
 template <typename T, typename DecompSpec>
-using IOLimitedReaderType = IOLimitedReader<T, DecompSpec>;
-
-template <typename T, typename DecompSpec>
 using CPULimitedReaderType = CPULimitedReader<T, DecompSpec>;
 
 template <typename T, typename DecompSpec>
@@ -87,8 +86,13 @@ static void BM_Metadata_ParseIFD_SinglePage(benchmark::State& state) {
                                     ImagePattern::Gradient);
     
     // Benchmark IFD parsing
+    FileReader file_reader; // For the io_uring reader, there are allocation issues if we reallocate the reader very fast in a loop
     for (auto _ : state) {
-        FileReader file_reader(filepath.string());
+        auto open_result = file_reader.open(filepath.string());
+        if (!open_result.is_ok()) {
+            state.SkipWithError("Failed to open TIFF file");
+            return;
+        }
         
         if (format == TiffFormat::Classic && endian == Endianness::Little) {
             auto ifd_offset = ifd::get_first_ifd_offset<FileReader, TiffFormatType::Classic, std::endian::little>(file_reader);
@@ -204,8 +208,13 @@ static void BM_Metadata_ExtractTags_SinglePage(benchmark::State& state) {
                                     ImagePattern::Gradient);
     
     // Benchmark tag extraction
+    FileReader file_reader;
     for (auto _ : state) {
-        FileReader file_reader(filepath.string());
+        auto open_result = file_reader.open(filepath.string());
+        if (!open_result.is_ok()) {
+            state.SkipWithError("Failed to open TIFF file");
+            return;
+        }
 
         if (format == TiffFormat::Classic && endian == Endianness::Little) {
             auto ifd_offset = ifd::get_first_ifd_offset<FileReader, TiffFormatType::Classic, std::endian::little>(file_reader);
@@ -365,8 +374,13 @@ static void BM_Metadata_ParseIFD_MultiPage(benchmark::State& state) {
                                     ImagePattern::Gradient);
     
     // Benchmark parsing specific page
+    FileReader file_reader;
     for (auto _ : state) {
-        FileReader file_reader(filepath.string());
+        auto open_result = file_reader.open(filepath.string());
+        if (!open_result.is_ok()) {
+            state.SkipWithError("Failed to open TIFF file");
+            return;
+        }
         
         auto ifd_offset = ifd::get_first_ifd_offset<FileReader, TiffFormatType::Classic, std::endian::little>(file_reader);
         if (!ifd_offset.is_ok()) {
@@ -453,8 +467,13 @@ static void BM_Metadata_ExtractAllPages(benchmark::State& state) {
                                     ImagePattern::Gradient);
     
     // Benchmark extracting metadata from all pages
+    FileReader file_reader;
     for (auto _ : state) {
-        FileReader file_reader(filepath.string());
+        auto open_result = file_reader.open(filepath.string());
+        if (!open_result.is_ok()) {
+            state.SkipWithError("Failed to open TIFF file");
+            return;
+        }
         
         auto ifd_offset_result = ifd::get_first_ifd_offset<FileReader, TiffFormatType::Classic, std::endian::little>(file_reader);
         if (!ifd_offset_result.is_ok()) {
@@ -575,12 +594,25 @@ static void BM_Read_SizeVariation(benchmark::State& state) {
     ExtractedTags<MinTiledSpec> metadata;
     TiledImageInfo<T> image_info;
 
+    FileReader file_reader;
     for (auto _ : state) {
-        FileReader file_reader(filepath.string());
+        auto open_result = file_reader.open(filepath.string());
+        if (!open_result.is_ok()) {
+            state.SkipWithError("Failed to open TIFF file");
+            return;
+        }
         if (endian == Endianness::Little) {
             auto ifd_offset = ifd::get_first_ifd_offset<FileReader, TiffFormatType::Classic, std::endian::little>(file_reader);
+            if (!ifd_offset.is_ok()) {
+                state.SkipWithError("Failed to get IFD offset " + ifd_offset.error().message);
+                return;
+            }
             auto ifd = ifd::read_ifd<FileReader, TiffFormatType::Classic, std::endian::little>(
                 file_reader, ifd_offset.value());
+            if (!ifd.is_ok()) {
+                state.SkipWithError("Failed to read IFD " + ifd.error().message);
+                return;
+            }
             
             auto extract_result = metadata.extract<FileReader, TiffFormatType::Classic, std::endian::little>(
                 file_reader, std::span(ifd.value().tags));
@@ -600,13 +632,25 @@ static void BM_Read_SizeVariation(benchmark::State& state) {
             
             auto result = reader.template read_region<ImageLayoutSpec::DHWC>(
                 file_reader, metadata, region, output);
+            if (!result.is_ok()) {
+                state.SkipWithError("Failed to read region " + result.error().message);
+                return;
+            }
             
             benchmark::DoNotOptimize(output);
             bytes_processed += output.size() * sizeof(T);
         } else {
             auto ifd_offset = ifd::get_first_ifd_offset<FileReader, TiffFormatType::Classic, std::endian::big>(file_reader);
+            if (!ifd_offset.is_ok()) {
+                state.SkipWithError("Failed to get IFD offset " + ifd_offset.error().message);
+                return;
+            }
             auto ifd = ifd::read_ifd<FileReader, TiffFormatType::Classic, std::endian::big>(
                 file_reader, ifd_offset.value());
+            if (!ifd.is_ok()) {
+                state.SkipWithError("Failed to read IFD " + ifd.error().message);
+                return;
+            }
             
             auto extract_result = metadata.extract<FileReader, TiffFormatType::Classic, std::endian::big>(
                 file_reader, std::span(ifd.value().tags));
@@ -626,6 +670,10 @@ static void BM_Read_SizeVariation(benchmark::State& state) {
             
             auto result = reader.template read_region<ImageLayoutSpec::DHWC>(
                 file_reader, metadata, region, output);
+            if (!result.is_ok()) {
+                state.SkipWithError("Failed to read region " + result.error().message);
+                return;
+            }
             
             benchmark::DoNotOptimize(output);
             bytes_processed += output.size() * sizeof(T);
@@ -729,9 +777,14 @@ static void BM_Read_PartialRegion(benchmark::State& state) {
     
     std::size_t bytes_processed = 0;
     ReaderType reader; // Putting reader instantiation here to avoid measuring construction time
+    FileReader file_reader;
     
     for (auto _ : state) {
-        FileReader file_reader(filepath.string());
+        auto open_result = file_reader.open(filepath.string());
+        if (!open_result.is_ok()) {
+            state.SkipWithError("Failed to open TIFF file");
+            return;
+        }
         
         auto ifd_offset = ifd::get_first_ifd_offset<FileReader, TiffFormatType::Classic, std::endian::little>(file_reader);
         if (!ifd_offset.is_ok()) {
@@ -765,6 +818,10 @@ static void BM_Read_PartialRegion(benchmark::State& state) {
         
         auto result = reader.template read_region<ImageLayoutSpec::DHWC>(
             file_reader, metadata, region, output);
+        if (!result.is_ok()) {
+            state.SkipWithError("Failed to read region " + result.error().message);
+            return;
+        }
         
         benchmark::DoNotOptimize(output);
         bytes_processed += output.size() * sizeof(T);
@@ -868,13 +925,26 @@ static void BM_Read_3DVolume(benchmark::State& state) {
     std::size_t bytes_processed = 0;
 
     ReaderType reader; // Putting reader instantiation here to avoid measuring construction time
+    FileReader file_reader;
     
     for (auto _ : state) {
-        FileReader file_reader(filepath.string());
+        auto open_result = file_reader.open(filepath.string());
+        if (!open_result.is_ok()) {
+            state.SkipWithError("Failed to open TIFF file");
+            return;
+        }
         
         auto ifd_offset = ifd::get_first_ifd_offset<FileReader, TiffFormatType::Classic, std::endian::little>(file_reader);
+        if (!ifd_offset.is_ok()) {
+            state.SkipWithError("Failed to get IFD offset " + ifd_offset.error().message);
+            return;
+        }
         auto ifd = ifd::read_ifd<FileReader, TiffFormatType::Classic, std::endian::little>(
             file_reader, ifd_offset.value());
+        if (!ifd.is_ok()) {
+            state.SkipWithError("Failed to read IFD " + ifd.error().message);
+            return;
+        }
         
         ExtractedTags<MinTiledSpec> metadata;
         auto extraction_result = metadata.extract<FileReader, TiffFormatType::Classic, std::endian::little>(
@@ -896,6 +966,10 @@ static void BM_Read_3DVolume(benchmark::State& state) {
         
         auto result = reader.template read_region<ImageLayoutSpec::DHWC>(
             file_reader, metadata, region, output);
+        if (!result.is_ok()) {
+            state.SkipWithError("Failed to read region " + result.error().message);
+            return;
+        }
         
         benchmark::DoNotOptimize(output);
         bytes_processed += output.size() * sizeof(T);
@@ -927,9 +1001,14 @@ static void BM_Read_MultiPage(benchmark::State& state) {
     std::size_t bytes_processed = 0;
 
     ReaderType reader; // Putting reader instantiation here to avoid measuring construction time
+    FileReader file_reader;
     
     for (auto _ : state) {
-        FileReader file_reader(filepath.string());
+        auto open_result = file_reader.open(filepath.string());
+        if (!open_result.is_ok()) {
+            state.SkipWithError("Failed to open TIFF file");
+            return;
+        }
         
         // Navigate to target page
         auto ifd_offset_result = ifd::get_first_ifd_offset<FileReader, TiffFormatType::Classic, std::endian::little>(file_reader);
@@ -978,6 +1057,10 @@ static void BM_Read_MultiPage(benchmark::State& state) {
         
         auto result = reader.template read_region<ImageLayoutSpec::DHWC>(
             file_reader, metadata, region, output);
+        if (!result.is_ok()) {
+            state.SkipWithError("Failed to read region " + result.error().message);
+            return;
+        }
         
         benchmark::DoNotOptimize(output);
         benchmark::DoNotOptimize(result);
@@ -1289,17 +1372,6 @@ BENCHMARK(BM_Read_SizeVariation<uint8_t, SimpleReaderType<uint8_t, DecompressorS
     ->Name("TiffConcept/Read/SimpleReader/SizeVariation/uint8")
     ->Unit(benchmark::kMillisecond);
 
-// IOLimitedReader benchmarks
-BENCHMARK(BM_Read_SizeVariation<uint8_t, IOLimitedReaderType<uint8_t, DecompressorSpec<NoneDecompressorDesc, ZstdDecompressorDesc>>>)
-    ->Args({64, 1, 0, 0})      // 64x64, 1ch, None, Little
-    ->Args({512, 3, 0, 0})     // 512x512, 3ch, None, Little
-    ->Args({512, 64, 0, 0})    // 512x512, 64ch, None, Little
-    ->Args({8192, 1, 0, 0})    // 8192x8192, 1ch, None, Little
-    ->Args({8192, 1, 1, 0})    // 8192x8192, 1ch, ZSTD, Little
-    ->Args({8192, 1, 1, 1})    // 8192x8192, 1ch, ZSTD, Big
-    ->Name("TiffConcept/Read/IOLimitedReader/SizeVariation/uint8")
-    ->Unit(benchmark::kMillisecond);
-
 // CPULimitedReader benchmarks
 BENCHMARK(BM_Read_SizeVariation<uint8_t, CPULimitedReaderType<uint8_t, DecompressorSpec<NoneDecompressorDesc, ZstdDecompressorDesc>>>)
     ->Args({64, 1, 0, 0})      // 64x64, 1ch, None, Little
@@ -1316,13 +1388,6 @@ BENCHMARK(BM_Read_SizeVariation<uint16_t, SimpleReaderType<uint16_t, Decompresso
     ->Args({512, 3, 0, 0})     // 512x512, 3ch, None, Little
     ->Args({2048, 3, 0, 0})    // 2048x2048, 3ch, None, Little
     ->Name("TiffConcept/Read/SimpleReader/SizeVariation/uint16")
-    ->Unit(benchmark::kMillisecond);
-
-// IOLimitedReader uint16_t
-BENCHMARK(BM_Read_SizeVariation<uint16_t, IOLimitedReaderType<uint16_t, DecompressorSpec<NoneDecompressorDesc, ZstdDecompressorDesc>>>)
-    ->Args({512, 3, 0, 0})     // 512x512, 3ch, None, Little
-    ->Args({2048, 3, 0, 0})    // 2048x2048, 3ch, None, Little
-    ->Name("TiffConcept/Read/IOLimitedReader/SizeVariation/uint16")
     ->Unit(benchmark::kMillisecond);
 
 // CPULimitedReader uint16_t
@@ -1385,14 +1450,6 @@ BENCHMARK(BM_Read_PartialRegion<uint8_t, SimpleReaderType<uint8_t, DecompressorS
     ->Name("TiffConcept/Read/SimpleReader/PartialRegion/uint8")
     ->Unit(benchmark::kMillisecond);
 
-// IOLimitedReader
-BENCHMARK(BM_Read_PartialRegion<uint8_t, IOLimitedReaderType<uint8_t, DecompressorSpec<NoneDecompressorDesc>>>)
-    ->Args({1024, 128})   // Read 128x128 from 1024x1024
-    ->Args({4096, 512})   // Read 512x512 from 4096x4096
-    ->Args({4096, 1024})  // Read 1024x1024 from 4096x4096
-    ->Name("TiffConcept/Read/IOLimitedReader/PartialRegion/uint8")
-    ->Unit(benchmark::kMillisecond);
-
 // CPULimitedReader
 BENCHMARK(BM_Read_PartialRegion<uint8_t, CPULimitedReaderType<uint8_t, DecompressorSpec<NoneDecompressorDesc>>>)
     ->Args({1024, 128})   // Read 128x128 from 1024x1024
@@ -1433,13 +1490,6 @@ BENCHMARK(BM_LibTIFF_Read_PartialRegion<uint8_t>)
      ->Name("TiffConcept/Read/SimpleReader/3DVolume/uint8")
      ->Unit(benchmark::kMillisecond);
 
-// IOLimitedReader uint8_t
- BENCHMARK(BM_Read_3DVolume<uint8_t, IOLimitedReaderType<uint8_t, DecompressorSpec<NoneDecompressorDesc>>>)
-     ->Args({128, 16})   // 128x128x16
-     ->Args({512, 32})   // 512x512x32
-     ->Name("TiffConcept/Read/IOLimitedReader/3DVolume/uint8")
-     ->Unit(benchmark::kMillisecond);
-
 // CPULimitedReader uint8_t
  BENCHMARK(BM_Read_3DVolume<uint8_t, CPULimitedReaderType<uint8_t, DecompressorSpec<NoneDecompressorDesc>>>)
      ->Args({128, 16})   // 128x128x16
@@ -1452,13 +1502,6 @@ BENCHMARK(BM_LibTIFF_Read_PartialRegion<uint8_t>)
      ->Args({128, 16})   // 128x128x16
      ->Args({512, 32})   // 512x512x32
      ->Name("TiffConcept/Read/SimpleReader/3DVolume/uint16")
-     ->Unit(benchmark::kMillisecond);
-
-// IOLimitedReader uint16_t
- BENCHMARK(BM_Read_3DVolume<uint16_t, IOLimitedReaderType<uint16_t, DecompressorSpec<NoneDecompressorDesc>>>)
-     ->Args({128, 16})   // 128x128x16
-     ->Args({512, 32})   // 512x512x32
-     ->Name("TiffConcept/Read/IOLimitedReader/3DVolume/uint16")
      ->Unit(benchmark::kMillisecond);
 
 // CPULimitedReader uint16_t
@@ -1495,14 +1538,6 @@ BENCHMARK(BM_Read_MultiPage<uint8_t, SimpleReaderType<uint8_t, DecompressorSpec<
     ->Args({10, 9})    // 10 pages, read page 9
     ->Args({50, 49})   // 50 pages, read page 49
     ->Name("TiffConcept/Read/SimpleReader/MultiPage/uint8")
-    ->Unit(benchmark::kMillisecond);
-
-// IOLimitedReader
-BENCHMARK(BM_Read_MultiPage<uint8_t, IOLimitedReaderType<uint8_t, DecompressorSpec<NoneDecompressorDesc>>>)
-    ->Args({10, 0})    // 10 pages, read page 0
-    ->Args({10, 9})    // 10 pages, read page 9
-    ->Args({50, 49})   // 50 pages, read page 49
-    ->Name("TiffConcept/Read/IOLimitedReader/MultiPage/uint8")
     ->Unit(benchmark::kMillisecond);
 
 // CPULimitedReader

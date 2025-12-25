@@ -260,6 +260,12 @@ public:
             size_ = 0;
         }
     }
+
+    [[nodiscard]] Result<std::size_t> hint_batch_size() const noexcept {
+        // Windows doesn't have a specific block size like Linux st_blksize
+        // Use a reasonable default for batching consecutive reads
+        return 65536;  // 64 KB default
+    }
     
     /// Thread-safe read using ReadFile with OVERLAPPED (only available if can_read is true)
     [[nodiscard]] Result<ReadViewType> read(std::size_t offset, std::size_t size) const noexcept 

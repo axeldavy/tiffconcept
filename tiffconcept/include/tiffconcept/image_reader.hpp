@@ -6,9 +6,11 @@
 #include <deque>
 #include <functional>
 #include <mutex>
+#include <shared_mutex>
 #include <span>
 #include <thread>
 #include <vector>
+#include "detail/queue.hpp"
 #include "decompressors/decompressor_base.hpp"
 #include "lowlevel/decoder.hpp"
 #include "lowlevel/tiling.hpp"
@@ -176,78 +178,6 @@ private:
     TileDecoder<PixelType, DecompSpec> decoder_; // Reused decoder (holds scratch buffer)
 };
 
-/// @brief Reader optimized for high-latency I/O (e.g., network shares, cloud storage).
-///
-/// Strategies:
-/// - Batching: Groups small adjacent reads into larger requests to reduce round-trips.
-/// - Parallel I/O: Uses a pool of I/O threads to fetch data in parallel.
-/// - Serial Processing: Decoding and extraction happen on the calling thread.
-///
-/// Thread-safety:
-/// - read_region is thread-safe and can be called concurrently.
-/// - Internal I/O threads are shared across all calls.
-/// @note Do not use with a buffer or mmap reader as the IO threads have no
-///       impact there. It will just add unnecessary overhead.
-template <typename PixelType, typename DecompSpec>
-class IOLimitedReader {
-public:
-    struct Config {
-        size_t io_threads = 0; // Number of parallel read threads, 0 = auto-detect
-        size_t max_batch_size = 4 * 1024 * 1024; // Max bytes per read request
-        size_t max_gap_size = 64 * 1024; // Max gap to bridge between chunks
-    };
-
-    explicit IOLimitedReader(Config config = {});
-    ~IOLimitedReader();
-
-    template <ImageLayoutSpec OutSpec, typename Reader, typename TagSpec>
-    requires RawReader<Reader> && (TiledImageTagSpec<TagSpec> || StrippedImageTagSpec<TagSpec>)
-    [[nodiscard]] Result<void> read_region(
-        const Reader& reader,
-        const ExtractedTags<TagSpec>& metadata,
-        const ImageRegion& region,
-        std::span<PixelType> output_buffer) noexcept;
-
-private:
-    struct Batch {
-        size_t first_tile_index;
-        size_t tile_count;
-        size_t file_offset;
-        size_t total_size;
-    };
-
-    // Task submitted to the shared worker pool
-    using IOTask = std::function<void()>;
-
-    Config config_;
-    
-    // Shared thread pool state
-    std::vector<std::thread> threads_;
-    std::mutex queue_mutex_;
-    std::condition_variable queue_cv_;
-    std::deque<IOTask> pending_tasks_;
-    bool stop_threads_ = false;
-
-    // Decoder pool for calling thread usage with thread affinity
-    std::mutex decoder_pool_mutex_;
-    struct DecoderEntry {
-        std::unique_ptr<TileDecoder<PixelType, DecompSpec>> decoder;
-        std::thread::id last_thread_id;  // Thread that last used this decoder
-    };
-    std::vector<DecoderEntry> decoder_pool_;
-
-    [[nodiscard]] std::unique_ptr<TileDecoder<PixelType, DecompSpec>> acquire_decoder();
-    void release_decoder(std::unique_ptr<TileDecoder<PixelType, DecompSpec>> decoder);
-
-    void worker_loop();
-    
-    // Helper to create batches (stateless)
-    static void create_batches(
-        const std::vector<Tile>& tiles, 
-        const Config& config, 
-        std::vector<Batch>& out_batches);
-};
-
 
 /// @brief Reader optimized for CPU-bound scenarios (e.g., heavy compression like ZSTD/Deflate).
 ///
@@ -404,7 +334,7 @@ class FastReader {
 public:
     struct Config {
         size_t worker_threads = 0;           ///< Processing threads (0 = auto, typically cores - 1)
-        size_t max_batch_size = 4 * 1024 * 1024;  ///< Max bytes per batch (increase for network)
+        size_t max_batch_size = 0;           ///< Max bytes per batch (0 = auto)
         size_t max_gap_size = 64 * 1024;     ///< Max gap to bridge between tiles
     };
 
@@ -445,11 +375,24 @@ private:
         size_t total_size;        ///< Total bytes to read (including gaps)
     };
 
-    /// @brief Context for a single async read operation
-    struct ReadContext {
-        size_t batch_index;                       ///< Which batch this belongs to
-        std::unique_ptr<std::byte[]> buffer;      ///< Allocated buffer for compressed data
-        size_t buffer_size;                       ///< Size of allocated buffer
+    /// @brief Tile processing job (for job stealing)
+    struct TileJob {
+        std::function<void()> process;  ///< Processing function (decode + extract)
+        
+        TileJob() = default;
+        TileJob(std::function<void()> fn) : process(std::move(fn)) {}
+        
+        operator bool() const { return process != nullptr; }
+    };
+
+    using JobQueue = detail::LockFreeJobQueue<TileJob>;
+
+    /// @brief Active read_region job that workers can steal from
+    struct ActiveJob {
+        std::shared_ptr<JobQueue> job_queue;
+        std::atomic<bool> active{true};
+        std::condition_variable job_available_cv;  // Wake workers when jobs added
+        std::mutex job_cv_mutex;                   // Protects CV wait
     };
 
     Config config_;
@@ -457,6 +400,22 @@ private:
     // Worker thread pool (persistent)
     std::vector<std::thread> workers_;
     std::atomic<bool> stop_workers_{false};
+    std::condition_variable worker_wake_cv_;  // Wake workers when new job registered
+    std::mutex worker_wake_mutex_;
+
+    // Active jobs registry (for job stealing)
+    std::shared_mutex active_jobs_mutex_;
+    std::vector<std::shared_ptr<ActiveJob>> active_jobs_;
+
+
+    /// @brief Register a job for worker threads to steal from
+    void register_active_job(std::shared_ptr<ActiveJob> job);
+    
+    /// @brief Unregister a job when read_region completes
+    void unregister_active_job(std::shared_ptr<ActiveJob> job);
+    
+    /// @brief Try to steal a tile from any active job
+    bool try_steal_tile(TileJob& out_job);
 
     void worker_loop();
 
@@ -485,40 +444,54 @@ private:
     static void create_batches(
         const std::vector<Tile>& tiles, 
         const Config& config, 
+        std::size_t max_batch_size_hint,
         std::vector<Batch>& out_batches);
+        
+    /// @brief Submit async read operations for batches
+    ///
+    /// Allocates memory for each batch separately and submits async reads.
+    /// Each batch gets its own shared_ptr that will be shared among tile jobs.
+    ///
+    /// @param reader Async reader
+    /// @param batches All batches
+    /// @param next_batch_idx Next batch index to submit (updated)
+    /// @param submission_handles Handle array to store results
+    /// @param storage_buffer Vector of shared_ptrs for batch storage (indexed by batch_idx)
+    ///
+    /// @return Ok on success, error on failure
+    template <typename Reader>
+    requires AsyncRawReader<Reader>
+    static Result<void> submit_batches(
+        const Reader& reader,
+        const std::vector<Batch>& batches,
+        std::size_t& next_batch_idx,
+        std::vector<uint64_t>& submission_handles,
+        std::vector<std::shared_ptr<std::byte[]>>& storage_buffer) noexcept;
 
-    /// @brief Process completions from async reader (worker function)
+    
+    /// @brief Get thread-local decoder instance
+    static TileDecoder<PixelType, DecompSpec>& get_decoder() noexcept;
+
+    /// @brief Process a single tile (decode + extract)
     ///
     /// This function is called by both main thread and worker threads.
-    /// It polls for completions and processes them (decode + extract).
+    /// Each thread uses its own thread-local decoder.
     ///
-    /// @param reader Async reader to poll completions from
-    /// @param job_state Shared job state
-    /// @param tiles Tile metadata
-    /// @param batches Batch information
-    /// @param contexts Read contexts (buffer ownership)
+    /// @param tile Tile to process
+    /// @param compressed_data Compressed tile data
     /// @param metadata TIFF metadata
     /// @param region Image region
     /// @param output_buffer Output buffer
-    /// @param compression Compression scheme
-    /// @param predictor Predictor scheme
-    /// @param is_main_thread True if this is the main thread (different behavior)
     ///
-    /// @return Number of tiles processed
-    template <ImageLayoutSpec OutSpec, typename Reader, typename TagSpec>
-    requires AsyncRawReader<Reader> && (TiledImageTagSpec<TagSpec> || StrippedImageTagSpec<TagSpec>)
-    static size_t process_completions(
-        const Reader& reader,
-        std::shared_ptr<JobState> job_state,
-        const std::vector<Tile>& tiles,
-        const std::vector<Batch>& batches,
-        std::vector<ReadContext>& contexts,
+    /// @return Ok on success, error otherwise
+    template <ImageLayoutSpec OutSpec, typename TagSpec>
+    requires (TiledImageTagSpec<TagSpec> || StrippedImageTagSpec<TagSpec>)
+    static Result<void> process_tile(
+        const Tile& tile,
         const ExtractedTags<TagSpec>& metadata,
         const ImageRegion& region,
         std::span<PixelType> output_buffer,
-        CompressionScheme compression,
-        Predictor predictor,
-        bool is_main_thread) noexcept;
+        std::span<const std::byte> compressed_data) noexcept;
 };
 
 } // namespace tiffconcept

@@ -148,6 +148,7 @@ template <typename AccessPolicy>
 class PreadFileBase {
 protected:
     int fd_{-1};
+    std::size_t blksize_{4096}; /// hinted block size for optimal reads
     std::size_t size_{0};
     std::string path_;
 
@@ -172,6 +173,7 @@ public:
     
     PreadFileBase(PreadFileBase&& other) noexcept
         : fd_(other.fd_)
+        , blksize_(other.blksize_)
         , size_(other.size_)
         , path_(std::move(other.path_)) {
         other.fd_ = -1;
@@ -184,6 +186,7 @@ public:
             fd_ = other.fd_;
             size_ = other.size_;
             path_ = std::move(other.path_);
+            blksize_ = other.blksize_;
             other.fd_ = -1;
             other.size_ = 0;
         }
@@ -214,6 +217,7 @@ public:
         }
         
         size_ = static_cast<std::size_t>(st.st_size);
+        blksize_ = static_cast<std::size_t>(st.st_blksize);
         return Ok();
     }
     
@@ -226,6 +230,10 @@ public:
             fd_ = -1;
             size_ = 0;
         }
+    }
+
+    [[nodiscard]] Result<std::size_t> hint_batch_size() const noexcept {
+        return blksize_;
     }
     
     /// Thread-safe read using pread (only available if can_read is true)

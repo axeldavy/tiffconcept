@@ -17,6 +17,8 @@
 #include <string>
 #include <string_view>
 #include <sys/stat.h>
+//#include <sys/syscall.h>
+#include <thread>
 #include <unistd.h>
 #include <utility>
 #include <vector>
@@ -26,7 +28,7 @@ namespace tiffconcept {
 namespace io_uring_impl {
 
 /// Read-only view that owns allocated buffer
-/// Used for both sync and async read results
+/// Used for read() results
 class OwnedBufferReadView {
 private:
     std::span<const std::byte> data_;
@@ -58,98 +60,65 @@ static_assert(DataReadOnlyView<OwnedBufferReadView>,
 /// 
 /// Design:
 /// - Zero-copy async I/O with user-provided buffers
-/// - Thread-safe: multiple threads can submit and poll concurrently
-/// - Lock-free fast path: submission and completion reaping use minimal locking
-/// - Fallback: Provides sync read() methods for compatibility
+/// - Thread-safe: Calls are mutex protected. The instance should be
+///   used only by one thread at a time (else wait_* would cause poll to block ).
+//    This is a liburing limitation, and a more low level implementation
+///   could allow wait and poll concurrently.
+/// - Due to the above, use clone() if you need to read from several threads
+/// - RawReader interface: Provides sync read() methods for compatibility
 /// 
 /// Performance Characteristics:
 /// - Best for: High-latency I/O (NAS, cloud) or massively parallel local I/O
-/// - Queue depth: Configurable (default 128), higher for network storage
-/// - Latency: Near-optimal (single syscall for batch submission)
-/// - Throughput: Saturates storage bandwidth with sufficient queue depth
-/// 
-/// Thread Safety:
-/// - All methods are thread-safe and can be called concurrently
-/// - Submissions and completions use internal locking (minimal contention)
-/// - Each completion delivered to exactly one thread
+/// - Queue depth: Configurable (default 1024)
+/// - Requests can complete out of order
+/// - For network storage, it is preferrable the caller does batch consecutive
+///   read calls.
 /// 
 /// Requirements:
 /// - Linux kernel 5.1+ (io_uring support)
 /// - liburing (development package)
 /// - Compile with: -luring
-/// 
-/// Usage Example:
-/// @code
-///   IoUringFileReader reader("file.tif");
-///   
-///   // Submit multiple reads
-///   std::vector<Handle> handles;
-///   std::vector<std::unique_ptr<std::byte[]>> buffers;
-///   
-///   for (auto& tile : tiles) {
-///       auto buf = std::make_unique<std::byte[]>(tile.size);
-///       auto h = reader.async_read_into(
-///           std::span(buf.get(), tile.size),
-///           tile.offset, tile.size
-///       ).value();
-///       handles.push_back(std::move(h));
-///       buffers.push_back(std::move(buf));
-///   }
-///   
-///   reader.submit_pending();  // Flush to kernel
-///   
-///   // Process completions
-///   while (reader.pending_operations() > 0) {
-///       for (auto& [handle, result] : reader.wait_completions()) {
-///           if (result) process(result.value().data());
-///       }
-///   }
-/// @endcode
+
 class IoUringFileReader {
 public:
     using ReadViewType = io_uring_impl::OwnedBufferReadView;
-    
-    /// Non-copyable handle for async operations (satisfies AsyncRawReader concept)
-    struct AsyncOperationHandle {
-        uint64_t id;
-        
-        AsyncOperationHandle() noexcept : id(0) {}
-        explicit AsyncOperationHandle(uint64_t id_) noexcept : id(id_) {}
-        
-        // Non-copyable
-        AsyncOperationHandle(const AsyncOperationHandle&) = delete;
-        AsyncOperationHandle& operator=(const AsyncOperationHandle&) = delete;
-        
-        // Movable
-        AsyncOperationHandle(AsyncOperationHandle&& other) noexcept : id(other.id) {
-            other.id = 0;
-        }
-        AsyncOperationHandle& operator=(AsyncOperationHandle&& other) noexcept {
-            if (this != &other) {
-                id = other.id;
-                other.id = 0;
-            }
-            return *this;
-        }
-        
-        bool operator==(const AsyncOperationHandle& other) const noexcept {
-            return id == other.id;
-        }
-    };
-    
-    using AsyncReadResult = Result<ReadViewType>;
     
     static constexpr bool read_must_allocate = true;
     
     /// Configuration for io_uring setup
     struct Config {
-        uint32_t queue_depth = 128;      ///< Max concurrent operations (SQ/CQ size)
-        bool use_sqpoll = false;         ///< Use kernel polling thread (requires CAP_SYS_NICE)
-        bool use_iopoll = false;         ///< Use polling I/O (requires O_DIRECT, fast devices only)
-        int32_t sq_thread_cpu = -1;      ///< CPU for SQPOLL thread (-1 = no affinity)
-        uint32_t sq_thread_idle = 2000;  ///< SQPOLL idle timeout in ms
+        // We don't need a large submission queue since we submit batched read requests
+        uint32_t sq_queue_depth = 16;     ///< Submission queue depth
+        // Since requests can take time (network/storage latency), we want a larger completion queue
+        uint32_t cq_queue_depth = 1024;     ///< Completion queue depth
     };
-    
+
+
+private:
+    int fd_{-1};            /// opened file descriptor
+    std::size_t size_{0};   /// size of the file (assumed to not change after open)
+    std::size_t blksize_{4096}; /// hinted block size for optimal reads
+    std::string path_;      /// path to the file
+    Config stored_config_;  /// stored config for clone()
+
+    struct IoUringDeleter {
+        void operator()(io_uring* ring) const noexcept {
+            if (ring) {
+                io_uring_queue_exit(ring);
+                delete ring;
+            }
+        }
+    };
+
+    // io_uring state (mutable for const methods)
+    mutable std::unique_ptr<io_uring, IoUringDeleter> ring_;
+    mutable uint64_t next_user_data_{1}; // unique ID for each operation
+    mutable std::size_t pending_ops_{0}; // operations submitted to the instance (not necessarily the kernel) minus treated ones
+    std::size_t real_cq_depth_{0}; // actual CQ depth allocated
+    mutable std::mutex liburing_mutex_;  // Protects above variables
+
+
+public:
     IoUringFileReader() noexcept = default;
     
     /// Open file with default configuration
@@ -157,8 +126,8 @@ public:
         Config default_config;
         auto result = open(path, default_config);
         if (!result.is_ok()) {
-            std::cerr << "IoUringFileReader: Failed to open file: " 
-                      << result.error().message << "\n";
+            //std::cerr << "IoUringFileReader: Failed to open file: " 
+            //          << result.error().message << "\n";
         }
     }
     
@@ -179,14 +148,20 @@ public:
     IoUringFileReader(IoUringFileReader&& other) noexcept
         : fd_(other.fd_)
         , size_(other.size_)
+        , blksize_(other.blksize_)
         , path_(std::move(other.path_))
+        , stored_config_(other.stored_config_)
         , ring_(std::move(other.ring_))
-        , next_user_data_(other.next_user_data_.load())
-        , pending_ops_(other.pending_ops_.load()) {
+        , next_user_data_(other.next_user_data_)
+        , pending_ops_(other.pending_ops_)
+        , real_cq_depth_(other.real_cq_depth_) {
         other.fd_ = -1;
         other.size_ = 0;
-        other.next_user_data_.store(1);
-        other.pending_ops_.store(0);
+        other.blksize_ = 4096;
+        other.stored_config_ = Config{};
+        other.next_user_data_ = 1;
+        other.pending_ops_ = 0;
+        other.real_cq_depth_ = 0;
     }
     
     IoUringFileReader& operator=(IoUringFileReader&& other) noexcept {
@@ -194,14 +169,20 @@ public:
             close();
             fd_ = other.fd_;
             size_ = other.size_;
+            blksize_ = other.blksize_;
             path_ = std::move(other.path_);
+            stored_config_ = other.stored_config_;
             ring_ = std::move(other.ring_);
-            next_user_data_.store(other.next_user_data_.load());
-            pending_ops_.store(other.pending_ops_.load());
+            next_user_data_ = other.next_user_data_;
+            pending_ops_ = other.pending_ops_;
+            real_cq_depth_ = other.real_cq_depth_;
             other.fd_ = -1;
             other.size_ = 0;
-            other.next_user_data_.store(1);
-            other.pending_ops_.store(0);
+            other.blksize_ = 4096;
+            other.stored_config_ = Config{};
+            other.next_user_data_ = 1;
+            other.pending_ops_ = 0;
+            other.real_cq_depth_ = 0;
         }
         return *this;
     }
@@ -210,20 +191,128 @@ public:
     [[nodiscard]] Result<void> open(std::string_view path) noexcept {
         return open(path, Config{});
     }
+
+    /// Allocate the async io_uring resources
+    [[nodiscard]] Result<void> initialize_io_uring(const Config& config) noexcept {
+        std::lock_guard lock(liburing_mutex_);
+
+        if (ring_) {
+            // Already initialized
+            return Ok();
+        }
+        
+        // Initialize io_uring
+        ring_ = std::unique_ptr<io_uring, IoUringDeleter>(new io_uring{});
+
+        io_uring_params params{};
+        params.cq_entries = std::max(config.sq_queue_depth, config.cq_queue_depth); // must be greater than config.sq_queue_depth
+        params.flags = 
+            IORING_SETUP_CQSIZE // use cq_entries to set CQ size
+            | IORING_SETUP_CLAMP // clamp to max supported sizes
+            | IORING_SETUP_SUBMIT_ALL // submit all queued ops on io_uring_submit, even on error
+            | IORING_SETUP_COOP_TASKRUN // improves performance since we don't use multiple threads
+            | IORING_SETUP_TASKRUN_FLAG // improves COOP_TASKRUN
+            | IORING_SETUP_NO_SQARRAY; // don't mmap SQ array (saves memory)
+        // may want to use IORING_SETUP_SINGLE_ISSUER and IORING_SETUP_DEFER_TASKRUN as well
+        params.sq_thread_cpu = 0;
+        params.sq_thread_idle = 0;
+        // entries filled by io_uring_queue_init_params
+        params.sq_entries = config.sq_queue_depth;
+        params.features = 0;
+        params.wq_fd = -1;
+        
+        int ret = io_uring_queue_init_params(config.sq_queue_depth, ring_.get(), &params);
+        if (ret == -ENOMEM) {
+            io_uring_queue_exit(ring_.get());
+            // When allocating/releasing very fast, the kernel seems to have a
+            // processing delay to free the previously used resources.
+            // Retry after a short delay.
+            std::this_thread::yield();
+            ret = io_uring_queue_init_params(config.sq_queue_depth, ring_.get(), &params);
+            if (ret == -ENOMEM) {
+                io_uring_queue_exit(ring_.get());
+                std::this_thread::sleep_for(std::chrono::milliseconds(5));
+                ret = io_uring_queue_init_params(config.sq_queue_depth, ring_.get(), &params);
+            }
+        }
+
+        // prints features for debugging
+        /*std::cerr << "IoUringFileReader: io_uring initialized with features:";
+        if (params.features & IORING_FEAT_SINGLE_MMAP) {
+            std::cerr << " SINGLE_MMAP";
+        }
+        if (params.features & IORING_FEAT_NODROP) {
+            std::cerr << " NODROP";
+        }
+        if (params.features & IORING_FEAT_SUBMIT_STABLE) {
+            std::cerr << " SUBMIT_STABLE";
+        }
+        if (params.features & IORING_FEAT_RW_CUR_POS) {
+            std::cerr << " RW_CUR_POS";
+        }
+        if (params.features & IORING_FEAT_CUR_PERSONALITY) {
+            std::cerr << " CUR_PERSONALITY";
+        }
+        if (params.features & IORING_FEAT_FAST_POLL) {
+            std::cerr << " FAST_POLL";
+        }
+        if (params.features & IORING_FEAT_POLL_32BITS) {
+            std::cerr << " POLL_32BITS";
+        }
+        if (params.features & IORING_FEAT_SQPOLL_NONFIXED) {
+            std::cerr << " SQPOLL_NONFIXED";
+        }
+        if (params.features & IORING_FEAT_EXT_ARG) {
+            std::cerr << " EXT_ARG";
+        }
+        if (params.features & IORING_FEAT_NATIVE_WORKERS) {
+            std::cerr << " NATIVE_WORKERS";
+        }
+        if (params.features & IORING_FEAT_RSRC_TAGS) {
+            std::cerr << " RSRC_TAGS";
+        }
+        if (params.features & IORING_FEAT_CQE_SKIP) {
+            std::cerr << " CQE_SKIP";
+        }
+        if (params.features & IORING_FEAT_LINKED_FILE) {
+            std::cerr << " LINKED_FILE";
+        }
+        if (params.features & IORING_FEAT_REG_REG_RING) {
+            std::cerr << " REG_REG_RING";
+        }
+        if (params.features & IORING_FEAT_MIN_TIMEOUT) {
+            std::cerr << " MIN_TIMEOUT";
+        }
+        if (params.features & IORING_FEAT_RECVSEND_BUNDLE) {
+            std::cerr << " RECVSEND_BUNDLE";
+        }
+        std::cerr << "\n";*/
+
+        if (ret < 0) [[unlikely]] {
+            int err = -ret;
+            ring_.reset();
+            std::cerr << "IoUringFileReader: Failed to initialize io_uring, error " << err << "\n";
+            std::cerr << "  liburing error: " << std::strerror(err) << "\n";
+            std::cerr << params.features << "\n";
+            return Err(Error::Code::ReadError, 
+                      "Failed to initialize io_uring: " + std::string(std::strerror(err)));
+        }
+        real_cq_depth_ = params.cq_entries;
+        return Ok();
+    }
     
     /// Open file and initialize io_uring
     [[nodiscard]] Result<void> open(std::string_view path, const Config& config) noexcept {
         close();
-        
-        path_ = path;
-        
-        // Open file (O_DIRECT required for IOPOLL)
-        int flags = O_RDONLY;
-        if (config.use_iopoll) {
-            flags |= O_DIRECT;
+        auto io_uring_init = initialize_io_uring(config);
+        if (io_uring_init.is_error()) {
+            return io_uring_init.error();
         }
         
-        fd_ = ::open(path_.c_str(), flags);
+        path_ = path;
+        stored_config_ = config;
+
+        fd_ = ::open(path_.c_str(), O_RDONLY);
         if (fd_ < 0) [[unlikely]] {
             return Err(Error::Code::FileNotFound, 
                       "Failed to open file: " + std::string(path) + 
@@ -240,77 +329,37 @@ public:
                       "Failed to get file size: " + std::string(std::strerror(err)));
         }
         size_ = static_cast<std::size_t>(st.st_size);
+        blksize_ = static_cast<std::size_t>(st.st_blksize);
+
         
-        // Initialize io_uring
-        ring_ = std::make_unique<io_uring>();
-        
-        io_uring_params params{};
-        if (config.use_sqpoll) {
-            params.flags |= IORING_SETUP_SQPOLL;
-            if (config.sq_thread_cpu >= 0) {
-                params.flags |= IORING_SETUP_SQ_AFF;
-                params.sq_thread_cpu = config.sq_thread_cpu;
-            }
-            params.sq_thread_idle = config.sq_thread_idle;
-        }
-        if (config.use_iopoll) {
-            params.flags |= IORING_SETUP_IOPOLL;
-        }
-        
-        // Try with requested queue depth, fall back to smaller sizes if it fails
-        uint32_t queue_depth = config.queue_depth;
-        int ret = -ENOMEM;
-        
-        while (queue_depth >= 16 && ret < 0) {
-            ret = io_uring_queue_init_params(queue_depth, ring_.get(), &params);
-            
-            if (ret == -ENOMEM && queue_depth > 16) {
-                // Resource limit hit - try with half the queue depth
-                queue_depth /= 2;
-                std::cerr << "IoUringFileReader: Queue depth " << (queue_depth * 2) 
-                         << " failed, retrying with " << queue_depth << "\n";
-            } else {
-                break;
-            }
-        }
-        
-        if (ret < 0) [[unlikely]] {
-            int err = -ret;
-            ::close(fd_);
-            fd_ = -1;
-            ring_.reset();
-            return Err(Error::Code::ReadError, 
-                      "Failed to initialize io_uring: " + std::string(std::strerror(err)) +
-                      " (tried queue_depth down to " + std::to_string(queue_depth) + "). " +
-                      "Try increasing RLIMIT_MEMLOCK with: ulimit -l unlimited");
-        }
+        //std::cerr << "IoUringFileReader: Initialized io_uring with queue depth " 
+        //          << queue_depth << " for file " << path_ << "\n";
         
         return Ok();
     }
     
     /// Close file and cleanup io_uring
     void close() noexcept {
-        if (ring_) {
-            // Cancel all pending operations
-            // Note: This is automatic when io_uring is destroyed, but we make it explicit
-            io_uring_queue_exit(ring_.get());
-            ring_.reset();
-        }
+        //std::cerr << "IoUringFileReader released resources for file " << path_ << "\n";
         
         if (fd_ >= 0) {
             ::close(fd_);
             fd_ = -1;
             size_ = 0;
         }
-        
-        pending_ops_.store(0, std::memory_order_release);
-        next_user_data_.store(1, std::memory_order_release);
+
+        pending_ops_ = 0;
+        next_user_data_ = 1;
     }
     
     // ========================================================================
     // RawReader Interface (Synchronous Operations)
     // ========================================================================
-    
+
+    [[nodiscard]] Result<std::size_t> hint_batch_size() const noexcept {
+        return blksize_;
+    }
+
     /// Synchronous read with allocation (fallback for compatibility)
     [[nodiscard]] Result<ReadViewType> read(std::size_t offset, std::size_t size) const noexcept {
         if (!is_valid()) [[unlikely]] {
@@ -386,6 +435,24 @@ public:
     // ========================================================================
     // AsyncRawReader Interface (Asynchronous Operations)
     // ========================================================================
+
+    /// Create independent clone for parallel access
+    [[nodiscard]] IoUringFileReader clone() const noexcept {
+        if (!is_valid()) [[unlikely]] {
+            return IoUringFileReader();
+        }
+        // Re-open same file with same config
+        // Note: Requires storing Config for later use
+        IoUringFileReader cloned(path_, stored_config_);
+        return cloned;
+    }
+
+    /// Get available async operation slots
+    [[nodiscard]] std::size_t available_async_ops() const noexcept {
+        std::lock_guard lock(liburing_mutex_);
+        //return io_uring_sq_space_left(ring_.get());
+        return pending_ops_ < real_cq_depth_ ? (real_cq_depth_ - pending_ops_) : 0;
+    }
     
     /// Submit async read into user-provided buffer
     /// 
@@ -396,7 +463,7 @@ public:
     /// @param offset File offset to read from
     /// @param size Number of bytes to read
     /// @return Handle for tracking this operation
-    [[nodiscard]] Result<AsyncOperationHandle> async_read_into(
+    [[nodiscard]] Result<uint64_t> async_read_into(
         std::span<std::byte> buffer, 
         std::size_t offset, 
         std::size_t size) const noexcept {
@@ -414,22 +481,20 @@ public:
             return Err(Error::Code::OutOfBounds, "Read offset beyond file size");
         }
         
-        std::size_t bytes_to_read = std::min(size, size_ - offset);
+        std::size_t bytes_to_read = size;
         
+
+        std::lock_guard lock(liburing_mutex_);
+
         // Allocate unique handle for this operation
-        uint64_t user_data = next_user_data_.fetch_add(1, std::memory_order_relaxed);
-        if (user_data == 0) [[unlikely]] {
-            // Wrapped around (extremely rare) - skip zero as it's often special
-            user_data = next_user_data_.fetch_add(1, std::memory_order_relaxed);
-        }
+        uint64_t user_data = next_user_data_++;
         
         // Get submission queue entry
-        std::lock_guard lock(ring_mutex_);
         
         io_uring_sqe* sqe = io_uring_get_sqe(ring_.get());
         if (!sqe) [[unlikely]] {
-            // Queue full - try submitting pending operations
-            int submitted = io_uring_submit(ring_.get());
+            // Queue full - try submitting pending operations and wait for a completion
+            int submitted = io_uring_submit_and_wait(ring_.get(), 1);
             if (submitted < 0) {
                 return Err(Error::Code::ReadError, 
                           "io_uring submission failed: " + std::string(std::strerror(-submitted)));
@@ -447,31 +512,22 @@ public:
         io_uring_sqe_set_data(sqe, reinterpret_cast<void*>(user_data));
         
         // Track pending operation
-        pending_ops_.fetch_add(1, std::memory_order_release);
+        ++pending_ops_;
         
-        // Store operation context for completion
-        {
-            std::lock_guard ctx_lock(context_mutex_);
-            operation_contexts_[user_data] = OperationContext{
-                buffer.data(),
-                bytes_to_read
-            };
-        }
-        
-        return Ok(AsyncOperationHandle{user_data});
+        return Ok(uint64_t{user_data});
     }
     
     /// Poll for completed operations (non-blocking)
-    [[nodiscard]] std::vector<std::pair<AsyncOperationHandle, AsyncReadResult>> 
+    [[nodiscard]] std::vector<std::pair<uint64_t, Result<std::size_t>>>
     poll_completions(std::size_t max_completions = 0) const noexcept {
         
         if (!is_valid()) [[unlikely]] {
             return {};
         }
         
-        std::vector<std::pair<AsyncOperationHandle, AsyncReadResult>> results;
+        std::vector<std::pair<uint64_t, Result<std::size_t>>> results;
         
-        std::lock_guard lock(ring_mutex_);
+        std::lock_guard lock(liburing_mutex_);
         
         io_uring_cqe* cqe;
         unsigned head;
@@ -496,28 +552,16 @@ public:
     }
     
     /// Wait for at least one completion (blocking)
-    [[nodiscard]] std::vector<std::pair<AsyncOperationHandle, AsyncReadResult>> 
+    [[nodiscard]] std::vector<std::pair<uint64_t, Result<std::size_t>>> 
     wait_completions(std::size_t max_completions = 0) const noexcept {
         
         if (!is_valid()) [[unlikely]] {
             return {};
         }
+
+        std::vector<std::pair<uint64_t, Result<std::size_t>>> results;
         
-        // Quick check: are completions already available?
-        {
-            std::lock_guard lock(ring_mutex_);
-            io_uring_cqe* cqe = nullptr;
-            int ret = io_uring_peek_cqe(ring_.get(), &cqe);
-            if (ret == 0 && cqe != nullptr) {
-                // Completions available, use poll_completions
-                return poll_completions(max_completions);
-            }
-        }
-        
-        // No completions available - wait for at least one
-        std::vector<std::pair<AsyncOperationHandle, AsyncReadResult>> results;
-        
-        std::lock_guard lock(ring_mutex_);
+        std::lock_guard lock(liburing_mutex_);
         
         io_uring_cqe* cqe = nullptr;
         int ret = io_uring_wait_cqe(ring_.get(), &cqe);
@@ -551,7 +595,7 @@ public:
     }
     
     /// Wait for completions with timeout
-    [[nodiscard]] std::vector<std::pair<AsyncOperationHandle, AsyncReadResult>> 
+    [[nodiscard]] std::vector<std::pair<uint64_t, Result<std::size_t>>> 
     wait_completions_for(std::chrono::milliseconds timeout, 
                         std::size_t max_completions = 0) const noexcept {
         
@@ -559,9 +603,9 @@ public:
             return {};
         }
         
-        std::vector<std::pair<AsyncOperationHandle, AsyncReadResult>> results;
+        std::vector<std::pair<uint64_t, Result<std::size_t>>> results;
         
-        std::lock_guard lock(ring_mutex_);
+        std::lock_guard lock(liburing_mutex_);
         
         // Setup timeout
         __kernel_timespec ts{};
@@ -606,19 +650,20 @@ public:
     
     /// Get number of pending operations
     [[nodiscard]] std::size_t pending_operations() const noexcept {
-        return pending_ops_.load(std::memory_order_acquire);
+        std::lock_guard lock(liburing_mutex_);
+        return pending_ops_;
     }
     
     /// Force submission of queued operations to kernel
     /// 
     /// io_uring batches submissions internally. This forces a flush.
     /// Call after submitting a batch of operations for optimal performance.
-    [[nodiscard]] Result<std::size_t> submit_pending() const noexcept {
+    [[nodiscard]] Result<void> flush_async_operations() const noexcept {
         if (!is_valid()) [[unlikely]] {
             return Err(Error::Code::ReadError, "File not open");
         }
         
-        std::lock_guard lock(ring_mutex_);
+        std::lock_guard lock(liburing_mutex_);
         
         int submitted = io_uring_submit(ring_.get());
         if (submitted < 0) [[unlikely]] {
@@ -626,76 +671,32 @@ public:
                       "io_uring_submit failed: " + std::string(std::strerror(-submitted)));
         }
         
-        return Ok(static_cast<std::size_t>(submitted));
+        return Ok();
     }
 
 private:
-    /// Context for a pending operation
-    struct OperationContext {
-        void* buffer;       ///< User-provided buffer
-        std::size_t size;   ///< Expected read size
-    };
     
     /// Process a single completion queue entry
-    [[nodiscard]] std::pair<AsyncOperationHandle, AsyncReadResult> 
+    /// Assumes liburing_mutex_ is held
+    [[nodiscard]] std::pair<uint64_t, Result<std::size_t>>
     process_completion(io_uring_cqe* cqe) const noexcept {
         
         uint64_t user_data = reinterpret_cast<uint64_t>(io_uring_cqe_get_data(cqe));
         int result = cqe->res;
         
         // Decrement pending counter
-        pending_ops_.fetch_sub(1, std::memory_order_release);
-        
-        // Retrieve operation context
-        OperationContext ctx{};
-        {
-            std::lock_guard lock(context_mutex_);
-            auto it = operation_contexts_.find(user_data);
-            if (it != operation_contexts_.end()) {
-                ctx = it->second;
-                operation_contexts_.erase(it);
-            }
-        }
+        --pending_ops_;
         
         // Check for errors
         if (result < 0) [[unlikely]] {
-            return {AsyncOperationHandle{user_data}, Err(Error::Code::ReadError, 
+            return {uint64_t{user_data}, Err(Error::Code::ReadError, 
                    "io_uring read failed: " + std::string(std::strerror(-result)))};
         }
         
-        // Check for short read
-        if (static_cast<std::size_t>(result) < ctx.size) [[unlikely]] {
-            return {AsyncOperationHandle{user_data}, Err(Error::Code::UnexpectedEndOfFile, 
-                   "io_uring read returned fewer bytes than requested")};
-        }
-        
-        // Success - wrap buffer in ReadView
-        // Note: We don't own the buffer, so we can't use shared_ptr here
-        // The caller must ensure buffer remains valid
-        std::span<const std::byte> data_span(
-            static_cast<const std::byte*>(ctx.buffer), 
-            static_cast<std::size_t>(result)
-        );
-        
         // Return view without ownership (buffer owned by caller)
-        return {AsyncOperationHandle{user_data}, Ok(ReadViewType(data_span, nullptr))};
+        return {uint64_t{user_data}, Ok(static_cast<std::size_t>(result)) };
     }
     
-    int fd_{-1};
-    std::size_t size_{0};
-    std::string path_;
-    
-    // io_uring state (mutable for const methods)
-    mutable std::unique_ptr<io_uring> ring_;
-    mutable std::mutex ring_mutex_;  // Protects ring access
-    
-    // Operation tracking
-    mutable std::atomic<uint64_t> next_user_data_{1};
-    mutable std::atomic<std::size_t> pending_ops_{0};
-    
-    // Operation context storage
-    mutable std::mutex context_mutex_;
-    mutable std::unordered_map<uint64_t, OperationContext> operation_contexts_;
 };
 
 static_assert(RawReader<IoUringFileReader>, 

@@ -26,11 +26,12 @@
 // Platform-specific file readers
 #if defined(__linux__) || defined(__unix__) || defined(__APPLE__)
     #include "../tiffconcept/include/tiffconcept/readers/reader_unix_pread.hpp"
-    //using FileReader = tiffconcept::PreadFileReader;
     #ifdef HAVE_LIBURING
-    #include "../tiffconcept/include/tiffconcept/readers/reader_unix_io_uring.hpp"
-    using AsyncFileReader = tiffconcept::IoUringFileReader;
-    using FileReader = tiffconcept::PreadFileReader;
+        #include "../tiffconcept/include/tiffconcept/readers/reader_unix_io_uring.hpp"
+        using AsyncFileReader = tiffconcept::IoUringFileReader;
+        using FileReader = tiffconcept::PreadFileReader;
+    #else
+        using FileReader = tiffconcept::PreadFileReader;
     #endif
 #elif defined(_WIN32) || defined(_WIN64)
     #include "../tiffconcept/include/tiffconcept/readers/reader_windows.hpp"
@@ -271,7 +272,6 @@ size_t read_with_libtiff(const std::string& path, std::optional<uint32_t> tile_s
 
 enum class ReaderType {
     Simple,
-    IOLimited,
     CPULimited,
     Fast,
     Libtiff
@@ -367,11 +367,6 @@ size_t dispatch_and_read(
     switch (reader_type) {
         case ReaderType::Simple: {
             static SimpleReader<PixelType, BenchDecompSpec> reader{};
-            read_result = reader.template read_region<ImageLayoutSpec::DHWC>(file_reader, tags, region, buffer);
-            break;
-        }
-        case ReaderType::IOLimited: {
-            static IOLimitedReader<PixelType, BenchDecompSpec> reader{};
             read_result = reader.template read_region<ImageLayoutSpec::DHWC>(file_reader, tags, region, buffer);
             break;
         }
@@ -480,9 +475,6 @@ int main(int argc, char** argv) {
     if (reader_str == "simple") {
         reader_type = ReaderType::Simple;
         reader_name = "SimpleReader";
-    } else if (reader_str == "io") {
-        reader_type = ReaderType::IOLimited;
-        reader_name = "IOLimitedReader";
     } else if (reader_str == "cpu") {
         reader_type = ReaderType::CPULimited;
         reader_name = "CPULimitedReader";

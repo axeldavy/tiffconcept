@@ -129,7 +129,11 @@ public:
     explicit BufferViewBase(std::span<T> data) noexcept 
         requires (AccessPolicy::can_write)
         : buffer_(std::as_writable_bytes(data)) {}
-    
+
+    [[nodiscard]] Result<std::size_t> hint_batch_size() const noexcept {
+        return 4096;  // Arbitrary default batch size (4k is a common page size)
+    }
+
     /// Zero-copy read (only available if can_read is true)
     [[nodiscard]] Result<ReadViewType> read(std::size_t offset, std::size_t size) const noexcept 
         requires (AccessPolicy::can_read) {
@@ -289,6 +293,10 @@ public:
     template <typename T>
     explicit BufferBase(std::span<const T> data) 
         : buffer_(std::as_bytes(data).begin(), std::as_bytes(data).end()) {}
+
+    [[nodiscard]] Result<std::size_t> hint_batch_size() const noexcept {
+        return 4096;  // Arbitrary default batch size (4k is a common page size)
+    }
     
     /// Zero-copy read (only available if can_read is true)
     [[nodiscard]] Result<ReadViewType> read(std::size_t offset, std::size_t size) const noexcept 
