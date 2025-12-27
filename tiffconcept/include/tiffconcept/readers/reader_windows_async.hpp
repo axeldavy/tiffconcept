@@ -509,14 +509,16 @@ public:
     }
     
     /// Poll for completed operations (non-blocking)
-    [[nodiscard]] std::vector<std::pair<uint64_t, Result<std::size_t>>> 
-    poll_completions(std::size_t max_completions = 0) const noexcept {
+    /// @param completions Output vector for completions (appended, not cleared)
+    /// @param max_completions Maximum completions to retrieve (0 = all available)
+    /// @return Number of completions added to the vector
+    size_t poll_completions(
+        std::vector<std::pair<uint64_t, Result<std::size_t>>>& completions,
+        std::size_t max_completions = 0) const noexcept {
         
         if (!is_valid()) [[unlikely]] {
-            return {};
+            return 0;
         }
-        
-        std::vector<std::pair<uint64_t, Result<std::size_t>>> results;
         
         // Poll with zero timeout
         std::size_t count = 0;
@@ -538,22 +540,24 @@ public:
                 break;
             }
             
-            results.push_back(process_completion(overlapped, result, bytes_transferred));
+            completions.push_back(process_completion(overlapped, result, bytes_transferred));
             count++;
         }
         
-        return results;
+        return count;
     }
     
     /// Wait for at least one completion (blocking)
-    [[nodiscard]] std::vector<std::pair<uint64_t, Result<std::size_t>>> 
-    wait_completions(std::size_t max_completions = 0) const noexcept {
+    /// @param completions Output vector for completions (appended, not cleared)
+    /// @param max_completions Maximum completions to retrieve (0 = all available)
+    /// @return Number of completions added to the vector
+    size_t wait_completions(
+        std::vector<std::pair<uint64_t, Result<std::size_t>>>& completions,
+        std::size_t max_completions = 0) const noexcept {
         
         if (!is_valid()) [[unlikely]] {
-            return {};
+            return 0;
         }
-        
-        std::vector<std::pair<uint64_t, Result<std::size_t>>> results;
         
         // Wait for first completion (blocking)
         DWORD bytes_transferred = 0;
@@ -568,11 +572,12 @@ public:
             INFINITE
         );
         
+        std::size_t count = 0;
         if (overlapped != nullptr) {
-            results.push_back(process_completion(overlapped, result, bytes_transferred));
+            completions.push_back(process_completion(overlapped, result, bytes_transferred));
+            ++count;
             
             // Also poll for any other completions that arrived
-            std::size_t count = 1;
             while (max_completions == 0 || count < max_completions) {
                 result = GetQueuedCompletionStatus(
                     iocp_handle_,
@@ -586,24 +591,27 @@ public:
                     break;
                 }
                 
-                results.push_back(process_completion(overlapped, result, bytes_transferred));
+                completions.push_back(process_completion(overlapped, result, bytes_transferred));
                 count++;
             }
         }
         
-        return results;
+        return count;
     }
     
     /// Wait for completions with timeout
-    [[nodiscard]] std::vector<std::pair<uint64_t, Result<std::size_t>>> 
-    wait_completions_for(std::chrono::milliseconds timeout, 
-                        std::size_t max_completions = 0) const noexcept {
+    /// @param completions Output vector for completions (appended, not cleared)
+    /// @param timeout Maximum time to wait
+    /// @param max_completions Maximum completions to retrieve (0 = all available)
+    /// @return Number of completions added to the vector
+    size_t wait_completions_for(
+        std::vector<std::pair<uint64_t, Result<std::size_t>>>& completions,
+        std::chrono::milliseconds timeout, 
+        std::size_t max_completions = 0) const noexcept {
         
         if (!is_valid()) [[unlikely]] {
-            return {};
+            return 0;
         }
-        
-        std::vector<std::pair<uint64_t, Result<std::size_t>>> results;
         
         DWORD timeout_ms = static_cast<DWORD>(timeout.count());
         
@@ -619,11 +627,12 @@ public:
             timeout_ms
         );
         
+        std::size_t count = 0;
         if (overlapped != nullptr) {
-            results.push_back(process_completion(overlapped, result, bytes_transferred));
+            completions.push_back(process_completion(overlapped, result, bytes_transferred));
+            ++count;
             
             // Poll for any other completions
-            std::size_t count = 1;
             while (max_completions == 0 || count < max_completions) {
                 result = GetQueuedCompletionStatus(
                     iocp_handle_,
@@ -637,12 +646,12 @@ public:
                     break;
                 }
                 
-                results.push_back(process_completion(overlapped, result, bytes_transferred));
+                completions.push_back(process_completion(overlapped, result, bytes_transferred));
                 count++;
             }
         }
         
-        return results;
+        return count;
     }
     
     /// Get number of pending operations

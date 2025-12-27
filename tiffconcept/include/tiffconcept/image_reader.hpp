@@ -13,6 +13,7 @@
 #include "detail/queue.hpp"
 #include "decompressors/decompressor_base.hpp"
 #include "lowlevel/decoder.hpp"
+#include "lowlevel/memory.hpp"
 #include "lowlevel/tiling.hpp"
 #include "image_shape.hpp"
 #include "reader_base.hpp"
@@ -22,6 +23,7 @@ namespace tiffconcept {
 
 /// @brief Collect tiles that overlap an ImageRegion from ExtractedTags
 /// @tparam TagSpec Tag specification type (must contain minimum required tags for image extraction)
+/// @param shape ImageShape containing image dimensions and layout
 /// @param region The region to query tiles for
 /// @param metadata Extracted TIFF tags containing image and tile/strip information
 /// @param tiles Output vector to fill with tile information (in sorted file offset order)
@@ -40,6 +42,7 @@ namespace tiffconcept {
 template <typename TagSpec>
 requires (TiledImageTagSpec<TagSpec> || StrippedImageTagSpec<TagSpec>)
 [[nodiscard]] Result<void> collect_tiles_for_region(
+    const ImageShape& shape,
     const ImageRegion& region,
     const ExtractedTags<TagSpec>& metadata,
     std::vector<Tile>& tiles) noexcept;
@@ -64,22 +67,6 @@ requires (TiledImageTagSpec<TagSpec> || StrippedImageTagSpec<TagSpec>)
 /// @note Calculates overlap between tile and region
 /// @note Performs layout conversion from tile format to output format
 /// @note Thread-safe: no shared state, can be called concurrently
-/// 
-/// Example usage:
-/// @code
-/// // Decode tile separately
-/// ChunkDecoder<uint8_t, DecompSpec> decoder; // one per thread
-/// auto decoded_result = decoder.decode(compressed_data, tile.id.size.width, 
-///                                       tile.id.size.height * tile.id.size.depth,
-///                                       compression, predictor, tile.id.size.nsamples);
-/// 
-/// if (decoded_result) {
-///     // Extract to output buffer
-///     auto extract_result = extract_tile_to_buffer<ImageLayoutSpec::DHWC, uint8_t>(
-///         tile, region, metadata, decoded_result.value(), output_buffer
-///     );
-/// }
-/// @endcode
 template <ImageLayoutSpec OutSpec, typename PixelType, typename TagSpec>
 requires (std::is_same_v<PixelType, uint8_t> || 
           std::is_same_v<PixelType, uint16_t> ||
@@ -94,6 +81,7 @@ requires (std::is_same_v<PixelType, uint8_t> ||
          (TiledImageTagSpec<TagSpec> || StrippedImageTagSpec<TagSpec>)
 [[nodiscard]] inline Result<void> extract_tile_to_buffer(
     const Tile& tile,
+    const ImageShape& shape,
     const ImageRegion& region,
     const ExtractedTags<TagSpec>& metadata,
     std::span<const PixelType> decoded_tile,
@@ -127,9 +115,16 @@ public:
         const ImageRegion& region,
         std::span<PixelType> output_buffer) noexcept {
 
+        // Extract image shape
+        ImageShape shape;
+        auto shape_result = shape.update_from_metadata(metadata);
+        if (!shape_result) {
+            return shape_result;
+        }
+
         // 1. Identify which tiles are needed
         tiles_.clear();
-        auto collect_res = collect_tiles_for_region(region, metadata, tiles_);
+        auto collect_res = collect_tiles_for_region(shape, region, metadata, tiles_);
         if (!collect_res) return collect_res;
 
         // 2. Get compression and predictor from tags
@@ -144,17 +139,24 @@ public:
             );
         }
 
+        memory::AlignedBuffer<std::byte> compressed_buffer;
+
         // 3. Process each tile sequentially
         for (const auto& tile : tiles_) {
+            // Reuse storage for the compressed data
+            std::size_t tile_compressed_size = static_cast<std::size_t>(tile.location.length);
+            if (compressed_buffer.size() < tile_compressed_size) {
+                compressed_buffer.resize(tile_compressed_size);
+            }
+
             // Read compressed data
-            auto read_res = reader.read(tile.location.offset, tile.location.length);
+            auto read_res = reader.read_into(compressed_buffer.data(), tile.location.offset, tile.location.length);
             if (!read_res) return read_res.error();
-            auto compressed_view = std::move(read_res.value());
 
             // Decode
             // Note: TileDecoder handles decompression and predictor steps
             auto decode_res = decoder_.decode(
-                compressed_view.data(),
+                std::span<const std::byte>(compressed_buffer.data(), tile_compressed_size),
                 tile.id.size.width,
                 tile.id.size.height * tile.id.size.depth, // Treat depth as height extension for decoding
                 compression,
@@ -165,7 +167,7 @@ public:
 
             // Extract to output buffer
             auto extract_res = extract_tile_to_buffer<OutSpec, PixelType>(
-                tile, region, metadata, decode_res.value(), output_buffer
+                tile, shape, region, metadata, decode_res.value(), output_buffer
             );
             if (!extract_res) return extract_res.error();
         }
@@ -264,6 +266,7 @@ private:
     static void process_tile_task(
         const Reader& reader,
         const ExtractedTags<TagSpec>& metadata,
+        const ImageShape& shape,
         const ImageRegion& region,
         std::span<PixelType> output_buffer,
         const std::vector<Tile>& tiles,
@@ -336,6 +339,11 @@ public:
         size_t worker_threads = 0;           ///< Processing threads, including thread calling read_region (0 = auto, typically number of cores)
         size_t max_batch_size = 0;           ///< Max bytes per batch (0 = auto)
         size_t max_gap_size = 64 * 1024;     ///< Max gap to bridge between tiles. Clamped to max_batch_size // 2
+        ///< Max total bytes in flight (async reads not yet completed)
+        /// Should be lower than half CPU L3 cache size for fast storage,
+        /// but higher values may help for high-latency storage.
+        /// The threshold is used independently by each read_region call.
+        size_t max_bytes_in_flight = 2 * 1024 * 1024; // default 2MB
     };
 
     explicit FastReader(Config config = {});
@@ -367,33 +375,14 @@ public:
         std::span<PixelType> output_buffer) noexcept;
 
 private:
-    /// @brief Batch of adjacent tiles for efficient I/O
-    struct Batch {
-        size_t first_tile_index;  ///< Index of first tile in batch
-        size_t tile_count;        ///< Number of tiles in batch
-        size_t file_offset;       ///< Starting file offset
-        size_t total_size;        ///< Total bytes to read (including gaps)
-    };
 
-    /// @brief Tile processing job (for job stealing)
-    struct TileJob {
-        std::function<void()> process;  ///< Processing function (decode + extract)
-        
-        TileJob() = default;
-        TileJob(std::function<void()> fn) : process(std::move(fn)) {}
-        
-        operator bool() const { return process != nullptr; }
-    };
-
-    using JobQueue = detail::LockFreeJobQueue<TileJob>;
-
-    /// @brief Active read_region job that workers can steal from
-    struct ActiveJob {
-        std::shared_ptr<JobQueue> job_queue;
-        std::atomic<bool> active{true};
-        std::condition_variable job_available_cv;  // Wake workers when jobs added
-        std::mutex job_cv_mutex;                   // Protects CV wait
-    };
+    struct ActiveJob;
+    struct ActiveJobGuard;
+    struct Batch;
+    struct BatchBuffer;
+    template <typename Reader> struct BatchSubmissionGuard;
+    struct JobState;
+    struct TileJob;
 
     Config config_;
     
@@ -405,40 +394,30 @@ private:
 
     // Active jobs registry (for job stealing)
     std::shared_mutex active_jobs_mutex_;
-    std::vector<std::shared_ptr<ActiveJob>> active_jobs_;
+    std::vector<ActiveJob*> active_jobs_;
 
+    /// @brief Fast path when there are no worker threads
+    template <ImageLayoutSpec OutSpec, typename Reader, typename TagSpec>
+    requires AsyncRawReader<Reader> && (TiledImageTagSpec<TagSpec> || StrippedImageTagSpec<TagSpec>)
+    [[nodiscard]] Result<void> read_region_single_thread(
+        const Reader& reader,
+        const ExtractedTags<TagSpec>& metadata,
+        const ImageRegion& region,
+        std::span<PixelType> output_buffer) noexcept;
 
     /// @brief Register a job for worker threads to steal from
-    void register_active_job(std::shared_ptr<ActiveJob> job);
+    void register_active_job(ActiveJob* job);
     
     /// @brief Unregister a job when read_region completes
-    void unregister_active_job(std::shared_ptr<ActiveJob> job);
+    void unregister_active_job(ActiveJob* job);
     
     /// @brief Try to steal a tile from any active job
-    bool try_steal_tile(TileJob& out_job);
+    [[nodiscard]] bool try_steal_tile(std::shared_lock<std::shared_mutex>& job_lock, TileJob& out_job);
 
     void worker_loop();
 
-    /// @brief Per-job state shared between all processing threads
-    ///
-    /// Synchronization:
-    /// - Atomic counters for lock-free fast path
-    /// - Mutex only for error tracking
-    /// - Main thread + workers all access this concurrently
-    struct JobState {
-        // Tracking
-        std::atomic<size_t> tiles_completed{0};   ///< Tiles processed so far
-        std::atomic<size_t> tiles_total{0};       ///< Total tiles to process
-        std::atomic<bool> error_occurred{false};  ///< Fast-path error check
-        
-        // Error handling (protected by mutex)
-        std::mutex error_mutex;
-        Result<void> first_error = Ok();
-        
-        // Synchronization for main thread
-        std::mutex completion_mutex;
-        std::condition_variable completion_cv;
-    };
+    /// @brief Get thread-local JobState instance
+    static JobState& get_job_state() noexcept;
 
     /// @brief Create batches from tiles (static helper)
     static void create_batches(
@@ -461,12 +440,9 @@ private:
     /// @return Ok on success, error on failure
     template <typename Reader>
     requires AsyncRawReader<Reader>
-    static Result<void> submit_batches(
+    [[nodiscard]] static Result<void> submit_batches(
         const Reader& reader,
-        const std::vector<Batch>& batches,
-        std::size_t& next_batch_idx,
-        std::vector<uint64_t>& submission_handles,
-        std::vector<std::shared_ptr<std::byte[]>>& storage_buffer) noexcept;
+        JobState& job_state) noexcept;
 
     
     /// @brief Get thread-local decoder instance
@@ -480,18 +456,56 @@ private:
     /// @param tile Tile to process
     /// @param compressed_data Compressed tile data
     /// @param metadata TIFF metadata
+    /// @param shape Image shape
     /// @param region Image region
     /// @param output_buffer Output buffer
     ///
     /// @return Ok on success, error otherwise
     template <ImageLayoutSpec OutSpec, typename TagSpec>
     requires (TiledImageTagSpec<TagSpec> || StrippedImageTagSpec<TagSpec>)
-    static Result<void> process_tile(
+    [[nodiscard]] static Result<void> process_tile(
         const Tile& tile,
         const ExtractedTags<TagSpec>& metadata,
+        const ImageShape& shape,
         const ImageRegion& region,
         std::span<PixelType> output_buffer,
         std::span<const std::byte> compressed_data) noexcept;
+
+
+    /// @brief Process a tile job (wrapper for process_tile)
+    template <ImageLayoutSpec OutSpec, typename TagSpec>
+    requires (TiledImageTagSpec<TagSpec> || StrippedImageTagSpec<TagSpec>)
+    static void process_tile_job(
+        JobState& job_state,
+        const ExtractedTags<TagSpec>& metadata,
+        const ImageShape& shape,
+        const ImageRegion& region,
+        std::span<PixelType> output_buffer,
+        const std::size_t batch_idx,
+        const std::size_t tile_idx) noexcept;
+
+    /// @brief Trampoline to call process_tile_job with void pointers
+    template <ImageLayoutSpec OutSpec, typename TagSpec>
+    requires (TiledImageTagSpec<TagSpec> || StrippedImageTagSpec<TagSpec>)
+    static void process_tile_job_trampoline(
+        JobState& job_state,
+        const void* metadata_ptr,
+        const void* shape_ptr,
+        const void* region_ptr,
+        std::span<PixelType> output_buffer,
+        size_t batch_idx,
+        size_t tile_idx) noexcept;
+
+    /// @brief Submit a tile jobs from a batch
+    template <ImageLayoutSpec OutSpec, typename TagSpec>
+    requires (TiledImageTagSpec<TagSpec> || StrippedImageTagSpec<TagSpec>)
+    static void submit_batch_tile_job(
+        JobState& job_state,
+        const ExtractedTags<TagSpec>& metadata,
+        const ImageShape& shape,
+        const ImageRegion& region,
+        std::span<PixelType> output_buffer,
+        const std::size_t batch_idx) noexcept;
 };
 
 } // namespace tiffconcept

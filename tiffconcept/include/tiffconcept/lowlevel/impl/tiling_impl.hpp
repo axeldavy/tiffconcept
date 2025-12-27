@@ -8,6 +8,7 @@
 #include <span>
 #include <vector>
 #include "../../image_shape.hpp"
+#include "../../lowlevel/memcpy.hpp"
 #include "../../types/result.hpp"
 #include "../../types/tiff_spec.hpp"
 
@@ -58,6 +59,7 @@ inline void copy_tile_to_tile(
         if (copy_dims.nsamples == src_dims.nsamples && copy_dims.nsamples == dst_dims.nsamples) {
             if (copy_dims.width == src_dims.width && copy_dims.width == dst_dims.width) {
                 // hWC copy
+#if 0
                 for (std::size_t d = 0; d < copy_dims.depth; ++d) {
                     std::memcpy(
                         &dst_tile_data[dst_start_index + d * dst_hwc_slice_size],
@@ -65,6 +67,16 @@ inline void copy_tile_to_tile(
                         copy_dims.height * copy_dims.width * copy_dims.nsamples * sizeof(PixelType)
                     );
                 }
+#else
+                memcpy::repeat_memcpy(
+                    &dst_tile_data[dst_start_index],
+                    &src_tile_data[src_start_index],
+                    copy_dims.height * copy_dims.width * copy_dims.nsamples * sizeof(PixelType),
+                    dst_hwc_slice_size * sizeof(PixelType),  // dst stride
+                    src_hwc_slice_size * sizeof(PixelType),  // src stride
+                    copy_dims.depth                           // repeat count
+                );
+#endif
                 return;
             }
         }
@@ -72,6 +84,7 @@ inline void copy_tile_to_tile(
         // WC contiguous copy
         if (copy_dims.nsamples == src_dims.nsamples && copy_dims.nsamples == dst_dims.nsamples) {
             // wC  copy
+#if 0
             for (std::size_t d = 0; d < copy_dims.depth; ++d) {
                 for (std::size_t h = 0; h < copy_dims.height; ++h) {
                     std::memcpy(
@@ -81,6 +94,18 @@ inline void copy_tile_to_tile(
                     );
                 }
             }
+#else
+            for (std::size_t d = 0; d < copy_dims.depth; ++d) {
+                memcpy::repeat_memcpy(
+                    &dst_tile_data[dst_start_index + d * dst_hwc_slice_size],
+                    &src_tile_data[src_start_index + d * src_hwc_slice_size],
+                    copy_dims.width * copy_dims.nsamples * sizeof(PixelType),
+                    dst_wc_slice_size * sizeof(PixelType),
+                    src_wc_slice_size * sizeof(PixelType),
+                    copy_dims.height
+                );
+            }
+#endif
             return;
         }
 
@@ -126,6 +151,7 @@ inline void copy_tile_to_tile(
         if (copy_dims.height == src_dims.height && copy_dims.height == dst_dims.height) {
             if (copy_dims.width == src_dims.width && copy_dims.width == dst_dims.width) {
                 // dHW copy
+#if 0
                 for (std::size_t c = 0; c < copy_dims.nsamples; ++c) {
                     std::memcpy(
                         &dst_tile_data[dst_start_index + c * dst_dhw_slice_size],
@@ -133,6 +159,16 @@ inline void copy_tile_to_tile(
                         copy_dims.depth * copy_dims.height * copy_dims.width * sizeof(PixelType)
                     );
                 }
+#else
+                memcpy::repeat_memcpy(
+                    &dst_tile_data[dst_start_index],
+                    &src_tile_data[src_start_index],
+                    copy_dims.depth * copy_dims.height * copy_dims.width * sizeof(PixelType),
+                    dst_dhw_slice_size * sizeof(PixelType),
+                    src_dhw_slice_size * sizeof(PixelType),
+                    copy_dims.nsamples
+                );
+#endif
                 return;
             }
         }
@@ -141,6 +177,7 @@ inline void copy_tile_to_tile(
         if (copy_dims.width == src_dims.width && copy_dims.width == dst_dims.width) {
             // hW copy
             for (std::size_t c = 0; c < copy_dims.nsamples; ++c) {
+#if 0
                 for (std::size_t d = 0; d < copy_dims.depth; ++d) {
                     std::memcpy(
                         &dst_tile_data[dst_start_index + c * dst_dhw_slice_size + d * dst_hw_slice_size],
@@ -148,6 +185,16 @@ inline void copy_tile_to_tile(
                         copy_dims.height * copy_dims.width * sizeof(PixelType)
                     );
                 }
+#else
+                memcpy::repeat_memcpy(
+                    &dst_tile_data[dst_start_index + c * dst_dhw_slice_size],
+                    &src_tile_data[src_start_index + c * src_dhw_slice_size],
+                    copy_dims.height * copy_dims.width * sizeof(PixelType),
+                    dst_hw_slice_size * sizeof(PixelType),
+                    src_hw_slice_size * sizeof(PixelType),
+                    copy_dims.depth
+                );
+#endif
             }
             return;
         }
@@ -193,6 +240,7 @@ inline void copy_tile_to_tile(
         if (copy_dims.height == src_dims.height && copy_dims.height == dst_dims.height) {
             if (copy_dims.width == src_dims.width && copy_dims.width == dst_dims.width) {
                 // cHW copy
+#if 0
                 for (std::size_t d = 0; d < copy_dims.depth; ++d) {
                     std::memcpy(
                         &dst_tile_data[dst_start_index + d * dst_chw_slice_size],
@@ -200,6 +248,16 @@ inline void copy_tile_to_tile(
                         copy_dims.nsamples * copy_dims.height * copy_dims.width * sizeof(PixelType)
                     );
                 }
+#else
+                memcpy::repeat_memcpy(
+                    &dst_tile_data[dst_start_index],
+                    &src_tile_data[src_start_index],
+                    copy_dims.nsamples * copy_dims.height * copy_dims.width * sizeof(PixelType),
+                    dst_chw_slice_size * sizeof(PixelType),
+                    src_chw_slice_size * sizeof(PixelType),
+                    copy_dims.depth
+                );
+#endif
                 return;
             }
         }
@@ -208,6 +266,7 @@ inline void copy_tile_to_tile(
         if (copy_dims.width == src_dims.width && copy_dims.width == dst_dims.width) {
             // hW copy
             for (std::size_t d = 0; d < copy_dims.depth; ++d) {
+#if 0
                 for (std::size_t c = 0; c < copy_dims.nsamples; ++c) {
                     std::memcpy(
                         &dst_tile_data[dst_start_index + d * dst_chw_slice_size + c * dst_hw_slice_size],
@@ -215,6 +274,16 @@ inline void copy_tile_to_tile(
                         copy_dims.height * copy_dims.width * sizeof(PixelType)
                     );
                 }
+#else
+                memcpy::repeat_memcpy(
+                    &dst_tile_data[dst_start_index + d * dst_chw_slice_size],
+                    &src_tile_data[src_start_index + d * src_chw_slice_size],
+                    copy_dims.height * copy_dims.width * sizeof(PixelType),
+                    dst_hw_slice_size * sizeof(PixelType),
+                    src_hw_slice_size * sizeof(PixelType),
+                    copy_dims.nsamples
+                );
+#endif
             }
             return;
         }
@@ -357,6 +426,7 @@ inline void copy_tile_to_tile(
         if (copy_dims.width == src_dims.width && copy_dims.width == dst_dims.width) {
             // hW copy
             for (std::size_t c = 0; c < copy_dims.nsamples; ++c) {
+#if 0
                 for (std::size_t d = 0; d < copy_dims.depth; ++d) {
                     std::memcpy(
                         &dst_tile_data[dst_start_index + d * dst_chw_slice_size + c * dst_hw_slice_size],
@@ -364,6 +434,16 @@ inline void copy_tile_to_tile(
                         copy_dims.height * copy_dims.width * sizeof(PixelType)
                     );
                 }
+#else
+                memcpy::repeat_memcpy(
+                    &dst_tile_data[dst_start_index + c * dst_hw_slice_size],
+                    &src_tile_data[src_start_index + c * src_dhw_slice_size],
+                    copy_dims.height * copy_dims.width * sizeof(PixelType),
+                    dst_chw_slice_size * sizeof(PixelType),  // stride by full CHW slice
+                    src_hw_slice_size * sizeof(PixelType),   // stride by HW slice
+                    copy_dims.depth
+                );
+#endif
             }
             return;
         }
@@ -371,6 +451,7 @@ inline void copy_tile_to_tile(
         // Generic fallback
         for (std::size_t c = 0; c < copy_dims.nsamples; ++c) {
             for (std::size_t d = 0; d < copy_dims.depth; ++d) {
+#if 0
                 for (std::size_t h = 0; h < copy_dims.height; ++h) {
                     std::memcpy(
                         &dst_tile_data[dst_start_index + d * dst_chw_slice_size + c * dst_hw_slice_size + h * dst_w_slice_size],
@@ -381,6 +462,16 @@ inline void copy_tile_to_tile(
                     // however it is much more likely to have large width than large number of channels.
                     // and I am afraid of memcpy overhead when called many times with mini sizes.
                 }
+#else
+                memcpy::repeat_memcpy(
+                    &dst_tile_data[dst_start_index + d * dst_chw_slice_size + c * dst_hw_slice_size],
+                    &src_tile_data[src_start_index + c * src_dhw_slice_size + d * src_hw_slice_size],
+                    copy_dims.width * sizeof(PixelType),
+                    dst_w_slice_size * sizeof(PixelType),
+                    src_w_slice_size * sizeof(PixelType),
+                    copy_dims.height
+                );
+#endif
             }
         }
     }
@@ -406,6 +497,7 @@ inline void copy_tile_to_tile(
         if (copy_dims.width == src_dims.width && copy_dims.width == dst_dims.width) {
             // hW copy
             for (std::size_t c = 0; c < copy_dims.nsamples; ++c) {
+#if 0
                 for (std::size_t d = 0; d < copy_dims.depth; ++d) {
                     std::memcpy(
                         &dst_tile_data[dst_start_index + c * dst_dhw_slice_size + d * dst_hw_slice_size],
@@ -413,6 +505,16 @@ inline void copy_tile_to_tile(
                         copy_dims.height * copy_dims.width * sizeof(PixelType)
                     );
                 }
+#else
+                memcpy::repeat_memcpy(
+                    &dst_tile_data[dst_start_index + c * dst_dhw_slice_size],
+                    &src_tile_data[src_start_index + c * src_hw_slice_size],
+                    copy_dims.height * copy_dims.width * sizeof(PixelType),
+                    dst_hw_slice_size * sizeof(PixelType),   // stride by HW slice
+                    src_chw_slice_size * sizeof(PixelType),  // stride by full CHW slice
+                    copy_dims.depth
+                );
+#endif
             }
             return;
         }
@@ -420,6 +522,7 @@ inline void copy_tile_to_tile(
         // Generic fallback
         for (std::size_t c = 0; c < copy_dims.nsamples; ++c) {
             for (std::size_t d = 0; d < copy_dims.depth; ++d) {
+#if 0
                 for (std::size_t h = 0; h < copy_dims.height; ++h) {
                     std::memcpy(
                         &dst_tile_data[dst_start_index + c * dst_dhw_slice_size + d * dst_hw_slice_size + h * dst_w_slice_size],
@@ -427,6 +530,16 @@ inline void copy_tile_to_tile(
                         copy_dims.width * sizeof(PixelType)
                     );
                 }
+#else
+                memcpy::repeat_memcpy(
+                    &dst_tile_data[dst_start_index + c * dst_dhw_slice_size + d * dst_hw_slice_size],
+                    &src_tile_data[src_start_index + d * src_chw_slice_size + c * src_hw_slice_size],
+                    copy_dims.width * sizeof(PixelType),
+                    dst_w_slice_size * sizeof(PixelType),
+                    src_w_slice_size * sizeof(PixelType),
+                    copy_dims.height
+                );
+#endif
             }
         }
     }

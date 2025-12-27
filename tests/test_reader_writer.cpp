@@ -860,8 +860,10 @@ TEST(AsyncReaderTests, IoUringBasicAsyncRead) {
     // Submit to kernel
     ASSERT_TRUE(reader.flush_async_operations().is_ok());
     
-    // Wait for completion
-    auto completions = reader.wait_completions(1);
+    // Wait for completion using preallocated buffer
+    std::vector<std::pair<uint64_t, Result<std::size_t>>> completions;
+    size_t count = reader.wait_completions(completions, 1);
+    ASSERT_EQ(count, 1);
     ASSERT_EQ(completions.size(), 1);
     
     auto& [handle, result] = completions[0];
@@ -898,8 +900,10 @@ TEST(AsyncReaderTests, IoUringMultipleAsyncReads) {
     // Submit all to kernel
     ASSERT_TRUE(reader.flush_async_operations().is_ok());
     
-    // Wait for all completions
-    auto completions = reader.wait_completions(8);
+    // Wait for all completions using preallocated buffer
+    std::vector<std::pair<uint64_t, Result<std::size_t>>> completions;
+    size_t count = reader.wait_completions(completions, 8);
+    EXPECT_EQ(count, 8);
     EXPECT_EQ(completions.size(), 8);
     
     // Verify all reads succeeded
@@ -932,10 +936,13 @@ TEST(AsyncReaderTests, IoUringPollCompletions) {
     size_t max_polls = 1000;
     size_t poll_count = 0;
     bool completed = false;
+    std::vector<std::pair<uint64_t, Result<std::size_t>>> completions;
     
     while (poll_count++ < max_polls) {
-        auto completions = reader.poll_completions(0);
-        if (!completions.empty()) {
+        completions.clear();
+        size_t count = reader.poll_completions(completions, 0);
+        if (count > 0) {
+            ASSERT_EQ(count, 1);
             ASSERT_EQ(completions.size(), 1);
             ASSERT_TRUE(completions[0].second.is_ok());
             EXPECT_EQ(completions[0].second.value(), 2048);
@@ -966,12 +973,15 @@ TEST(AsyncReaderTests, IoUringWaitWithTimeout) {
     ASSERT_TRUE(handle_res.is_ok());
     ASSERT_TRUE(reader.flush_async_operations().is_ok());
     
-    // Wait with timeout (should complete quickly)
-    auto completions = reader.wait_completions_for(
+    // Wait with timeout (should complete quickly) using preallocated buffer
+    std::vector<std::pair<uint64_t, Result<std::size_t>>> completions;
+    size_t count = reader.wait_completions_for(
+        completions,
         std::chrono::milliseconds(1000),
         1
     );
     
+    ASSERT_EQ(count, 1);
     ASSERT_EQ(completions.size(), 1);
     ASSERT_TRUE(completions[0].second.is_ok());
     EXPECT_EQ(completions[0].second.value(), 2048);
@@ -1030,8 +1040,10 @@ TEST(AsyncReaderTests, IOCPBasicAsyncRead) {
     // Submit (no-op for IOCP, but API compatible)
     ASSERT_TRUE(reader.flush_async_operations().is_ok());
     
-    // Wait for completion
-    auto completions = reader.wait_completions(1);
+    // Wait for completion using preallocated buffer
+    std::vector<std::pair<uint64_t, Result<std::size_t>>> completions;
+    size_t count = reader.wait_completions(completions, 1);
+    ASSERT_EQ(count, 1);
     ASSERT_EQ(completions.size(), 1);
     
     auto& [handle, result] = completions[0];
@@ -1069,8 +1081,10 @@ TEST(AsyncReaderTests, IOCPMultipleAsyncReads) {
         handles.push_back(handle_res.value());
     }
     
-    // Wait for all completions
-    auto completions = reader.wait_completions(8);
+    // Wait for all completions using preallocated buffer
+    std::vector<std::pair<uint64_t, Result<std::size_t>>> completions;
+    size_t count = reader.wait_completions(completions, 8);
+    EXPECT_EQ(count, 8);
     EXPECT_EQ(completions.size(), 8);
     
     // Verify all reads succeeded
@@ -1102,10 +1116,13 @@ TEST(AsyncReaderTests, IOCPPollCompletions) {
     size_t max_polls = 1000;
     size_t poll_count = 0;
     bool completed = false;
+    std::vector<std::pair<uint64_t, Result<std::size_t>>> completions;
     
     while (poll_count++ < max_polls) {
-        auto completions = reader.poll_completions(0);
-        if (!completions.empty()) {
+        completions.clear();
+        size_t count = reader.poll_completions(completions, 0);
+        if (count > 0) {
+            ASSERT_EQ(count, 1);
             ASSERT_EQ(completions.size(), 1);
             ASSERT_TRUE(completions[0].second.is_ok());
             EXPECT_EQ(completions[0].second.value(), 2048);
@@ -1135,12 +1152,15 @@ TEST(AsyncReaderTests, IOCPWaitWithTimeout) {
     auto handle_res = reader.async_read_into(buffer, 0, 2048);
     ASSERT_TRUE(handle_res.is_ok());
     
-    // Wait with timeout (should complete quickly)
-    auto completions = reader.wait_completions_for(
+    // Wait with timeout (should complete quickly) using preallocated buffer
+    std::vector<std::pair<uint64_t, Result<std::size_t>>> completions;
+    size_t count = reader.wait_completions_for(
+        completions,
         std::chrono::milliseconds(1000),
         1
     );
     
+    ASSERT_EQ(count, 1);
     ASSERT_EQ(completions.size(), 1);
     ASSERT_TRUE(completions[0].second.is_ok());
     EXPECT_EQ(completions[0].second.value(), 2048);

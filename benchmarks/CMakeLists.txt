@@ -84,7 +84,7 @@ target_link_libraries(tiff_benchmarks
 
 # Conditionally link libtiff
 if(TIFF_FOUND)
-    target_link_libraries(tiff_benchmarks ${TIFF_LIBRARIES})
+    target_link_libraries(tiff_benchmarks ${TIFF_LIBRARIES} mimalloc)
     target_include_directories(tiff_benchmarks PRIVATE ${TIFF_INCLUDE_DIRS})
     target_compile_definitions(tiff_benchmarks PRIVATE HAVE_LIBTIFF)
 endif()

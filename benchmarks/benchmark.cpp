@@ -11,6 +11,7 @@
 #include "../tiffconcept/include/tiffconcept/image_reader.hpp"
 #include "../tiffconcept/include/tiffconcept/image_writer.hpp"
 #include "../tiffconcept/include/tiffconcept/ifd.hpp"
+#include "../tiffconcept/include/tiffconcept/lowlevel/memory.hpp"
 #include "../tiffconcept/include/tiffconcept/parsing.hpp"
 #include "../tiffconcept/include/tiffconcept/readers/reader_buffer.hpp"
 #include "../tiffconcept/include/tiffconcept/tag_extraction.hpp"
@@ -628,7 +629,7 @@ static void BM_Read_SizeVariation(benchmark::State& state) {
             }
 
             auto region = image_info.shape().full_region();
-            std::vector<T> output(region.num_samples());
+            memory::AlignedBuffer<T> output(region.num_samples());
             
             auto result = reader.template read_region<ImageLayoutSpec::DHWC>(
                 file_reader, metadata, region, output);
@@ -666,7 +667,7 @@ static void BM_Read_SizeVariation(benchmark::State& state) {
             }
             
             auto region = image_info.shape().full_region();
-            std::vector<T> output(region.num_samples());
+            memory::AlignedBuffer<T> output(region.num_samples());
             
             auto result = reader.template read_region<ImageLayoutSpec::DHWC>(
                 file_reader, metadata, region, output);
@@ -716,13 +717,13 @@ static void BM_LibTIFF_Read_SizeVariation(benchmark::State& state) {
         TIFFGetField(tif, TIFFTAG_IMAGEWIDTH, &w);
         TIFFGetField(tif, TIFFTAG_IMAGELENGTH, &h);
         
-        std::vector<T> buffer(w * h * channels);
+        memory::AlignedBuffer<T> buffer(w * h * channels);
         
         uint32_t tile_width, tile_height;
         TIFFGetField(tif, TIFFTAG_TILEWIDTH, &tile_width);
         TIFFGetField(tif, TIFFTAG_TILELENGTH, &tile_height);
         
-        std::vector<T> tile_buffer(tile_width * tile_height * channels);
+        memory::AlignedBuffer<T> tile_buffer(tile_width * tile_height * channels);
         
         for (uint32_t y = 0; y < h; y += tile_height) {
             for (uint32_t x = 0; x < w; x += tile_width) {
@@ -814,7 +815,7 @@ static void BM_Read_PartialRegion(benchmark::State& state) {
         }
         
         ImageRegion region(0, 0, y_offset, x_offset, config.samples_per_pixel, 1, region_width, region_width);
-        std::vector<T> output(region.num_samples());
+        memory::AlignedBuffer<T> output(region.num_samples());
         
         auto result = reader.template read_region<ImageLayoutSpec::DHWC>(
             file_reader, metadata, region, output);
@@ -862,8 +863,8 @@ static void BM_LibTIFF_Read_PartialRegion(benchmark::State& state) {
         TIFFGetField(tif, TIFFTAG_TILEWIDTH, &tile_width);
         TIFFGetField(tif, TIFFTAG_TILELENGTH, &tile_height);
         
-        std::vector<T> output(region_width * region_width * 3);
-        std::vector<T> tile_buffer(tile_width * tile_height * 3);
+        memory::AlignedBuffer<T> output(region_width * region_width * 3);
+        memory::AlignedBuffer<T> tile_buffer(tile_width * tile_height * 3);
         
         uint32_t start_tile_y = (y_offset / tile_height) * tile_height;
         uint32_t start_tile_x = (x_offset / tile_width) * tile_width;
@@ -962,7 +963,7 @@ static void BM_Read_3DVolume(benchmark::State& state) {
         }
         
         auto region = image_info.shape().full_region();
-        std::vector<T> output(region.num_samples());
+        memory::AlignedBuffer<T> output(region.num_samples());
         
         auto result = reader.template read_region<ImageLayoutSpec::DHWC>(
             file_reader, metadata, region, output);
@@ -1053,7 +1054,7 @@ static void BM_Read_MultiPage(benchmark::State& state) {
         }
 
         auto region = image_info.shape().full_region();
-        std::vector<T> output(region.num_samples());
+        memory::AlignedBuffer<T> output(region.num_samples());
         
         auto result = reader.template read_region<ImageLayoutSpec::DHWC>(
             file_reader, metadata, region, output);
@@ -1104,8 +1105,8 @@ static void BM_LibTIFF_Read_MultiPage(benchmark::State& state) {
         TIFFGetField(tif, TIFFTAG_TILEWIDTH, &tile_width);
         TIFFGetField(tif, TIFFTAG_TILELENGTH, &tile_height);
         
-        std::vector<T> buffer(w * h * spp);
-        std::vector<T> tile_buffer(tile_width * tile_height * spp);
+        memory::AlignedBuffer<T> buffer(w * h * spp);
+        memory::AlignedBuffer<T> tile_buffer(tile_width * tile_height * spp);
         
         for (uint32_t y = 0; y < h; y += tile_height) {
             for (uint32_t x = 0; x < w; x += tile_width) {
@@ -1160,7 +1161,7 @@ static void BM_LibTIFF_Write_SizeChannelVariation(benchmark::State& state) {
     // Determine compression and predictor
     CompressionScheme comp_scheme = (comp == CompressionType::ZSTD) ? CompressionScheme::ZSTD : CompressionScheme::None;
     std::size_t tile_size = config.tile_width * config.tile_height * channels;
-    std::vector<T> tile_buffer(tile_size);
+    memory::AlignedBuffer<T> tile_buffer(tile_size);
     
     for (auto _ : state) {
         auto filepath = temp_mgr.get_temp_path("libtiff_write_size_channel");
@@ -1223,7 +1224,7 @@ static void BM_LibTIFF_Write_MultiPage(benchmark::State& state) {
     
     std::size_t bytes_processed = 0;
     std::size_t tile_size = config.tile_width * config.tile_height * config.samples_per_pixel;
-    std::vector<T> tile_buffer(tile_size);
+    memory::AlignedBuffer<T> tile_buffer(tile_size);
     
     for (auto _ : state) {
         auto filepath = temp_mgr.get_temp_path("libtiff_write_multipage");
@@ -1273,6 +1274,15 @@ static void BM_LibTIFF_Write_MultiPage(benchmark::State& state) {
 }
 
 #endif // HAVE_LIBTIFF
+
+
+BENCHMARK(BM_Read_SizeVariation<uint8_t, SimpleReaderType<uint8_t, DecompressorSpec<NoneDecompressorDesc, ZstdDecompressorDesc>>>)
+    ->Args({8192, 1, 0, 0})    // 8192x8192, 1ch, None, Little
+    ->Args({8192, 1, 0, 0})    // 8192x8192, 1ch, None, Little
+    ->Args({8192, 1, 0, 0})    // 8192x8192, 1ch, None, Little
+    ->Args({8192, 1, 0, 0})    // 8192x8192, 1ch, None, Little
+    ->Name("TiffConcept/Read/SimpleReader/SizeVariation/uint8")
+    ->Unit(benchmark::kMillisecond);
 
 
 // ============================================================================
@@ -1642,5 +1652,6 @@ BENCHMARK(BM_LibTIFF_Write_MultiPage<uint8_t>)
 #endif // HAVE_LIBTIFF
 
 #endif
+
 
 BENCHMARK_MAIN();

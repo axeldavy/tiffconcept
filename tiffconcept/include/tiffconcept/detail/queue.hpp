@@ -18,10 +18,20 @@ struct LockFreeJobQueue {
     alignas(64) std::atomic<size_t> read_idx{0};   // Consumers compete here
     alignas(64) std::vector<Job> jobs;             // Pre-allocated ring buffer
     size_t capacity_;                              // Max pending jobs
+
+    LockFreeJobQueue() = default;
     
     LockFreeJobQueue(size_t capacity) {
         capacity_ = capacity;
         jobs.resize(capacity_);
+    }
+
+    /// @brief Reset and resize the queue
+    void reset(size_t new_capacity) {
+        write_idx.store(0, std::memory_order_relaxed);
+        read_idx.store(0, std::memory_order_relaxed);
+        capacity_ = new_capacity;
+        jobs.resize(new_capacity);
     }
     
     /// @brief Try to pop a job (multi-consumer safe)

@@ -226,10 +226,10 @@ concept AsyncRawReader = RawReader<T> && requires(
     /// @return Vector of (handle, result) pairs for completed operations.
     ///         result contains the number of bytes read or an error.
     ///         Vector may be empty if no operations have completed.
-    { reader.poll_completions(std::size_t{}) }
-        -> std::same_as<std::vector<
-            std::pair<uint64_t, Result<std::size_t>>
-            >>;
+    { reader.poll_completions(
+        std::declval<std::vector<std::pair<uint64_t, Result<std::size_t>>>&>(),
+        std::size_t{}) }
+        -> std::same_as<size_t>;
     
     /// Wait for at least one operation to complete (blocking)
     /// 
@@ -247,10 +247,10 @@ concept AsyncRawReader = RawReader<T> && requires(
     /// @return Vector of (handle, result) pairs for completed operations.
     ///         result contains the number of bytes read or an error.
     ///         Vector may be empty if no operations were pending.
-    { reader.wait_completions(std::size_t{}) } 
-        -> std::same_as<std::vector<
-            std::pair<uint64_t, Result<std::size_t>>
-            >>;
+    { reader.wait_completions(
+        std::declval<std::vector<std::pair<uint64_t, Result<std::size_t>>>&>(),
+        std::size_t{}) } 
+        -> std::same_as<size_t>;
     
     /// Wait for completions with timeout (blocking)
     /// 
@@ -262,10 +262,10 @@ concept AsyncRawReader = RawReader<T> && requires(
     /// @return Vector of completions (may be empty if timeout expired)
     ///         result contains the number of bytes read or an error.
     ///         Vector may be empty if no operations were pending.
-    { reader.wait_completions_for(timeout, std::size_t{}) } 
-        -> std::same_as<std::vector<
-            std::pair<uint64_t, Result<std::size_t>>
-            >>;
+    { reader.wait_completions_for(
+        std::declval<std::vector<std::pair<uint64_t, Result<std::size_t>>>&>(),
+        timeout, std::size_t{}) } 
+        -> std::same_as<size_t>;
     
     // ========================================================================
     // Operation Management

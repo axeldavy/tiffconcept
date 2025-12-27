@@ -518,14 +518,13 @@ public:
     }
     
     /// Poll for completed operations (non-blocking)
-    [[nodiscard]] std::vector<std::pair<uint64_t, Result<std::size_t>>>
-    poll_completions(std::size_t max_completions = 0) const noexcept {
+    std::size_t poll_completions(
+        std::vector<std::pair<uint64_t, Result<std::size_t>>>& completions,
+        std::size_t max_completions = 0) const noexcept {
         
         if (!is_valid()) [[unlikely]] {
             return {};
         }
-        
-        std::vector<std::pair<uint64_t, Result<std::size_t>>> results;
         
         std::lock_guard lock(liburing_mutex_);
         
@@ -535,31 +534,33 @@ public:
         
         // Peek at all available completions without blocking
         io_uring_for_each_cqe(ring_.get(), head, cqe) {
+            completions.push_back(process_completion(cqe));
+            ++count;
             if (max_completions > 0 && count >= max_completions) {
                 break;
             }
-            
-            results.push_back(process_completion(cqe));
-            count++;
         }
         
         // Mark processed completions as seen
         if (count > 0) {
             io_uring_cq_advance(ring_.get(), count);
         }
+        pending_ops_ -= count;
         
-        return results;
+        return count;
     }
     
     /// Wait for at least one completion (blocking)
-    [[nodiscard]] std::vector<std::pair<uint64_t, Result<std::size_t>>> 
-    wait_completions(std::size_t max_completions = 0) const noexcept {
+    /// @param completions Output vector for completions (appended, not cleared)
+    /// @param max_completions Maximum new completions to retrieve (0 = all available)
+    /// @return Number of completions added to the vector
+    size_t wait_completions(
+        std::vector<std::pair<uint64_t, Result<std::size_t>>>& completions,
+        std::size_t max_completions = 0) const noexcept {
         
         if (!is_valid()) [[unlikely]] {
-            return {};
+            return 0;
         }
-
-        std::vector<std::pair<uint64_t, Result<std::size_t>>> results;
         
         std::lock_guard lock(liburing_mutex_);
         
@@ -567,43 +568,48 @@ public:
         int ret = io_uring_wait_cqe(ring_.get(), &cqe);
         
         if (ret < 0) [[unlikely]] {
-            // Wait failed - return empty (could be interrupted by signal)
-            return results;
+            // Wait failed - return 0 (could be interrupted by signal)
+            return 0;
         }
         
+        size_t count = 0;
         if (cqe) {
-            results.push_back(process_completion(cqe));
+            count = 1;
+            completions.push_back(process_completion(cqe));
             io_uring_cqe_seen(ring_.get(), cqe);
             
             // Also collect any other completions that arrived
             unsigned head;
-            unsigned count = 0;
-            io_uring_for_each_cqe(ring_.get(), head, cqe) {
-                if (max_completions > 0 && count + 1 >= max_completions) {
-                    break;
+            if (max_completions != 1) {
+                io_uring_for_each_cqe(ring_.get(), head, cqe) {
+                    completions.push_back(process_completion(cqe));
+                    ++count;
+                    if (max_completions > 0 && count >= max_completions) {
+                        break;
+                    }
                 }
-                results.push_back(process_completion(cqe));
-                count++;
             }
-            
-            if (count > 0) {
-                io_uring_cq_advance(ring_.get(), count);
-            }
+
+            if (count > 1)
+                io_uring_cq_advance(ring_.get(), count-1);
+            pending_ops_ -= count;
         }
-        
-        return results;
+        return count;
     }
     
     /// Wait for completions with timeout
-    [[nodiscard]] std::vector<std::pair<uint64_t, Result<std::size_t>>> 
-    wait_completions_for(std::chrono::milliseconds timeout, 
-                        std::size_t max_completions = 0) const noexcept {
+    /// @param completions Output vector for completions (appended, not cleared)
+    /// @param timeout Maximum time to wait
+    /// @param max_completions Maximum completions to retrieve (0 = all available)
+    /// @return Number of completions added to the vector
+    size_t wait_completions_for(
+        std::vector<std::pair<uint64_t, Result<std::size_t>>>& completions,
+        std::chrono::milliseconds timeout, 
+        std::size_t max_completions = 0) const noexcept {
         
         if (!is_valid()) [[unlikely]] {
-            return {};
+            return 0;
         }
-        
-        std::vector<std::pair<uint64_t, Result<std::size_t>>> results;
         
         std::lock_guard lock(liburing_mutex_);
         
@@ -617,35 +623,38 @@ public:
         
         if (ret == -ETIME) {
             // Timeout expired, no completions
-            return results;
+            return 0;
         }
         
         if (ret < 0) [[unlikely]] {
             // Other error
-            return results;
+            return 0;
         }
         
+        size_t count = 0;
         if (cqe) {
-            results.push_back(process_completion(cqe));
+            count = 1;
+            completions.push_back(process_completion(cqe));
             io_uring_cqe_seen(ring_.get(), cqe);
             
-            // Collect any other completions
+            // Also collect any other completions that arrived
             unsigned head;
-            unsigned count = 0;
-            io_uring_for_each_cqe(ring_.get(), head, cqe) {
-                if (max_completions > 0 && count + 1 >= max_completions) {
-                    break;
+            if (max_completions != 1) {
+                io_uring_for_each_cqe(ring_.get(), head, cqe) {
+                    completions.push_back(process_completion(cqe));
+                    ++count;
+                    if (max_completions > 0 && count >= max_completions) {
+                        break;
+                    }
                 }
-                results.push_back(process_completion(cqe));
-                count++;
             }
-            
-            if (count > 0) {
-                io_uring_cq_advance(ring_.get(), count);
-            }
+
+            if (count > 1)
+                io_uring_cq_advance(ring_.get(), count-1);
+            pending_ops_ -= count;
         }
         
-        return results;
+        return count;
     }
     
     /// Get number of pending operations
@@ -683,9 +692,6 @@ private:
         
         uint64_t user_data = reinterpret_cast<uint64_t>(io_uring_cqe_get_data(cqe));
         int result = cqe->res;
-        
-        // Decrement pending counter
-        --pending_ops_;
         
         // Check for errors
         if (result < 0) [[unlikely]] {

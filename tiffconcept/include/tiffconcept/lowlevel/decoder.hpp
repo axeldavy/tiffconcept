@@ -66,6 +66,7 @@
 #include <span>
 #include <vector>
 #include "../decompressors/decompressor_base.hpp"
+#include "memory.hpp"
 #include "predictor.hpp"
 #include "../types/result.hpp"
 #include "../types/tiff_spec.hpp"
@@ -102,7 +103,7 @@ template <typename PixelType, typename DecompSpec>
 class TileDecoder {
 private:
     DecompressorStorage<DecompSpec> decompressors_;
-    mutable std::vector<PixelType> scratch_buffer_;  // Reusable buffer for decode()
+    mutable memory::AlignedBuffer<PixelType> scratch_buffer_;  // Reusable buffer for decode()
     mutable std::mutex safety_mutex_; // For people who ignore thread-safety notes
     
     /// Apply predictor decoding in-place (implementation in decoder_impl.hpp)
