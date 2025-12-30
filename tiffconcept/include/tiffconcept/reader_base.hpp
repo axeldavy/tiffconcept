@@ -133,7 +133,7 @@ concept RawWriter = requires(T writer, std::size_t offset, std::size_t size) {
 };
 
 /// Concept for asynchronous raw reader with completion-based I/O
-/// 
+///
 /// Design Philosophy:
 /// - Completion-based: operations complete asynchronously, results retrieved via polling
 /// - Zero-copy: caller provides buffers that must remain valid until completion
@@ -145,7 +145,7 @@ concept RawWriter = requires(T writer, std::size_t offset, std::size_t size) {
 /// - Clonable: To counter-balance the previous condition, a clone() method enables to
 ///   have a separate instance that can be used in parallel on another thread.
 /// - Bounded: A maximum number of pending operations is allowed on a thread.
-/// 
+///
 /// Lifetime Requirements:
 /// - Reader must outlive all pending operations
 /// - Buffers associated to an operation handles MUST remain valid until completion retrieved

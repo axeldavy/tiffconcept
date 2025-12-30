@@ -685,6 +685,131 @@ static void BM_Read_SizeVariation(benchmark::State& state) {
     state.SetItemsProcessed(state.iterations());
 }
 
+
+template <typename T, typename ReaderType>
+static void BM_Read_SizeVariation_test_data(benchmark::State& state) {
+    // Parameters: width, channels, compression, endianness
+    uint32_t width = state.range(0);
+    auto filepath = "../test_data/" + std::to_string(width) + ".tiff";
+    
+    // Benchmark reading
+    std::size_t bytes_processed = 0;
+
+    // Putting reader instantiation here to avoid measuring construction time
+    // One of the optimizations proposed by the library is to reuse as much
+    // as possible already allocated resources.
+    ReaderType reader;
+    ExtractedTags<MinTiledSpec> metadata;
+    TiledImageInfo<T> image_info;
+
+    FileReader file_reader;
+    for (auto _ : state) {
+        auto open_result = file_reader.open(filepath);
+        if (!open_result.is_ok()) {
+            state.SkipWithError("Failed to open TIFF file");
+            return;
+        }
+        auto ifd_offset = ifd::get_first_ifd_offset<FileReader, TiffFormatType::Classic, std::endian::little>(file_reader);
+        if (!ifd_offset.is_ok()) {
+            state.SkipWithError("Failed to get IFD offset " + ifd_offset.error().message);
+            return;
+        }
+        auto ifd = ifd::read_ifd<FileReader, TiffFormatType::Classic, std::endian::little>(
+            file_reader, ifd_offset.value());
+        if (!ifd.is_ok()) {
+            state.SkipWithError("Failed to read IFD " + ifd.error().message);
+            return;
+        }
+        
+        auto extract_result = metadata.extract<FileReader, TiffFormatType::Classic, std::endian::little>(
+            file_reader, std::span(ifd.value().tags));
+        if (!extract_result.is_ok()) {
+            state.SkipWithError("Failed to extract tags " + extract_result.error().message);
+            return;
+        }
+        
+        extract_result = image_info.update_from_metadata(metadata);
+        if (!extract_result.is_ok()) {
+            state.SkipWithError("Failed to update image info from metadata " + extract_result.error().message);
+            return;
+        }
+
+        auto region = image_info.shape().full_region();
+        memory::AlignedBuffer<T> output(region.num_samples());
+        
+        auto result = reader.template read_region<ImageLayoutSpec::DHWC>(
+            file_reader, metadata, region, output);
+        if (!result.is_ok()) {
+            state.SkipWithError("Failed to read region " + result.error().message);
+            return;
+        }
+        
+        benchmark::DoNotOptimize(output);
+        bytes_processed += output.size() * sizeof(T);
+    }
+    
+    state.SetBytesProcessed(bytes_processed);
+    state.SetItemsProcessed(state.iterations());
+}
+
+// Read Benchmarks
+template <typename T>
+static void BM_LibTIFF_Read_SizeVariation_test_data(benchmark::State& state) {
+    // Parameters: width, channels, compression
+    uint32_t width = state.range(0);
+    uint32_t channels = 1;
+    auto filepath = "../test_data/" + std::to_string(width) + ".tiff";
+    
+    // Benchmark reading
+    std::size_t bytes_processed = 0;
+    
+    for (auto _ : state) {
+        TIFF* tif = TIFFOpen(filepath.c_str(), "r");
+        if (!tif) {
+            state.SkipWithError("Failed to open TIFF file");
+            return;
+        }
+        
+        uint32_t w, h;
+        TIFFGetField(tif, TIFFTAG_IMAGEWIDTH, &w);
+        TIFFGetField(tif, TIFFTAG_IMAGELENGTH, &h);
+        
+        memory::AlignedBuffer<T> buffer(w * h * channels);
+        
+        uint32_t tile_width, tile_height;
+        TIFFGetField(tif, TIFFTAG_TILEWIDTH, &tile_width);
+        TIFFGetField(tif, TIFFTAG_TILELENGTH, &tile_height);
+        
+        memory::AlignedBuffer<T> tile_buffer(tile_width * tile_height * channels);
+        
+        for (uint32_t y = 0; y < h; y += tile_height) {
+            for (uint32_t x = 0; x < w; x += tile_width) {
+                TIFFReadTile(tif, tile_buffer.data(), x, y, 0, 0);
+                
+                uint32_t th = std::min(tile_height, h - y);
+                uint32_t tw = std::min(tile_width, w - x);
+                
+                for (uint32_t ty = 0; ty < th; ++ty) {
+                    for (uint32_t tx = 0; tx < tw; ++tx) {
+                        for (uint16_t c = 0; c < channels; ++c) {
+                            std::size_t src_idx = (ty * tile_width + tx) * channels + c;
+                            std::size_t dst_idx = ((y + ty) * w + (x + tx)) * channels + c;
+                            buffer[dst_idx] = tile_buffer[src_idx];
+                        }
+                    }
+                }
+            }
+        }
+        
+        TIFFClose(tif);
+        benchmark::DoNotOptimize(buffer);
+        bytes_processed += buffer.size() * sizeof(T);
+    }
+    
+    state.SetBytesProcessed(bytes_processed);
+    state.SetItemsProcessed(state.iterations());
+}
+
 #ifdef HAVE_LIBTIFF
 
 // Read Benchmarks
@@ -1276,15 +1401,40 @@ static void BM_LibTIFF_Write_MultiPage(benchmark::State& state) {
 #endif // HAVE_LIBTIFF
 
 
-BENCHMARK(BM_Read_SizeVariation<uint8_t, SimpleReaderType<uint8_t, DecompressorSpec<NoneDecompressorDesc, ZstdDecompressorDesc>>>)
-    ->Args({8192, 1, 0, 0})    // 8192x8192, 1ch, None, Little
-    ->Args({8192, 1, 0, 0})    // 8192x8192, 1ch, None, Little
-    ->Args({8192, 1, 0, 0})    // 8192x8192, 1ch, None, Little
-    ->Args({8192, 1, 0, 0})    // 8192x8192, 1ch, None, Little
+BENCHMARK(BM_Read_SizeVariation_test_data<uint8_t, SimpleReaderType<uint8_t, DecompressorSpec<NoneDecompressorDesc, ZstdDecompressorDesc>>>)
+    ->Args({512, 1, 0, 0})    
+    ->Args({1024, 1, 0, 0})   
+    ->Args({4096, 1, 0, 0})   
+    ->Args({8192, 1, 0, 0})   
     ->Name("TiffConcept/Read/SimpleReader/SizeVariation/uint8")
     ->Unit(benchmark::kMillisecond);
 
+BENCHMARK(BM_Read_SizeVariation_test_data<uint8_t, CPULimitedReaderType<uint8_t, DecompressorSpec<NoneDecompressorDesc, ZstdDecompressorDesc>>>)
+    ->Args({512, 1, 0, 0})    
+    ->Args({1024, 1, 0, 0})   
+    ->Args({4096, 1, 0, 0})   
+    ->Args({8192, 1, 0, 0})   
+    ->Name("TiffConcept/Read/CPULimitedReader/SizeVariation/uint8")
+    ->Unit(benchmark::kMillisecond);
 
+BENCHMARK(BM_Read_SizeVariation_test_data<uint8_t, FastReaderType<uint8_t, DecompressorSpec<NoneDecompressorDesc, ZstdDecompressorDesc>>>)
+    ->Args({512, 1, 0, 0})    
+    ->Args({1024, 1, 0, 0})   
+    ->Args({4096, 1, 0, 0})   
+    ->Args({8192, 1, 0, 0})   
+    ->Name("TiffConcept/Read/FastReader/SizeVariation/uint8")
+    ->Unit(benchmark::kMillisecond);
+
+// Read - Size Variations
+BENCHMARK(BM_LibTIFF_Read_SizeVariation_test_data<uint8_t>)
+    ->Args({512, 1, 0, 0})    
+    ->Args({1024, 1, 0, 0})   
+    ->Args({4096, 1, 0, 0})   
+    ->Args({8192, 1, 0, 0})  
+    ->Name("LibTIFF/Read/SizeVariation/uint8")
+    ->Unit(benchmark::kMillisecond);
+
+#if 0
 // ============================================================================
 // Benchmark Registration
 // ============================================================================
@@ -1653,5 +1803,6 @@ BENCHMARK(BM_LibTIFF_Write_MultiPage<uint8_t>)
 
 #endif
 
+#endif // 0
 
 BENCHMARK_MAIN();

@@ -145,8 +145,8 @@ See `benchmarks/README.md` for detailed information about available benchmarks a
 
 ## Roadmap
 
-- [Mostly done] BigTIFF, Endianness, parsing metadata
-- [Mostly done] Reading a tile/strip, raw or with ZSTD decompression, predictor decoding, 2D/3D, single channel or multi-channel (any number of channels)
+- [Done] BigTIFF, Endianness, parsing metadata
+- [Done] Reading a tile/strip, raw or with ZSTD decompression, predictor decoding, 2D/3D, single channel or multi-channel (any number of channels)
 - [Done] Writing TIFF files, with various schemes for ordering IFDs (packing page information at the beginning may be more cache efficient when walking through TIFF pages)
 - [Done] Reading an image region efficiently, single-thread vs multi-thread
 - [Done] Comprehensive test suite and benchmarks

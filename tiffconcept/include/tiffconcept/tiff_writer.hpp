@@ -24,7 +24,7 @@ namespace tiffconcept {
 /// @tparam WriteConfig_ Write configuration (IFD placement, chunk strategy)
 /// @tparam TiffFormat TIFF format type (Classic or BigTIFF)
 /// @tparam TargetEndian Target endianness for the TIFF file
-/// 
+///
 /// @note Orchestrates header, IFD, and image data writing
 /// @note NOT thread-safe - use separate instances per thread
 /// @note Supports both tiled and stripped image layouts
@@ -51,11 +51,11 @@ public:
 
     /// @brief Default constructor
     TiffWriter() = default;
-    
+
     /// @brief Construct with specific IFD placement strategy
     /// @param placement IFD placement configuration
     explicit TiffWriter(IFDPlacement placement);
-    
+
     /// @brief Write a complete single-image 2D tiled TIFF file
     /// @tparam InputSpec Image data layout specification (DHWC, DCHW, or CDHW)
     /// @tparam Writer Writer type implementing RawWriter concept
@@ -138,7 +138,7 @@ public:
         CompressionScheme compression,
         Predictor predictor,
         const ExtractedTags<TagArgs...>& additional_tags = ExtractedTags<TagArgs...>{}) noexcept;
-    
+
     /// @brief Write a stripped image (convenience wrapper for strip-based layout)
     /// @tparam InputSpec Image data layout specification (DHWC, DCHW, or CDHW)
     /// @tparam Writer Writer type implementing RawWriter concept
@@ -176,7 +176,7 @@ public:
         CompressionScheme compression,
         Predictor predictor,
         const ExtractedTags<TagArgs...>& additional_tags = ExtractedTags<TagArgs...>{}) noexcept;
-    
+
     /// @brief Clear writer state for reuse
     /// @note Resets internal buffers and allows writing a new image
     void clear() noexcept;
@@ -185,7 +185,7 @@ private:
     ImageWriterType image_writer_;
     IFDBuilderType ifd_builder_;
     IFDPlacement placement_strategy_;
-    
+
     /// Write TIFF header
     template <typename Writer>
         requires RawWriter<Writer>

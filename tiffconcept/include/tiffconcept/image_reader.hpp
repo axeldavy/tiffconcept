@@ -92,15 +92,21 @@ requires (std::is_same_v<PixelType, uint8_t> ||
 // ============================================================================
 
 /// @brief Minimalistic reader implementation for demonstration purposes.
-/// 
+///
 /// This reader processes tiles sequentially in a single thread:
 /// 1. Read compressed data from file
 /// 2. Decode (Decompress + Predictor)
 /// 3. Extract to output buffer
 ///
+/// While this reader is mainly for demonstration purposes,
+/// its simplicity results in low overhead and good cache usage.
+/// If you need a single threaded reader and you have fast storage,
+/// it can be quite competitive.
+///
 /// @tparam PixelType The pixel data type
 /// @tparam DecompSpec Decompressor specification type
-/// @note Not Thread-safe: internal state (tiles_, decoder_) is reused
+/// @note Not Thread-safe: internal state (tiles_, compressed_buffer_, decoder_) is reused
+/// @note To make it thread-safe, do not reuse allocations, or use thread_local allocations
 template <typename PixelType, typename DecompSpec>
 class SimpleReader {
 public:
@@ -131,7 +137,7 @@ public:
         CompressionScheme compression = optional::extract_tag_or<TagCode::Compression, TagSpec>(
             metadata, CompressionScheme::None
         );
-        
+
         Predictor predictor = Predictor::None;
         if constexpr (TagSpec::template has_tag<TagCode::Predictor>()) {
             predictor = optional::extract_tag_or<TagCode::Predictor, TagSpec>(
@@ -139,24 +145,22 @@ public:
             );
         }
 
-        memory::AlignedBuffer<std::byte> compressed_buffer;
-
         // 3. Process each tile sequentially
         for (const auto& tile : tiles_) {
             // Reuse storage for the compressed data
             std::size_t tile_compressed_size = static_cast<std::size_t>(tile.location.length);
-            if (compressed_buffer.size() < tile_compressed_size) {
-                compressed_buffer.resize(tile_compressed_size);
+            if (compressed_buffer_.size() < tile_compressed_size) {
+                compressed_buffer_.resize(tile_compressed_size);
             }
 
             // Read compressed data
-            auto read_res = reader.read_into(compressed_buffer.data(), tile.location.offset, tile.location.length);
+            auto read_res = reader.read_into(compressed_buffer_.data(), tile.location.offset, tile.location.length);
             if (!read_res) return read_res.error();
 
             // Decode
             // Note: TileDecoder handles decompression and predictor steps
             auto decode_res = decoder_.decode(
-                std::span<const std::byte>(compressed_buffer.data(), tile_compressed_size),
+                std::span<const std::byte>(compressed_buffer_.data(), tile_compressed_size),
                 tile.id.size.width,
                 tile.id.size.height * tile.id.size.depth, // Treat depth as height extension for decoding
                 compression,
@@ -176,33 +180,35 @@ public:
     }
 
 private:
-    std::vector<Tile> tiles_; // Reused vector for tile list
-    TileDecoder<PixelType, DecompSpec> decoder_; // Reused decoder (holds scratch buffer)
+    // Reused vector for tile list
+    std::vector<Tile> tiles_;
+    // Memory aligned buffer for storing file reads.
+    // Using memory aligned buffers is not mandatory, but can give a small performance boost
+    memory::AlignedBuffer<std::byte> compressed_buffer_;
+    // Reused decoder instance (holds a scratch buffer)
+    TileDecoder<PixelType, DecompSpec> decoder_;
 };
 
 
-/// @brief Reader optimized for CPU-bound scenarios (e.g., heavy compression like ZSTD/Deflate).
+/// @brief Reader optimized for CPU-bound scenarios (e.g., compressed data, fast storage).
 ///
-/// Design Philosophy:
+/// This multi-threaded and thread-safe reader will perform quite well in cases with fast
+/// storage. It uses a fixed pool of workers threads and splits the work evenly between
+/// the threads (including the calling thread). This simple work distribution has low
+/// overhead and guarantees all threads are seen active by the OS scheduler.
+///
+/// As multiple threads are waiting for I/O, this reader can also perform well in I/O
+/// bound scenarios. Using more threads than CPU cores can be beneficial in this case.
+///
+/// As thread-local storage is used and shared between all CPULimitedReader instances,
+/// This reader induces permanent memory usage multiplied by the number of threads.
+///
+/// Properties:
 /// - Parallel Processing: Uses a persistent thread pool to decode multiple tiles concurrently.
 /// - Work Distribution: Each read_region() call partitions its tiles across available workers.
 /// - Thread-Local Decoders: Each worker thread maintains its own decoder for cache locality.
-///
-/// Strategies:
-/// - Dynamic Work Queue: Tiles are processed as workers become available.
-/// - Independent Workers: Each thread handles Read, Decode, and Extract for assigned tiles.
-/// - Per-Job Coordination: Each read_region() call has its own synchronization state.
-///
-/// Thread-safety:
-/// - read_region is thread-safe and can be called concurrently from multiple threads.
-/// - Internal worker threads are shared across all calls.
-/// - Each worker has its own decoder to avoid contention.
-///
-/// Performance Characteristics:
-/// - Best for: Heavy compression (ZSTD, Deflate) with fast I/O (SSD, memory-mapped)
-/// - CPU Utilization: Maximizes parallelism for decompression
-/// - Memory: O(decoder_scratch_size × worker_threads)
-/// - Not recommended for: High-latency I/O (use IOLimitedReader instead)
+/// - Thread_safe: read_region is thread-safe and can be called concurrently from multiple threads.
+/// - Permanent workers: Internal worker threads are shared across all calls.
 ///
 /// @note Thread-safe: multiple threads can call read_region concurrently
 /// @note Allocates thread_local storage for each worker and calling threads.
@@ -275,71 +281,47 @@ private:
         std::shared_ptr<JobState> job_state) noexcept;
 };
 
-/// @brief Optimal reader combining async I/O with parallel processing
+/// @brief Reader optimized for any usage
 ///
-/// This is the "ultimate" TIFF reader designed for maximum performance across
-/// all storage types: local SSD, NAS, cloud storage.
+/// This reader optmizes I/O by using OS async I/O calls,
+/// which enables to have many parallel read commands with a
+/// single thread (which is good both for fast and slow storage).
 ///
-/// Design Philosophy:
-/// - Async I/O: Submit all reads upfront using AsyncRawReader interface
+/// I/O calls are batched to avoid small reads, which is
+/// particularly beneficial for high latency network storages.
+///
+/// To prevent the I/O async reads from flooding the CPU cache, it bounds
+/// the quantity of pending reads.
+///
+/// It uses permanent worker pool. Each thread calling read_region works on
+/// advancing their job queue, and workers help advancing the job queues by
+/// order of submission. This results in more overhead than CPULimitedReader,
+/// but results in lower latency when CPU cores are busy by other
+/// computations.
+///
+/// Thread-local storage is used by worker threads and by read_region.
+/// This reader induces permanent memory usage multiplied by the number of threads.
+///
+/// Properties:
+/// - Async I/O: Requires a file reader with the AsyncRawReader interface
 /// - Batching: Group adjacent tiles to minimize network round-trips
 /// - Parallel Processing: All threads (including caller) process completions concurrently
-/// - Non-blocking Workers: Workers poll for completions without blocking on I/O
-/// - Thread-Local Decoders: Each thread has its own decoder for cache locality
-///
-/// Architecture:
-/// 1. Main thread collects tiles and creates batches (groups adjacent tiles)
-/// 2. Main thread submits ALL async reads upfront (maximizes queue depth)
-/// 3. Main thread + workers compete to poll completions and process them
-/// 4. Each completion: decode (decompress + predictor) + extract to output
-/// 5. Main thread waits until all tiles processed
-///
-/// Thread Safety:
-/// - read_region is thread-safe and can be called concurrently from multiple threads
-/// - Each read_region call has isolated state
-/// - Workers process completions from any read_region call that's running
-/// - Thread-local decoders eliminate contention
-///
-/// Performance Characteristics:
-/// - Best for: ALL scenarios (optimal across storage types)
-/// - Local SSD: Maximizes queue depth, parallel decode, near 100% CPU utilization
-/// - NAS/Network: Batching reduces round-trips, parallel I/O + decode
-/// - Cloud: Aggressive batching, massive parallelism
-/// - Memory: O(batch_buffer_size + decoder_scratch × threads)
-/// - CPU: Near 100% utilization when decompression is bottleneck
-/// - I/O: Maximum bandwidth utilization with sufficient batching
-///
-/// Configuration:
-/// - worker_threads: Processing threads (0 = auto-detect, typically # cores - 1)
-/// - max_batch_size: Maximum batch read size (4MB default, increase for high-latency)
-/// - max_gap_size: Maximum gap to bridge between tiles (64KB default)
+/// - Non-blocking Workers: Workers are only used for processing and do not do I/O
+/// - Thread-Local storage: Each thread caches various states (buffers, decoders, etc)
+/// - Thread-safe: read_region is thread-safe and can be called concurrently from multiple threads
+/// - Performance: Should perform well for most use-cases, but more overhead than CPULimitedReader.
 ///
 /// @note Requires AsyncRawReader (io_uring on Linux, IOCP on Windows)
-/// @note Main thread participates in processing (no idle time)
-/// @note Workers never block on I/O (only poll completions)
 /// @note Thread-safe: multiple threads can call read_region concurrently
 ///
-/// Example:
-/// @code
-///   #ifdef __linux__
-///   IoUringFileReader reader("file.tif");
-///   #else
-///   IOCPFileReader reader("file.tif");
-///   #endif
-///   
-///   FastReader<uint8_t, DecompSpec> fast_reader;
-///   auto result = fast_reader.read_region<ImageLayoutSpec::DHWC>(
-///       reader, metadata, region, output_buffer
-///   );
-/// @endcode
 template <typename PixelType, typename DecompSpec>
 class FastReader {
 public:
     struct Config {
-        size_t worker_threads = 0;           ///< Processing threads, including thread calling read_region (0 = auto, typically number of cores)
+        size_t worker_threads = 0;           ///< Processing threads, including thread calling read_region (0 = auto, 1 = no workers, 2 = 1 worker, etc)
         size_t max_batch_size = 0;           ///< Max bytes per batch (0 = auto)
-        size_t max_gap_size = 64 * 1024;     ///< Max gap to bridge between tiles. Clamped to max_batch_size // 2
-        ///< Max total bytes in flight (async reads not yet completed)
+        size_t max_gap_size = 64 * 1024;     ///< Allowed gap between tiles when building a batch. Clamped to max_batch_size // 2
+        /// Max total bytes in flight (async reads not yet completed)
         /// Should be lower than half CPU L3 cache size for fast storage,
         /// but higher values may help for high-latency storage.
         /// The threshold is used independently by each read_region call.
@@ -349,10 +331,7 @@ public:
     explicit FastReader(Config config = {});
     ~FastReader();
 
-    /// @brief Read a region using async I/O and parallel processing
-    ///
-    /// This method submits all reads upfront via async_read_into(), then
-    /// all threads (including caller) compete to process completions.
+    /// @brief Read an image region
     ///
     /// @tparam OutSpec Output layout (DHWC, DCHW, CDHW)
     /// @tparam Reader Async reader type (must satisfy AsyncRawReader)
@@ -376,24 +355,24 @@ public:
 
 private:
 
-    struct ActiveJob;
-    struct ActiveJobGuard;
+    struct alignas(64) ActiveJob;
+    struct alignas(64) ActiveJobGuard;
     struct Batch;
     struct BatchBuffer;
     template <typename Reader> struct BatchSubmissionGuard;
-    struct JobState;
+    struct alignas(64) JobState;
     struct TileJob;
 
     Config config_;
     
     // Worker thread pool (persistent)
     std::vector<std::thread> workers_;
-    std::atomic<bool> stop_workers_{false};
-    std::condition_variable worker_wake_cv_;  // Wake workers when new job registered
-    std::mutex worker_wake_mutex_;
+    alignas(64) std::atomic<bool> stop_workers_{false};
+    alignas(64) std::condition_variable worker_wake_cv_;  // Wake workers when new job registered
+    alignas(64) std::mutex worker_wake_mutex_;
 
     // Active jobs registry (for job stealing)
-    std::shared_mutex active_jobs_mutex_;
+    alignas(64) std::shared_mutex active_jobs_mutex_;
     std::vector<ActiveJob*> active_jobs_;
 
     /// @brief Fast path when there are no worker threads
@@ -426,18 +405,6 @@ private:
         std::size_t max_batch_size_hint,
         std::vector<Batch>& out_batches);
         
-    /// @brief Submit async read operations for batches
-    ///
-    /// Allocates memory for each batch separately and submits async reads.
-    /// Each batch gets its own shared_ptr that will be shared among tile jobs.
-    ///
-    /// @param reader Async reader
-    /// @param batches All batches
-    /// @param next_batch_idx Next batch index to submit (updated)
-    /// @param submission_handles Handle array to store results
-    /// @param storage_buffer Vector of shared_ptrs for batch storage (indexed by batch_idx)
-    ///
-    /// @return Ok on success, error on failure
     template <typename Reader>
     requires AsyncRawReader<Reader>
     [[nodiscard]] static Result<void> submit_batches(
@@ -448,19 +415,6 @@ private:
     /// @brief Get thread-local decoder instance
     static TileDecoder<PixelType, DecompSpec>& get_decoder() noexcept;
 
-    /// @brief Process a single tile (decode + extract)
-    ///
-    /// This function is called by both main thread and worker threads.
-    /// Each thread uses its own thread-local decoder.
-    ///
-    /// @param tile Tile to process
-    /// @param compressed_data Compressed tile data
-    /// @param metadata TIFF metadata
-    /// @param shape Image shape
-    /// @param region Image region
-    /// @param output_buffer Output buffer
-    ///
-    /// @return Ok on success, error otherwise
     template <ImageLayoutSpec OutSpec, typename TagSpec>
     requires (TiledImageTagSpec<TagSpec> || StrippedImageTagSpec<TagSpec>)
     [[nodiscard]] static Result<void> process_tile(
@@ -472,7 +426,6 @@ private:
         std::span<const std::byte> compressed_data) noexcept;
 
 
-    /// @brief Process a tile job (wrapper for process_tile)
     template <ImageLayoutSpec OutSpec, typename TagSpec>
     requires (TiledImageTagSpec<TagSpec> || StrippedImageTagSpec<TagSpec>)
     static void process_tile_job(

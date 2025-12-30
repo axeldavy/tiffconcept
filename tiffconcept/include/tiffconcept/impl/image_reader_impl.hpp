@@ -981,8 +981,8 @@ FastReader<PixelType, DecompSpec>::~FastReader() {
 
 /// @brief Active read_region job that workers can steal from
 template <typename PixelType, typename DecompSpec>
-struct FastReader<PixelType, DecompSpec>::ActiveJob {
-    detail::LockFreeJobQueue<TileJob>& job_queue;          ///< Job queue for this active job
+struct alignas(64) FastReader<PixelType, DecompSpec>::ActiveJob {
+    alignas(64) detail::LockFreeJobQueue<TileJob>& job_queue;          ///< Job queue for this active job
     alignas(64) std::shared_mutex job_mutex;               /// A job is being processed
     
     explicit ActiveJob(detail::LockFreeJobQueue<TileJob>& queue) : job_queue(queue) {}
@@ -990,9 +990,9 @@ struct FastReader<PixelType, DecompSpec>::ActiveJob {
 
 /// @brief RAII wrapper for job registration/unregistration
 template <typename PixelType, typename DecompSpec>
-struct FastReader<PixelType, DecompSpec>::ActiveJobGuard {
+struct alignas(64) FastReader<PixelType, DecompSpec>::ActiveJobGuard {
     FastReader& reader;
-    ActiveJob job;
+    alignas(64) ActiveJob job;
     
     ActiveJobGuard(FastReader& r, detail::LockFreeJobQueue<TileJob>& queue) 
         : reader(r), job(queue) {
@@ -1114,7 +1114,7 @@ struct FastReader<PixelType, DecompSpec>::BatchSubmissionGuard {
 /// - Mutex only for error tracking
 /// - Main thread + workers all access this concurrently
 template <typename PixelType, typename DecompSpec>
-struct FastReader<PixelType, DecompSpec>::JobState {
+struct alignas(64) FastReader<PixelType, DecompSpec>::JobState {
     // Tracking
     alignas(64) std::atomic<size_t> tiles_remaining{0};   ///< Remaining tiles to process
     alignas(64) std::atomic<size_t> bytes_in_flight{0};   ///< Bytes currently being read
@@ -1135,7 +1135,7 @@ struct FastReader<PixelType, DecompSpec>::JobState {
     std::size_t next_batch_idx{0};  ///< Next batch index to submit
 
     // Job queue
-    detail::LockFreeJobQueue<TileJob> job_queue;
+    alignas(64) detail::LockFreeJobQueue<TileJob> job_queue;
 
     // Preallocated completion buffer
     std::vector<std::pair<uint64_t, Result<std::size_t>>> completion_buffer;

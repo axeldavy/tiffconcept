@@ -13,7 +13,7 @@ namespace tiffconcept::detail {
 /// - Multiple workers try_pop frequently
 /// - Cache-line optimized to reduce false sharing
 template <typename Job>
-struct LockFreeJobQueue {
+struct alignas(64) LockFreeJobQueue {
     alignas(64) std::atomic<size_t> write_idx{0};  // Producer only
     alignas(64) std::atomic<size_t> read_idx{0};   // Consumers compete here
     alignas(64) std::vector<Job> jobs;             // Pre-allocated ring buffer

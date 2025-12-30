@@ -14,12 +14,12 @@ namespace tiffconcept {
 
 /// @brief Container for extracted TIFF tag values
 /// @tparam Args Either a TagSpec or a list of tag descriptors
-/// 
+///
 /// @note Provides compile-time access to tag values by TagCode
 /// @note Supports both required and optional tags
-/// @note Handles tag extraction from IFD with O(n+m) sorted algorithm
+/// @note Handles tag extraction from IFD
 /// @note Provides utilities for writing tags back to TIFF files
-/// 
+///
 /// Example usage:
 /// @code
 /// ExtractedTags<ImageWidthTag, ImageLengthTag, OptTag_t<CompressionTag>> tags;
@@ -68,14 +68,6 @@ namespace detail {
     struct ExtractedTagsImpl;
 }
 
-/// @brief Container for extracted TIFF tag values
-/// @tparam Args Either a TagSpec or a list of tag descriptors
-/// 
-/// Specialization that provides:
-/// - Compile-time tag access by TagCode
-/// - Tag extraction from IFD
-/// - Tag writing utilities
-/// - Memory reuse for optional tags
 template <typename... Args>
 struct ExtractedTags {
 private:
@@ -105,7 +97,7 @@ public:
     /// @note For required tags, returns T&
     template <TagCode Code>
     [[nodiscard]] constexpr decltype(auto) get() noexcept;
-    
+
     /// @brief Get value by tag code at compile time (const version)
     /// @tparam Code Tag code to access
     /// @return Const reference to the tag value

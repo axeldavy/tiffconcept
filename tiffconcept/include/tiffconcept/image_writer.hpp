@@ -34,7 +34,7 @@ struct ChunkLayout {
     uint32_t chunks_down;                ///< Number of chunks in Y direction
     uint32_t chunks_deep;                ///< Number of chunks in Z direction (usually 1)
     uint16_t num_planes;                 ///< Number of planes (1 for chunky, samples_per_pixel for planar)
-    
+
     /// @brief Create layout for tiled image
     /// @param image_width Image width in pixels
     /// @param image_height Image height in pixels
@@ -57,7 +57,7 @@ struct ChunkLayout {
         uint32_t tile_depth,
         uint16_t samples_per_pixel,
         PlanarConfiguration planar_config) noexcept;
-    
+
     /// @brief Create layout for stripped image
     /// @param image_width Image width in pixels
     /// @param image_height Image height in pixels
@@ -82,7 +82,7 @@ struct ChunkLayout {
 /// @tparam WriteConfig_ Write configuration (IFD placement, tile ordering, buffering)
 /// @tparam TiffFormat TIFF format type (Classic or BigTIFF)
 /// @tparam TargetEndian Target endianness for the TIFF file
-/// 
+///
 /// @note Uses configurable write strategies for flexible layout control
 /// @note Handles tile extraction, encoding, and writing
 /// @note Supports both tiled and stripped image layouts
