@@ -408,193 +408,98 @@ public:
 };
 
 /**
- * @brief PMR memory resource with aligned allocations
+ * @brief PMR memory resource providing 64-byte aligned allocations with pooling
  * 
- * AlignedMemoryResource is a std::pmr::memory_resource that guarantees
- * all allocations are aligned to a specified boundary. It can be used
- * as an upstream resource for other PMR allocators.
+ * This memory resource wraps std::pmr::unsynchronized_pool_resource to provide
+ * efficient allocation of cache-line aligned buffers. The goal is to allow
+ * memory reuse for frequently allocated/deallocated buffers in tile processing,
  * 
- * ## Use Cases
- * 
- * 1. **With pmr::monotonic_buffer_resource**: Fast batch allocations
- * 2. **With pmr::synchronized_pool_resource**: Thread-safe pooling
- * 3. **With pmr::unsynchronized_pool_resource**: Single-threaded pooling
- * 4. **Standalone**: Direct aligned allocations
- * 
- * ## Example Integration
+ * ## Usage Pattern
  * 
  * ```cpp
- * // Create aligned upstream resource
- * AlignedMemoryResource aligned(64);  // 64-byte alignment
+ * // Thread-local pool for tile processing
+ * thread_local memory::AlignedBufferPool pool_resource;
  * 
- * // Use with monotonic buffer for fast batch allocations
- * std::pmr::monotonic_buffer_resource mono(&aligned);
- * std::pmr::vector<std::byte> batch_buffer(&mono);
+ * // Use with PMR containers
+ * std::pmr::vector<std::byte> buffer(&pool_resource);
+ * buffer.resize(1024 * 1024);  // 64-byte aligned
  * 
- * // All allocations from batch_buffer are 64-byte aligned
- * batch_buffer.resize(1024 * 1024);
- * 
- * // Reset mono resource to reuse memory
- * mono.release();
+ * // Or with polymorphic allocator
+ * std::pmr::polymorphic_allocator<std::byte> alloc(&pool_resource);
+ * auto ptr = alloc.allocate(4096);
  * ```
  * 
- * ## Thread Safety
+ * ```cpp
+ * class TileDecoder {
+ *     thread_local static memory::AlignedBufferPool pool_;
+ *     std::pmr::vector<std::byte> scratch_buffer_;
  * 
- * This class is thread-safe when used through std::pmr mechanisms:
- * - do_allocate() is thread-safe (uses std::aligned_alloc)
- * - do_deallocate() is thread-safe (uses std::free)
- * - Multiple threads can allocate/deallocate concurrently
+ * public:
+ *     TileDecoder() : scratch_buffer_(&pool_) {}
+ *     
+ *     void decode(std::span<const std::byte> compressed) {
+ *         scratch_buffer_.resize(estimated_size);
+ *         // decompress into scratch_buffer_...
+ *     }
+ * };
+ * ```
  * 
- * @note This is NOT a pool - it forwards directly to std::aligned_alloc
- * @note Use pmr::synchronized_pool_resource on top for pooling behavior
+ * @note Thread safety: NOT thread-safe (use thread_local instances)
+ * @note Alignment: All allocations are 64-byte aligned regardless of size
+ * @note Pool limits: Largest pooled block is 16MB (larger allocations pass through)
  */
-class AlignedMemoryResource : public std::pmr::memory_resource {
+class AlignedBufferPool : public std::pmr::memory_resource {
 private:
+    /// Upstream aligned memory resource
+    class AlignedUpstream : public std::pmr::memory_resource {
+    private:
+        std::size_t alignment_;
+        
+        void* do_allocate(std::size_t bytes, std::size_t align) override;
+        void do_deallocate(void* ptr, std::size_t bytes, std::size_t align) override;
+        bool do_is_equal(const std::pmr::memory_resource& other) const noexcept override;
+        
+    public:
+        explicit AlignedUpstream(std::size_t alignment = CACHE_LINE_SIZE);
+    };
+    
+    AlignedUpstream upstream_;
+    std::pmr::unsynchronized_pool_resource pool_;
     std::size_t alignment_;
     
-protected:
-    /**
-     * @brief Allocate aligned memory
-     * 
-     * @param bytes Number of bytes to allocate
-     * @param alignment Requested alignment (overridden by constructor alignment)
-     * @return Pointer to allocated memory
-     * 
-     * @throws std::bad_alloc If allocation fails
-     * @note Uses std::aligned_alloc internally
-     */
-    void* do_allocate(std::size_t bytes, std::size_t alignment) override;
-    
-    /**
-     * @brief Deallocate memory
-     * 
-     * @param ptr Pointer to memory to free
-     * @param bytes Size of allocation (ignored)
-     * @param alignment Alignment of allocation (ignored)
-     * 
-     * @note Thread-safe (std::free is thread-safe)
-     */
-    void do_deallocate(void* ptr, std::size_t bytes, std::size_t alignment) override;
-    
-    /**
-     * @brief Check if two resources are equal
-     * 
-     * @param other Resource to compare with
-     * @return true if this == &other
-     */
-    bool do_is_equal(const memory_resource& other) const noexcept override;
-    
 public:
     /**
-     * @brief Construct with specified alignment
+     * @brief Construct pool with default settings
      * 
-     * @param alignment Alignment for all allocations (must be power of 2)
-     * 
-     * @pre alignment must be a power of 2
-     * @note Default alignment is CACHE_LINE_SIZE (64 bytes)
+     * Configures pool for:
+     * - Largest block: 16MB
+     * - Alignment: 64 bytes
      */
-    explicit AlignedMemoryResource(std::size_t alignment = CACHE_LINE_SIZE) noexcept;
+    AlignedBufferPool();
     
     /**
-     * @brief Get configured alignment
-     * @return Alignment in bytes
+     * @brief Construct pool with custom alignment and max block size
+     * 
+     * @param alignment Alignment in bytes (must be power of 2)
+     * @param max_block_size Maximum block size for pooling (default: 16MB)
      */
-    [[nodiscard]] std::size_t alignment() const noexcept;
-};
-
-/**
- * @brief Thread-safe aligned memory pool using PMR
- * 
- * AlignedPoolResource combines aligned allocation with pooling for efficient
- * reuse of memory. It uses std::pmr::synchronized_pool_resource internally
- * with an AlignedMemoryResource as the upstream allocator.
- * 
- * ## Benefits
- * 
- * - **Thread-safe**: Multiple threads can allocate/deallocate concurrently
- * - **Aligned**: All allocations are cache-line aligned
- * - **Pooled**: Deallocated memory is reused instead of freed
- * - **PMR-compatible**: Works with std::pmr::polymorphic_allocator
- * 
- * ## Performance Characteristics
- * 
- * | Operation | Typical Cost | Notes |
- * |-----------|-------------|--------|
- * | First allocation | ~100-200ns | Allocates from upstream |
- * | Cached allocation | ~20-50ns | Reuses pooled block |
- * | Deallocation | ~10-30ns | Returns to pool |
- * | release() | ~O(n) | Frees all pooled blocks |
- * 
- * ## Example Usage
- * 
- * ```cpp
- * // Create aligned pool (64-byte alignment, default pool options)
- * AlignedPoolResource pool(64);
- * 
- * // Use with pmr::vector
- * std::pmr::vector<std::byte> buffer1(&pool);
- * buffer1.resize(1024);  // Allocates from pool
- * 
- * std::pmr::vector<std::byte> buffer2(&pool);
- * buffer2.resize(1024);  // Reuses freed memory from pool
- * 
- * // Release all pooled memory
- * pool.release();
- * ```
- * 
- * @note Suitable for high-frequency allocations of similar sizes
- * @note Not suitable for very large allocations (>1MB) - use monotonic_buffer_resource
- */
-class AlignedPoolResource {
-private:
-    AlignedMemoryResource aligned_resource_;
-    std::pmr::synchronized_pool_resource pool_;
-    
-public:
-    /**
-     * @brief Construct with custom alignment and pool options
-     * 
-     * @param alignment Alignment for all allocations (must be power of 2)
-     * @param options Pool configuration (max blocks per chunk, etc.)
-     * 
-     * @note Default alignment is CACHE_LINE_SIZE (64 bytes)
-     * @note See std::pmr::pool_options for configuration details
-     */
-    explicit AlignedPoolResource(
-        std::size_t alignment = CACHE_LINE_SIZE,
-        const std::pmr::pool_options& options = std::pmr::pool_options{}
-    );
-    
-    /**
-     * @brief Get polymorphic allocator for this pool
-     * 
-     * @return Allocator that can be passed to PMR containers
-     * 
-     * @example
-     * ```cpp
-     * AlignedPoolResource pool(64);
-     * auto alloc = pool.get_allocator();
-     * std::pmr::vector<int> vec(alloc);
-     * ```
-     */
-    [[nodiscard]] std::pmr::polymorphic_allocator<std::byte> get_allocator() noexcept;
+    explicit AlignedBufferPool(
+        std::size_t alignment,
+        std::size_t max_block_size = 16 * 1024 * 1024);
     
     /**
      * @brief Release all pooled memory back to upstream
      * 
-     * Frees all memory held by the pool. Subsequent allocations will
-     * request fresh memory from the upstream allocator.
-     * 
-     * @note This is NOT thread-safe with concurrent allocations
-     * @note Only call when no allocations are in use
+     * Frees all cached blocks. Future allocations will need to allocate
+     * from upstream until the pool refills.
+     * You likely do not want to use this, to allow memory reuse.
      */
     void release();
     
-    /**
-     * @brief Get configured alignment
-     * @return Alignment in bytes
-     */
-    [[nodiscard]] std::size_t alignment() const noexcept;
+private:
+    void* do_allocate(std::size_t bytes, std::size_t align) override;
+    void do_deallocate(void* ptr, std::size_t bytes, std::size_t align) override;
+    bool do_is_equal(const std::pmr::memory_resource& other) const noexcept override;
 };
 
 } // namespace memory

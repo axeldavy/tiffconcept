@@ -594,6 +594,7 @@ static void BM_Read_SizeVariation(benchmark::State& state) {
     ReaderType reader;
     ExtractedTags<MinTiledSpec> metadata;
     TiledImageInfo<T> image_info;
+    memory::AlignedBuffer<T> output;
 
     FileReader file_reader;
     for (auto _ : state) {
@@ -629,7 +630,7 @@ static void BM_Read_SizeVariation(benchmark::State& state) {
             }
 
             auto region = image_info.shape().full_region();
-            memory::AlignedBuffer<T> output(region.num_samples());
+            output.resize(region.num_samples());
             
             auto result = reader.template read_region<ImageLayoutSpec::DHWC>(
                 file_reader, metadata, region, output);
@@ -667,7 +668,7 @@ static void BM_Read_SizeVariation(benchmark::State& state) {
             }
             
             auto region = image_info.shape().full_region();
-            memory::AlignedBuffer<T> output(region.num_samples());
+            output.resize(region.num_samples());
             
             auto result = reader.template read_region<ImageLayoutSpec::DHWC>(
                 file_reader, metadata, region, output);
@@ -1400,7 +1401,7 @@ static void BM_LibTIFF_Write_MultiPage(benchmark::State& state) {
 
 #endif // HAVE_LIBTIFF
 
-
+/*
 BENCHMARK(BM_Read_SizeVariation_test_data<uint8_t, SimpleReaderType<uint8_t, DecompressorSpec<NoneDecompressorDesc, ZstdDecompressorDesc>>>)
     ->Args({512, 1, 0, 0})    
     ->Args({1024, 1, 0, 0})   
@@ -1433,8 +1434,10 @@ BENCHMARK(BM_LibTIFF_Read_SizeVariation_test_data<uint8_t>)
     ->Args({8192, 1, 0, 0})  
     ->Name("LibTIFF/Read/SizeVariation/uint8")
     ->Unit(benchmark::kMillisecond);
+*/
 
-#if 0
+
+#if 1
 // ============================================================================
 // Benchmark Registration
 // ============================================================================

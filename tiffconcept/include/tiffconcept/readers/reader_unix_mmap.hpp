@@ -1,5 +1,7 @@
 #pragma once
 
+#if defined(__unix__) || defined(__APPLE__)
+
 #include <cstddef>
 #include <span>
 #include <memory>
@@ -351,3 +353,5 @@ static_assert(RawReader<MmapFileReadWriter>, "MmapFileReadWriter must satisfy Ra
 static_assert(RawWriter<MmapFileReadWriter>, "MmapFileReadWriter must satisfy RawWriter concept");
 
 } // namespace tiffconcept
+
+#endif // __unix__ || __APPLE__

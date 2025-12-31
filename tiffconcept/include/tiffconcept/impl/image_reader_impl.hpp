@@ -1036,18 +1036,17 @@ struct FastReader<PixelType, DecompSpec>::BatchBuffer {
         , ref_count(num_tiles)
         , buffer_size(size) {}
 
+    //~BatchBuffer() {assert (buffer == nullptr);};
+
     /// @brief Decrement reference count when a tile finishes
     ///
     /// When the last reference is released, frees the buffer and
     /// returns the size of the buffer released.
-    [[nodiscard]] inline std::size_t release_tile() noexcept {
+    inline void release_tile() noexcept {
         if (ref_count.fetch_sub(1, std::memory_order_acq_rel) == 1) {
             buffer.reset();
-            std::size_t size = buffer_size;
             buffer_size = 0;
-            return size;
         }
-        return 0;
     }
 
     BatchBuffer(const BatchBuffer&) = delete;
@@ -1128,6 +1127,8 @@ struct alignas(64) FastReader<PixelType, DecompSpec>::JobState {
     std::vector<Tile> tiles;
     std::vector<Batch> batches;
     std::vector<uint64_t> submission_handles; ///< Handles for async read submissions
+    alignas(64) memory::AlignedBufferPool buffer_pool;  ///< Pool for batch buffers
+    alignas(64) detail::LockFreeMPSCQueue<std::pair<void*, std::size_t>> buffer_release_queue; ///< Queue for released buffers
     std::vector<BatchBuffer> storage_buffers; ///< Buffers for each batch
     size_t max_bytes_in_flight{0};        ///< Max allowed bytes in flight
 
@@ -1156,16 +1157,44 @@ struct alignas(64) FastReader<PixelType, DecompSpec>::JobState {
 
     /// @brief Allocate aligned batch buffer
     /// @param size Size in bytes to allocate
+    /// @note not thread-safe, done only by main thread.
     /// @return unique_ptr with custom deleter that returns memory to pool
     [[nodiscard]] inline std::unique_ptr<std::byte[], std::function<void(std::byte*)>> 
     allocate_batch_buffer(size_t size) {
-        std::size_t aligned_size = (size + memory::CACHE_LINE_SIZE - 1) / memory::CACHE_LINE_SIZE * memory::CACHE_LINE_SIZE;
-    
-        void* ptr = memory::aligned_alloc(memory::CACHE_LINE_SIZE, aligned_size);
+        // Check previous releases
+        free_released_buffers();
+
+        void* ptr = buffer_pool.allocate(size, memory::CACHE_LINE_SIZE);
+        bytes_in_flight.fetch_add(size, std::memory_order_relaxed);
+        //std::cerr << "Allocated batch buffer of pointer " << ptr << "\n" << std::flush;
 
         return {
-            static_cast<std::byte*>(ptr), memory::aligned_free
+            static_cast<std::byte*>(ptr), [this, size](std::byte* p) { this->release_batch_buffer(p, size); }
         };
+    }
+
+    /// @brief Delayed release of a buffer back to the pool
+    /// @note thread-safe, done by main thread or workers.
+    inline void release_batch_buffer(void* ptr, std::size_t size) noexcept {
+        bool success = buffer_release_queue.try_push({ptr, size});
+        assert(success && "Buffer release queue is full");
+        (void)success;
+        //std::cerr << "Thread" << std::this_thread::get_id() 
+        //          << " released batch buffer of pointer " << ptr << "\n" << std::flush;
+        
+    }
+
+    /// @brief Free released buffers from the release queue
+    /// @note not thread-safe, done only by main thread.
+    inline void free_released_buffers() noexcept {
+        std::pair<void*, std::size_t> release_pair;
+        while (buffer_release_queue.try_pop(release_pair)) {
+            //std::cerr << "Releasing batch buffer of pointer: " << release_pair.first << "\n" << std::flush;
+            // free buffer from pool
+            buffer_pool.deallocate(release_pair.first, release_pair.second, memory::CACHE_LINE_SIZE);
+            // Decrement bytes in flight
+            bytes_in_flight.fetch_sub(release_pair.second, std::memory_order_relaxed);
+        }
     }
 
     /// @brief Find batch index by submission handle
@@ -1291,6 +1320,8 @@ inline Result<void> FastReader<PixelType, DecompSpec>::read_region(
 
     job_state.tiles_remaining.store(job_state.tiles.size(), std::memory_order_relaxed);
     job_state.job_queue.reset(job_state.tiles.size());
+    job_state.free_released_buffers(); // Free any previously released buffers
+    job_state.buffer_release_queue.reset(job_state.tiles.size());
     job_state.max_bytes_in_flight = config_.max_bytes_in_flight;
     
     // Fill batches vector
@@ -1303,6 +1334,9 @@ inline Result<void> FastReader<PixelType, DecompSpec>::read_region(
     if (job_state.storage_buffers.size() < job_state.batches.size()) {
         job_state.storage_buffers.resize(job_state.batches.size());
     }
+    //for (const auto& batch_buffer : job_state.storage_buffers) {
+    //    assert(batch_buffer.buffer == nullptr && "Not all batch buffers were released");
+    //}
 
     // Ensure all pending I/O is completed on exit
     BatchSubmissionGuard batch_guard{job_state, reader};
@@ -1408,6 +1442,13 @@ inline Result<void> FastReader<PixelType, DecompSpec>::read_region(
         std::lock_guard lock(job_state.error_mutex);
         return job_state.first_error;
     }
+
+    job_state.free_released_buffers(); // Free any previously released buffers
+
+    // Assert that all buffers are released
+    //for (const auto& batch_buffer : job_state.storage_buffers) {
+    //    assert(batch_buffer.buffer == nullptr && "Not all batch buffers were released");
+    //}
     
     return Ok();
 }
@@ -1537,11 +1578,8 @@ inline Result<void> FastReader<PixelType, DecompSpec>::read_region_single_thread
                     return process_res.error();
                 }
                 
-                // Release tile reference and update bytes_in_flight if buffer freed
-                std::size_t released_bytes = batch_buffer.release_tile();
-                if (released_bytes > 0) {
-                    job_state.bytes_in_flight.fetch_sub(released_bytes, std::memory_order_relaxed);
-                }
+                // Release tile reference
+                batch_buffer.release_tile();
                 
                 job_state.tiles_remaining.fetch_sub(1, std::memory_order_release);
             }
@@ -1657,6 +1695,9 @@ inline void FastReader<PixelType, DecompSpec>::create_batches(
     if (tiles.empty()) {
         return;
     }
+
+    //std::cerr << "=====================\n";
+    //std::cerr << "Creating batches for " << tiles.size() << " tiles\n";
     
     size_t start_idx = 0;
     size_t current_offset = tiles[0].location.offset;
@@ -1676,6 +1717,9 @@ inline void FastReader<PixelType, DecompSpec>::create_batches(
                                  max_batch_size_hint : 
                                  config.max_batch_size;
     std::size_t max_gap_size = std::min(config.max_gap_size, max_batch_size / 2);
+
+    //std::cerr << "Max batch size: " << max_batch_size << " bytes\n";
+    //std::cerr << "Max gap size: " << max_gap_size << " bytes\n";
     
     for (size_t i = 1; i < tiles.size(); ++i) {
         const auto& tile = tiles[i];
@@ -1697,6 +1741,17 @@ inline void FastReader<PixelType, DecompSpec>::create_batches(
                           (new_size > max_batch_size);
         
         if (break_batch) {
+            //std::cerr << "Created batch: "
+            //          << "first_tile_index=" << start_idx
+            //          << ", tile_count=" << (i - start_idx)
+            //          << ", file_offset=" << current_offset
+            //          << ", total_read_size=" << (current_end - current_offset)
+            //          << ", total_write_size=" << current_write_size
+            //          << "\n";
+            //std::cerr << "  (breaking at tile index " << i 
+            //          << ", gap=" << gap 
+            //          << ", new_size=" << new_size
+            //          << ")\n";
             // Finalize current batch (do not include i).
             out_batches.push_back({
                 start_idx,
@@ -1717,6 +1772,14 @@ inline void FastReader<PixelType, DecompSpec>::create_batches(
             current_write_size += tile_write_size;
         }
     }
+
+    //std::cerr << "Created batch: "
+    //          << "first_tile_index=" << start_idx
+    //          << ", tile_count=" << (tiles.size() - start_idx)
+    //          << ", file_offset=" << current_offset
+    //          << ", total_read_size=" << (current_end - current_offset)
+    //          << ", total_write_size=" << current_write_size
+    //          << "\n";
     
     // Finalize last batch
     out_batches.push_back({
@@ -1754,7 +1817,6 @@ inline Result<void> FastReader<PixelType, DecompSpec>::submit_batches(
         const auto& batch = job_state.batches[job_state.next_batch_idx];
         
         // Allocate memory for this batch
-        job_state.bytes_in_flight.fetch_add(batch.total_read_size, std::memory_order_relaxed);// TODO acquire or release
         auto buffer_ptr = job_state.allocate_batch_buffer(batch.total_read_size);
         std::span<std::byte> buffer_span(buffer_ptr.get(), batch.total_read_size);
         
@@ -1888,11 +1950,8 @@ inline void FastReader<PixelType, DecompSpec>::process_tile_job(
         job_state.report_error(result.error());
     }
     
-    // Release tile reference and update bytes_in_flight if buffer freed
-    std::size_t released_bytes = batch_buffer.release_tile();
-    if (released_bytes > 0) {
-        job_state.bytes_in_flight.fetch_sub(released_bytes, std::memory_order_relaxed);
-    }
+    // Release tile reference
+    batch_buffer.release_tile();
     
     job_state.tiles_remaining.fetch_sub(1, std::memory_order_release);
 }

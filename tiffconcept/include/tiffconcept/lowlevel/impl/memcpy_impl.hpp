@@ -2,6 +2,8 @@
 
 #include <cstddef>
 
+#include "../../detail/compilers.hpp"
+
 #ifndef TIFFCONCEPT_MEMCPY_HEADER
 #include "../memcpy.hpp" // for linters
 #endif
@@ -36,9 +38,8 @@ constexpr bool is_aligned(const void* ptr) noexcept {
 
 /// Copy 16 bytes - streaming when both aligned
 template<bool SrcAligned, bool DstAligned>
-__attribute__((always_inline))
-inline void memcpy_16_sse2(void* __restrict__ dst, 
-                           const void* __restrict__ src) noexcept {
+TIFFCONCEPT_FORCE_INLINE void memcpy_16_sse2(void* __restrict dst, 
+                           const void* __restrict src) noexcept {
     if constexpr (SrcAligned && DstAligned) {
         __m128i xmm = _mm_load_si128(static_cast<const __m128i*>(src));
         _mm_stream_si128(static_cast<__m128i*>(dst), xmm);
@@ -56,9 +57,8 @@ inline void memcpy_16_sse2(void* __restrict__ dst,
 
 /// Copy 32 bytes using SSE2 (2 × 16-byte operations)
 template<bool SrcAligned, bool DstAligned>
-__attribute__((always_inline))
-inline void memcpy_32_sse2(void* __restrict__ dst, 
-                           const void* __restrict__ src) noexcept {
+TIFFCONCEPT_FORCE_INLINE void memcpy_32_sse2(void* __restrict dst, 
+                           const void* __restrict src) noexcept {
     const auto* src_ptr = static_cast<const __m128i*>(src);
     auto* dst_ptr = static_cast<__m128i*>(dst);
     
@@ -87,9 +87,8 @@ inline void memcpy_32_sse2(void* __restrict__ dst,
 
 /// Copy 64 bytes using SSE2 (4 × 16-byte operations)
 template<bool SrcAligned, bool DstAligned>
-__attribute__((always_inline))
-inline void memcpy_64_sse2(void* __restrict__ dst, 
-                           const void* __restrict__ src) noexcept {
+TIFFCONCEPT_FORCE_INLINE void memcpy_64_sse2(void* __restrict dst, 
+                           const void* __restrict src) noexcept {
     const auto* src_ptr = static_cast<const __m128i*>(src);
     auto* dst_ptr = static_cast<__m128i*>(dst);
     
@@ -134,9 +133,8 @@ inline void memcpy_64_sse2(void* __restrict__ dst,
 
 /// Copy 128 bytes using SSE2 (8 × 16-byte operations)
 template<bool SrcAligned, bool DstAligned>
-__attribute__((always_inline))
-inline void memcpy_128_sse2(void* __restrict__ dst, 
-                            const void* __restrict__ src) noexcept {
+TIFFCONCEPT_FORCE_INLINE void memcpy_128_sse2(void* __restrict dst, 
+                            const void* __restrict src) noexcept {
     const auto* src_ptr = static_cast<const __m128i*>(src);
     auto* dst_ptr = static_cast<__m128i*>(dst);
     
@@ -213,9 +211,8 @@ inline void memcpy_128_sse2(void* __restrict__ dst,
 
 /// Copy 256 bytes using SSE2 (16 × 16-byte operations)
 template<bool SrcAligned, bool DstAligned>
-__attribute__((always_inline))
-inline void memcpy_256_sse2(void* __restrict__ dst, 
-                            const void* __restrict__ src) noexcept {
+TIFFCONCEPT_FORCE_INLINE void memcpy_256_sse2(void* __restrict dst, 
+                            const void* __restrict src) noexcept {
     // Split into two 128-byte copies
     memcpy_128_sse2<SrcAligned, DstAligned>(dst, src);
     memcpy_128_sse2<SrcAligned, DstAligned>(static_cast<char*>(dst) + 128, 
@@ -232,9 +229,8 @@ inline void memcpy_256_sse2(void* __restrict__ dst,
 
 /// Copy 32 bytes using AVX2 - streaming when destination aligned
 template<bool SrcAligned, bool DstAligned>
-__attribute__((always_inline))
-inline void memcpy_32_avx2(void* __restrict__ dst, 
-                           const void* __restrict__ src) noexcept {
+TIFFCONCEPT_FORCE_INLINE void memcpy_32_avx2(void* __restrict dst, 
+                           const void* __restrict src) noexcept {
     if constexpr (SrcAligned && DstAligned) {
         __m256i ymm = _mm256_load_si256(static_cast<const __m256i*>(src));
         _mm256_stream_si256(static_cast<__m256i*>(dst), ymm);
@@ -252,9 +248,8 @@ inline void memcpy_32_avx2(void* __restrict__ dst,
 
 /// Copy 64 bytes using AVX2 (2 × 32-byte operations)
 template<bool SrcAligned, bool DstAligned>
-__attribute__((always_inline))
-inline void memcpy_64_avx2(void* __restrict__ dst, 
-                           const void* __restrict__ src) noexcept {
+TIFFCONCEPT_FORCE_INLINE void memcpy_64_avx2(void* __restrict dst, 
+                           const void* __restrict src) noexcept {
     const auto* src_ptr = static_cast<const __m256i*>(src);
     auto* dst_ptr = static_cast<__m256i*>(dst);
     
@@ -283,9 +278,8 @@ inline void memcpy_64_avx2(void* __restrict__ dst,
 
 /// Copy 128 bytes using AVX2 (4 × 32-byte operations)
 template<bool SrcAligned, bool DstAligned>
-__attribute__((always_inline))
-inline void memcpy_128_avx2(void* __restrict__ dst, 
-                            const void* __restrict__ src) noexcept {
+TIFFCONCEPT_FORCE_INLINE void memcpy_128_avx2(void* __restrict dst, 
+                            const void* __restrict src) noexcept {
     const auto* src_ptr = static_cast<const __m256i*>(src);
     auto* dst_ptr = static_cast<__m256i*>(dst);
     
@@ -330,9 +324,8 @@ inline void memcpy_128_avx2(void* __restrict__ dst,
 
 /// Copy 256 bytes using AVX2 (8 × 32-byte operations)
 template<bool SrcAligned, bool DstAligned>
-__attribute__((always_inline))
-inline void memcpy_256_avx2(void* __restrict__ dst, 
-                            const void* __restrict__ src) noexcept {
+TIFFCONCEPT_FORCE_INLINE void memcpy_256_avx2(void* __restrict dst, 
+                            const void* __restrict src) noexcept {
     const auto* src_ptr = static_cast<const __m256i*>(src);
     auto* dst_ptr = static_cast<__m256i*>(dst);
     
@@ -416,52 +409,44 @@ inline void memcpy_256_avx2(void* __restrict__ dst,
 #ifdef TIFFCONCEPT_HAS_AVX2
 
 template<bool SrcAligned, bool DstAligned>
-__attribute__((always_inline))
-inline void memcpy_32(void* __restrict__ dst, const void* __restrict__ src) noexcept {
+TIFFCONCEPT_FORCE_INLINE void memcpy_32(void* __restrict dst, const void* __restrict src) noexcept {
     memcpy_32_avx2<SrcAligned, DstAligned>(dst, src);
 }
 
 template<bool SrcAligned, bool DstAligned>
-__attribute__((always_inline))
-inline void memcpy_64(void* __restrict__ dst, const void* __restrict__ src) noexcept {
+TIFFCONCEPT_FORCE_INLINE void memcpy_64(void* __restrict dst, const void* __restrict src) noexcept {
     memcpy_64_avx2<SrcAligned, DstAligned>(dst, src);
 }
 
 template<bool SrcAligned, bool DstAligned>
-__attribute__((always_inline))
-inline void memcpy_128(void* __restrict__ dst, const void* __restrict__ src) noexcept {
+TIFFCONCEPT_FORCE_INLINE void memcpy_128(void* __restrict dst, const void* __restrict src) noexcept {
     memcpy_128_avx2<SrcAligned, DstAligned>(dst, src);
 }
 
 template<bool SrcAligned, bool DstAligned>
-__attribute__((always_inline))
-inline void memcpy_256(void* __restrict__ dst, const void* __restrict__ src) noexcept {
+TIFFCONCEPT_FORCE_INLINE void memcpy_256(void* __restrict dst, const void* __restrict src) noexcept {
     memcpy_256_avx2<SrcAligned, DstAligned>(dst, src);
 }
 
 #elif defined(TIFFCONCEPT_HAS_SSE2)
 
 template<bool SrcAligned, bool DstAligned>
-__attribute__((always_inline))
-inline void memcpy_32(void* __restrict__ dst, const void* __restrict__ src) noexcept {
+TIFFCONCEPT_FORCE_INLINE void memcpy_32(void* __restrict dst, const void* __restrict src) noexcept {
     memcpy_32_sse2<SrcAligned, DstAligned>(dst, src);
 }
 
 template<bool SrcAligned, bool DstAligned>
-__attribute__((always_inline))
-inline void memcpy_64(void* __restrict__ dst, const void* __restrict__ src) noexcept {
+TIFFCONCEPT_FORCE_INLINE void memcpy_64(void* __restrict dst, const void* __restrict src) noexcept {
     memcpy_64_sse2<SrcAligned, DstAligned>(dst, src);
 }
 
 template<bool SrcAligned, bool DstAligned>
-__attribute__((always_inline))
-inline void memcpy_128(void* __restrict__ dst, const void* __restrict__ src) noexcept {
+TIFFCONCEPT_FORCE_INLINE void memcpy_128(void* __restrict dst, const void* __restrict src) noexcept {
     memcpy_128_sse2<SrcAligned, DstAligned>(dst, src);
 }
 
 template<bool SrcAligned, bool DstAligned>
-__attribute__((always_inline))
-inline void memcpy_256(void* __restrict__ dst, const void* __restrict__ src) noexcept {
+TIFFCONCEPT_FORCE_INLINE void memcpy_256(void* __restrict dst, const void* __restrict src) noexcept {
     memcpy_256_sse2<SrcAligned, DstAligned>(dst, src);
 }
 
@@ -469,26 +454,22 @@ inline void memcpy_256(void* __restrict__ dst, const void* __restrict__ src) noe
 
 // Fallback to memcpy for platforms without SIMD
 template<bool SrcAligned, bool DstAligned>
-__attribute__((always_inline))
-inline void memcpy_32(void* __restrict__ dst, const void* __restrict__ src) noexcept {
+TIFFCONCEPT_FORCE_INLINE void memcpy_32(void* __restrict dst, const void* __restrict src) noexcept {
     std::memcpy(dst, src, 32);
 }
 
 template<bool SrcAligned, bool DstAligned>
-__attribute__((always_inline))
-inline void memcpy_64(void* __restrict__ dst, const void* __restrict__ src) noexcept {
+TIFFCONCEPT_FORCE_INLINE void memcpy_64(void* __restrict dst, const void* __restrict src) noexcept {
     std::memcpy(dst, src, 64);
 }
 
 template<bool SrcAligned, bool DstAligned>
-__attribute__((always_inline))
-inline void memcpy_128(void* __restrict__ dst, const void* __restrict__ src) noexcept {
+TIFFCONCEPT_FORCE_INLINE void memcpy_128(void* __restrict dst, const void* __restrict src) noexcept {
     std::memcpy(dst, src, 128);
 }
 
 template<bool SrcAligned, bool DstAligned>
-__attribute__((always_inline))
-inline void memcpy_256(void* __restrict__ dst, const void* __restrict__ src) noexcept {
+TIFFCONCEPT_FORCE_INLINE void memcpy_256(void* __restrict dst, const void* __restrict src) noexcept {
     std::memcpy(dst, src, 256);
 }
 
@@ -498,9 +479,8 @@ inline void memcpy_256(void* __restrict__ dst, const void* __restrict__ src) noe
 /// Generic memcpy for arbitrary sizes with SIMD when available
 /// _mm_sfence should be called by the caller if DstAligned is true
 template<bool SrcAligned, bool DstAligned>
-__attribute__((always_inline))
-inline void memcpy_generic(void* __restrict__ dst, 
-                          const void* __restrict__ src, 
+TIFFCONCEPT_FORCE_INLINE void memcpy_generic(void* __restrict dst, 
+                          const void* __restrict src, 
                           std::size_t size) noexcept {
     auto* dst_ptr = static_cast<char*>(dst);
     const auto* src_ptr = static_cast<const char*>(src);
@@ -601,9 +581,8 @@ inline void memcpy_generic(void* __restrict__ dst,
 
 /// Repeat copy with compile-time known size (power of 2)
 template<bool SrcAligned, bool DstAligned, std::size_t CopySize>
-__attribute__((always_inline))
-inline void repeat_memcpy_fixed(void* __restrict__ dst_base,
-                                const void* __restrict__ src_base,
+TIFFCONCEPT_FORCE_INLINE void repeat_memcpy_fixed(void* __restrict dst_base,
+                                const void* __restrict src_base,
                                 std::size_t dst_stride,
                                 std::size_t src_stride,
                                 std::size_t repeat_count) noexcept {
@@ -684,9 +663,8 @@ inline void repeat_memcpy_fixed(void* __restrict__ dst_base,
 
 /// Runtime dispatch for alignment
 template<std::size_t CopySize>
-__attribute__((always_inline))
-inline void repeat_memcpy_dispatch_alignment(void* __restrict__ dst_base,
-                                            const void* __restrict__ src_base,
+TIFFCONCEPT_FORCE_INLINE void repeat_memcpy_dispatch_alignment(void* __restrict dst_base,
+                                            const void* __restrict src_base,
                                             std::size_t dst_stride,
                                             std::size_t src_stride,
                                             std::size_t repeat_count) noexcept {
@@ -720,8 +698,8 @@ inline void repeat_memcpy_dispatch_alignment(void* __restrict__ dst_base,
 
 /// Repeated memory copy with stride support
 /// Optimized for tile copies with common power-of-2 sizes
-inline void repeat_memcpy(void* __restrict__ dst_base,
-                         const void* __restrict__ src_base,
+inline void repeat_memcpy(void* __restrict dst_base,
+                         const void* __restrict src_base,
                          std::size_t copy_size,
                          std::size_t dst_stride,
                          std::size_t src_stride,

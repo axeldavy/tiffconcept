@@ -1,5 +1,7 @@
 #pragma once
 
+#if defined(__unix__) || defined(__APPLE__)
+
 #include <algorithm>
 #include <cstddef>
 #include <cstring>
@@ -371,3 +373,5 @@ static_assert(RawReader<PreadFileReadWriter>, "PreadFileReadWriter must satisfy 
 static_assert(RawWriter<PreadFileReadWriter>, "PreadFileReadWriter must satisfy RawWriter concept");
 
 } // namespace tiffconcept
+
+#endif // __unix__ || __APPLE__

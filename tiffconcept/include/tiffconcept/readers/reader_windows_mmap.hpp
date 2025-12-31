@@ -1,7 +1,13 @@
 #pragma once
 
+
+#if defined(_WIN32) || defined(_WIN64)
+
 #ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
+#endif
+#ifndef NOMINMAX
+#define NOMINMAX
 #endif
 #include <windows.h>
 
@@ -493,3 +499,6 @@ static_assert(RawReader<WindowsMmapFileReadWriter>, "WindowsMmapFileReadWriter m
 static_assert(RawWriter<WindowsMmapFileReadWriter>, "WindowsMmapFileReadWriter must satisfy RawWriter concept");
 
 } // namespace tiffconcept
+
+
+#endif // _WIN32 || _WIN64

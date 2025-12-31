@@ -202,5 +202,82 @@ void AlignedBuffer<T>::clear() noexcept {
     size_ = 0;
 }
 
+// ============================================================================
+// AlignedBufferPool Implementation
+// ============================================================================
+
+inline AlignedBufferPool::AlignedUpstream::AlignedUpstream(std::size_t alignment)
+    : alignment_(alignment) {}
+
+inline void* AlignedBufferPool::AlignedUpstream::do_allocate(
+    std::size_t bytes, 
+    std::size_t align
+) {
+    // Use the larger of requested alignment and our minimum
+    std::size_t actual_align = std::max(align, alignment_);
+    
+    // Round up size to multiple of alignment
+    std::size_t aligned_bytes = (bytes + actual_align - 1) / actual_align * actual_align;
+    
+    void* ptr = memory::aligned_alloc(actual_align, aligned_bytes);
+    if (!ptr) {
+        throw std::bad_alloc();
+    }
+    return ptr;
+}
+
+inline void AlignedBufferPool::AlignedUpstream::do_deallocate(
+    void* ptr, 
+    std::size_t bytes, 
+    std::size_t align
+) {
+    (void)bytes;
+    (void)align;
+    memory::aligned_free(ptr);
+}
+
+inline bool AlignedBufferPool::AlignedUpstream::do_is_equal(
+    const std::pmr::memory_resource& other
+) const noexcept {
+    return this == &other;
+}
+
+inline AlignedBufferPool::AlignedBufferPool()
+    : upstream_(CACHE_LINE_SIZE)
+    , pool_(std::pmr::pool_options{
+        .max_blocks_per_chunk = 0,  // Use default
+        .largest_required_pool_block = 16 * 1024 * 1024  // 16MB
+    }, &upstream_)
+    , alignment_(CACHE_LINE_SIZE) {}
+
+inline AlignedBufferPool::AlignedBufferPool(
+    std::size_t alignment,
+    std::size_t max_block_size
+)
+    : upstream_(alignment)
+    , pool_(std::pmr::pool_options{
+        .max_blocks_per_chunk = 0,
+        .largest_required_pool_block = max_block_size
+    }, &upstream_)
+    , alignment_(alignment) {}
+
+inline void AlignedBufferPool::release() {
+    pool_.release();
+}
+
+inline void* AlignedBufferPool::do_allocate(std::size_t bytes, std::size_t align) {
+    return pool_.allocate(bytes, std::max(align, alignment_));
+}
+
+inline void AlignedBufferPool::do_deallocate(void* ptr, std::size_t bytes, std::size_t align) {
+    pool_.deallocate(ptr, bytes, std::max(align, alignment_));
+}
+
+inline bool AlignedBufferPool::do_is_equal(
+    const std::pmr::memory_resource& other
+) const noexcept {
+    return this == &other;
+}
+
 } // namespace memory
 } // namespace tiffconcept
