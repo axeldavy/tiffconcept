@@ -578,7 +578,7 @@ static void BM_Read_SizeVariation(benchmark::State& state) {
     Endianness endian = static_cast<Endianness>(state.range(3));
     
     ImageConfig config{width, width, 1, channels, 128, 128};
-    StorageConfig storage{false, true, comp, PredictorType::None, endian};
+    StorageConfig storage{false, true, comp, PredictorType::Horizontal, endian};
     
     TempFileManager temp_mgr;
     TiffGenerator<T> gen(temp_mgr);
@@ -822,7 +822,7 @@ static void BM_LibTIFF_Read_SizeVariation(benchmark::State& state) {
     CompressionType comp = static_cast<CompressionType>(state.range(2));
     
     ImageConfig config{width, width, 1, channels, 128, 128};
-    StorageConfig storage{false, true, comp, PredictorType::None};
+    StorageConfig storage{false, true, comp, PredictorType::Horizontal};
     
     TempFileManager temp_mgr;
     TiffGenerator<T> gen(temp_mgr);

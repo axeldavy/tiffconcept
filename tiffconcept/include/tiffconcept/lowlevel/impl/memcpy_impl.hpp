@@ -8,11 +8,9 @@
 #include "../memcpy.hpp" // for linters
 #endif
 
-#if defined(__AVX2__)
-    #define TIFFCONCEPT_HAS_AVX2 1
+#if defined(__AVX2__) || defined(__AVX512F__)
     #include <immintrin.h>
 #elif defined(__SSE2__)
-    #define TIFFCONCEPT_HAS_SSE2 1
     #include <emmintrin.h>
 #endif
 
@@ -34,7 +32,7 @@ constexpr bool is_aligned(const void* ptr) noexcept {
 // SSE2 Implementation
 // ============================================================================
 
-#if defined(TIFFCONCEPT_HAS_SSE2) || defined(TIFFCONCEPT_HAS_AVX2)
+#if defined(__SSE2__)
 
 /// Copy 16 bytes - streaming when both aligned
 template<bool SrcAligned, bool DstAligned>
@@ -219,13 +217,13 @@ TIFFCONCEPT_FORCE_INLINE void memcpy_256_sse2(void* __restrict dst,
                                             static_cast<const char*>(src) + 128);
 }
 
-#endif // SSE2 or AVX2
+#endif // SSE2
 
 // ============================================================================
 // AVX2 Implementation
 // ============================================================================
 
-#ifdef TIFFCONCEPT_HAS_AVX2
+#ifdef __AVX2__
 
 /// Copy 32 bytes using AVX2 - streaming when destination aligned
 template<bool SrcAligned, bool DstAligned>
@@ -402,78 +400,188 @@ TIFFCONCEPT_FORCE_INLINE void memcpy_256_avx2(void* __restrict dst,
 
 #endif // AVX2
 
+#if defined(__AVX512F__)
+
+/// Copy 64 bytes using AVX-512 - streaming when destination aligned
+template<bool SrcAligned, bool DstAligned>
+TIFFCONCEPT_FORCE_INLINE void memcpy_64_avx512(void* __restrict dst, 
+                            const void* __restrict src) noexcept {
+    const auto* src_ptr = static_cast<const __m512i*>(src);
+    auto* dst_ptr = static_cast<__m512i*>(dst);
+
+    if constexpr (SrcAligned && DstAligned) {
+        __m512i zmm = _mm512_load_si512(src_ptr);
+        _mm512_stream_si512(dst_ptr, zmm);
+    } else if constexpr (SrcAligned && !DstAligned) {
+        __m512i zmm = _mm512_load_si512(src_ptr);
+        _mm512_storeu_si512(dst_ptr, zmm);
+    } else if constexpr (!SrcAligned && DstAligned) {
+        __m512i zmm = _mm512_loadu_si512(src_ptr);
+        _mm512_stream_si512(dst_ptr, zmm);
+    } else {
+        __m512i zmm = _mm512_loadu_si512(src_ptr);
+        _mm512_storeu_si512(dst_ptr, zmm);
+    }
+}
+
+/// Copy 128 bytes using AVX-512 (2 × 64-byte operations)
+template<bool SrcAligned, bool DstAligned>
+TIFFCONCEPT_FORCE_INLINE void memcpy_128_avx512(void* __restrict dst, 
+                             const void* __restrict src) noexcept {
+    const auto* src_ptr = static_cast<const __m512i*>(src);
+    auto* dst_ptr = static_cast<__m512i*>(dst);
+    
+    if constexpr (SrcAligned && DstAligned) {
+        __m512i zmm0 = _mm512_load_si512(src_ptr);
+        __m512i zmm1 = _mm512_load_si512(src_ptr + 1);
+        _mm512_stream_si512(dst_ptr, zmm0);
+        _mm512_stream_si512(dst_ptr + 1, zmm1);
+    } else if constexpr (SrcAligned && !DstAligned) {
+        __m512i zmm0 = _mm512_load_si512(src_ptr);
+        __m512i zmm1 = _mm512_load_si512(src_ptr + 1);
+        _mm512_storeu_si512(dst_ptr, zmm0);
+        _mm512_storeu_si512(dst_ptr + 1, zmm1);
+    } else if constexpr (!SrcAligned && DstAligned) {
+        __m512i zmm0 = _mm512_loadu_si512(src_ptr);
+        __m512i zmm1 = _mm512_loadu_si512(src_ptr + 1);
+        _mm512_stream_si512(dst_ptr, zmm0);
+        _mm512_stream_si512(dst_ptr + 1, zmm1);
+    } else {
+        __m512i zmm0 = _mm512_loadu_si512(src_ptr);
+        __m512i zmm1 = _mm512_loadu_si512(src_ptr + 1);
+        _mm512_storeu_si512(dst_ptr, zmm0);
+        _mm512_storeu_si512(dst_ptr + 1, zmm1);
+    }
+}
+
+/// Copy 256 bytes using AVX-512 (4 × 64-byte operations)
+template<bool SrcAligned, bool DstAligned>
+TIFFCONCEPT_FORCE_INLINE void memcpy_256_avx512(void* __restrict dst, 
+                             const void* __restrict src) noexcept {
+    const auto* src_ptr = static_cast<const __m512i*>(src);
+    auto* dst_ptr = static_cast<__m512i*>(dst);
+    
+    if constexpr (SrcAligned && DstAligned) {
+        __m512i zmm0 = _mm512_load_si512(src_ptr);
+        __m512i zmm1 = _mm512_load_si512(src_ptr + 1);
+        __m512i zmm2 = _mm512_load_si512(src_ptr + 2);
+        __m512i zmm3 = _mm512_load_si512(src_ptr + 3);
+        _mm512_stream_si512(dst_ptr, zmm0);
+        _mm512_stream_si512(dst_ptr + 1, zmm1);
+        _mm512_stream_si512(dst_ptr + 2, zmm2);
+        _mm512_stream_si512(dst_ptr + 3, zmm3);
+    } else if constexpr (SrcAligned && !DstAligned) {
+        __m512i zmm0 = _mm512_load_si512(src_ptr);
+        __m512i zmm1 = _mm512_load_si512(src_ptr + 1);
+        __m512i zmm2 = _mm512_load_si512(src_ptr + 2);
+        __m512i zmm3 = _mm512_load_si512(src_ptr + 3);
+        _mm512_storeu_si512(dst_ptr, zmm0);
+        _mm512_storeu_si512(dst_ptr + 1, zmm1);
+        _mm512_storeu_si512(dst_ptr + 2, zmm2);
+        _mm512_storeu_si512(dst_ptr + 3, zmm3);
+    } else if constexpr (!SrcAligned && DstAligned) {
+        __m512i zmm0 = _mm512_loadu_si512(src_ptr);
+        __m512i zmm1 = _mm512_loadu_si512(src_ptr + 1);
+        __m512i zmm2 = _mm512_loadu_si512(src_ptr + 2);
+        __m512i zmm3 = _mm512_loadu_si512(src_ptr + 3);
+        _mm512_stream_si512(dst_ptr, zmm0);
+        _mm512_stream_si512(dst_ptr + 1, zmm1);
+        _mm512_stream_si512(dst_ptr + 2, zmm2);
+        _mm512_stream_si512(dst_ptr + 3, zmm3);
+    } else {
+        __m512i zmm0 = _mm512_loadu_si512(src_ptr);
+        __m512i zmm1 = _mm512_loadu_si512(src_ptr + 1);
+        __m512i zmm2 = _mm512_loadu_si512(src_ptr + 2);
+        __m512i zmm3 = _mm512_loadu_si512(src_ptr + 3);
+        _mm512_storeu_si512(dst_ptr, zmm0);
+        _mm512_storeu_si512(dst_ptr + 1, zmm1);
+        _mm512_storeu_si512(dst_ptr + 2, zmm2);
+        _mm512_storeu_si512(dst_ptr + 3, zmm3);
+    }
+}
+
+#endif // AVX512F
+
 // ============================================================================
 // Public Interface - auto-selects best implementation
 // ============================================================================
 
-#ifdef TIFFCONCEPT_HAS_AVX2
-
-template<bool SrcAligned, bool DstAligned>
-TIFFCONCEPT_FORCE_INLINE void memcpy_32(void* __restrict dst, const void* __restrict src) noexcept {
-    memcpy_32_avx2<SrcAligned, DstAligned>(dst, src);
+// Small sizes (no SIMD), declared to avoid handling aliasing issues on non x86 platforms
+TIFFCONCEPT_FORCE_INLINE void memcpy_1(void* __restrict dst, const void* __restrict src) noexcept {
+    std::memcpy(dst, src, 1);
 }
 
-template<bool SrcAligned, bool DstAligned>
-TIFFCONCEPT_FORCE_INLINE void memcpy_64(void* __restrict dst, const void* __restrict src) noexcept {
-    memcpy_64_avx2<SrcAligned, DstAligned>(dst, src);
+TIFFCONCEPT_FORCE_INLINE void memcpy_2(void* __restrict dst, const void* __restrict src) noexcept {
+    std::memcpy(dst, src, 2);
 }
 
-template<bool SrcAligned, bool DstAligned>
-TIFFCONCEPT_FORCE_INLINE void memcpy_128(void* __restrict dst, const void* __restrict src) noexcept {
-    memcpy_128_avx2<SrcAligned, DstAligned>(dst, src);
+TIFFCONCEPT_FORCE_INLINE void memcpy_4(void* __restrict dst, const void* __restrict src) noexcept {
+    std::memcpy(dst, src, 4);
 }
 
-template<bool SrcAligned, bool DstAligned>
-TIFFCONCEPT_FORCE_INLINE void memcpy_256(void* __restrict dst, const void* __restrict src) noexcept {
-    memcpy_256_avx2<SrcAligned, DstAligned>(dst, src);
+TIFFCONCEPT_FORCE_INLINE void memcpy_8(void* __restrict dst, const void* __restrict src) noexcept {
+    std::memcpy(dst, src, 8);
 }
 
-#elif defined(TIFFCONCEPT_HAS_SSE2)
-
+// SIMD sizes with automatic dispatch
 template<bool SrcAligned, bool DstAligned>
-TIFFCONCEPT_FORCE_INLINE void memcpy_32(void* __restrict dst, const void* __restrict src) noexcept {
-    memcpy_32_sse2<SrcAligned, DstAligned>(dst, src);
-}
-
-template<bool SrcAligned, bool DstAligned>
-TIFFCONCEPT_FORCE_INLINE void memcpy_64(void* __restrict dst, const void* __restrict src) noexcept {
-    memcpy_64_sse2<SrcAligned, DstAligned>(dst, src);
-}
-
-template<bool SrcAligned, bool DstAligned>
-TIFFCONCEPT_FORCE_INLINE void memcpy_128(void* __restrict dst, const void* __restrict src) noexcept {
-    memcpy_128_sse2<SrcAligned, DstAligned>(dst, src);
-}
-
-template<bool SrcAligned, bool DstAligned>
-TIFFCONCEPT_FORCE_INLINE void memcpy_256(void* __restrict dst, const void* __restrict src) noexcept {
-    memcpy_256_sse2<SrcAligned, DstAligned>(dst, src);
-}
-
+TIFFCONCEPT_FORCE_INLINE void memcpy_16(void* __restrict dst, const void* __restrict src) noexcept {
+#if defined(__SSE2__)
+    memcpy_16_sse2<SrcAligned, DstAligned>(dst, src);
 #else
+    std::memcpy(dst, src, 16);
+#endif
+}
 
-// Fallback to memcpy for platforms without SIMD
 template<bool SrcAligned, bool DstAligned>
 TIFFCONCEPT_FORCE_INLINE void memcpy_32(void* __restrict dst, const void* __restrict src) noexcept {
+#if defined(__AVX2__)
+    memcpy_32_avx2<SrcAligned, DstAligned>(dst, src);
+#elif defined(__SSE2__)
+    memcpy_32_sse2<SrcAligned, DstAligned>(dst, src);
+#else
     std::memcpy(dst, src, 32);
+#endif
 }
 
 template<bool SrcAligned, bool DstAligned>
 TIFFCONCEPT_FORCE_INLINE void memcpy_64(void* __restrict dst, const void* __restrict src) noexcept {
+#if defined(__AVX512F__)
+    memcpy_64_avx512<SrcAligned, DstAligned>(dst, src);
+#elif defined(__AVX2__)
+    memcpy_64_avx2<SrcAligned, DstAligned>(dst, src);
+#elif defined(__SSE2__)
+    memcpy_64_sse2<SrcAligned, DstAligned>(dst, src);
+#else
     std::memcpy(dst, src, 64);
+#endif
 }
 
 template<bool SrcAligned, bool DstAligned>
 TIFFCONCEPT_FORCE_INLINE void memcpy_128(void* __restrict dst, const void* __restrict src) noexcept {
+#if defined(__AVX512F__)
+    memcpy_128_avx512<SrcAligned, DstAligned>(dst, src);
+#elif defined(__AVX2__)
+    memcpy_128_avx2<SrcAligned, DstAligned>(dst, src);
+#elif defined(__SSE2__)
+    memcpy_128_sse2<SrcAligned, DstAligned>(dst, src);
+#else
     std::memcpy(dst, src, 128);
+#endif
 }
 
 template<bool SrcAligned, bool DstAligned>
 TIFFCONCEPT_FORCE_INLINE void memcpy_256(void* __restrict dst, const void* __restrict src) noexcept {
+#if defined(__AVX512F__)
+    memcpy_256_avx512<SrcAligned, DstAligned>(dst, src);
+#elif defined(__AVX2__)
+    memcpy_256_avx2<SrcAligned, DstAligned>(dst, src);
+#elif defined(__SSE2__)
+    memcpy_256_sse2<SrcAligned, DstAligned>(dst, src);
+#else
     std::memcpy(dst, src, 256);
-}
-
 #endif
+}
 
 
 /// Generic memcpy for arbitrary sizes with SIMD when available
@@ -485,36 +593,6 @@ TIFFCONCEPT_FORCE_INLINE void memcpy_generic(void* __restrict dst,
     auto* dst_ptr = static_cast<char*>(dst);
     const auto* src_ptr = static_cast<const char*>(src);
     
-#ifdef TIFFCONCEPT_HAS_AVX2
-    // Use AVX2 for large blocks
-    while (size >= 256) {
-        memcpy_256<SrcAligned, DstAligned>(dst_ptr, src_ptr);
-        dst_ptr += 256;
-        src_ptr += 256;
-        size -= 256;
-    }
-    
-    while (size >= 128) {
-        memcpy_128<SrcAligned, DstAligned>(dst_ptr, src_ptr);
-        dst_ptr += 128;
-        src_ptr += 128;
-        size -= 128;
-    }
-    
-    while (size >= 64) {
-        memcpy_64<SrcAligned, DstAligned>(dst_ptr, src_ptr);
-        dst_ptr += 64;
-        src_ptr += 64;
-        size -= 64;
-    }
-    
-    while (size >= 32) {
-        memcpy_32<SrcAligned, DstAligned>(dst_ptr, src_ptr);
-        dst_ptr += 32;
-        src_ptr += 32;
-        size -= 32;
-    }
-#elif defined(TIFFCONCEPT_HAS_SSE2)
     // Use SSE2 for large blocks
     while (size >= 256) {
         memcpy_256<SrcAligned, DstAligned>(dst_ptr, src_ptr);
@@ -523,59 +601,58 @@ TIFFCONCEPT_FORCE_INLINE void memcpy_generic(void* __restrict dst,
         size -= 256;
     }
     
-    while (size >= 128) {
+    if (size >= 128) {
         memcpy_128<SrcAligned, DstAligned>(dst_ptr, src_ptr);
         dst_ptr += 128;
         src_ptr += 128;
         size -= 128;
     }
     
-    while (size >= 64) {
+    if (size >= 64) {
         memcpy_64<SrcAligned, DstAligned>(dst_ptr, src_ptr);
         dst_ptr += 64;
         src_ptr += 64;
         size -= 64;
     }
     
-    while (size >= 32) {
+    if (size >= 32) {
         memcpy_32<SrcAligned, DstAligned>(dst_ptr, src_ptr);
         dst_ptr += 32;
         src_ptr += 32;
         size -= 32;
     }
     
-    while (size >= 16) {
-        memcpy_16_sse2<SrcAligned, DstAligned>(dst_ptr, src_ptr);
+    if (size >= 16) {
+        memcpy_16<SrcAligned, DstAligned>(dst_ptr, src_ptr);
         dst_ptr += 16;
         src_ptr += 16;
         size -= 16;
     }
-#endif
     
     // Copy remaining bytes
     if (size >= 8) {
-        *reinterpret_cast<uint64_t*>(dst_ptr) = *reinterpret_cast<const uint64_t*>(src_ptr);
+        memcpy_8(dst_ptr, src_ptr);
         dst_ptr += 8;
         src_ptr += 8;
         size -= 8;
     }
     
     if (size >= 4) {
-        *reinterpret_cast<uint32_t*>(dst_ptr) = *reinterpret_cast<const uint32_t*>(src_ptr);
+        memcpy_4(dst_ptr, src_ptr);
         dst_ptr += 4;
         src_ptr += 4;
         size -= 4;
     }
     
     if (size >= 2) {
-        *reinterpret_cast<uint16_t*>(dst_ptr) = *reinterpret_cast<const uint16_t*>(src_ptr);
+        memcpy_2(dst_ptr, src_ptr);
         dst_ptr += 2;
         src_ptr += 2;
         size -= 2;
     }
     
     if (size > 0) {
-        *dst_ptr = *src_ptr;
+        memcpy_1(dst_ptr, src_ptr);
     }
 }
 
@@ -589,75 +666,13 @@ TIFFCONCEPT_FORCE_INLINE void repeat_memcpy_fixed(void* __restrict dst_base,
     auto* dst = static_cast<char*>(dst_base);
     const auto* src = static_cast<const char*>(src_base);
     
-    if constexpr (CopySize <= 16) {
-        for (std::size_t i = 0; i < repeat_count; ++i) {
-            for (std::size_t offset = 0; offset < CopySize; ++offset) {
-                dst[offset] = src[offset];
-            }
-            dst += dst_stride;
-            src += src_stride;
-        }
+    for (std::size_t i = 0; i < repeat_count; ++i) {
+        memcpy_generic<SrcAligned, DstAligned>(dst, src, CopySize);
+        dst += dst_stride;
+        src += src_stride;
     }
-#if defined(TIFFCONCEPT_HAS_AVX2) || defined(TIFFCONCEPT_HAS_SSE2)
-    else if constexpr (CopySize == 32) {
-        for (std::size_t i = 0; i < repeat_count; ++i) {
-            memcpy_32<SrcAligned, DstAligned>(dst, src);
-            dst += dst_stride;
-            src += src_stride;
-        }
-        if constexpr (DstAligned) _mm_sfence();
-    } else if constexpr (CopySize == 64) {
-        for (std::size_t i = 0; i < repeat_count; ++i) {
-            memcpy_64<SrcAligned, DstAligned>(dst, src);
-            dst += dst_stride;
-            src += src_stride;
-        }
-        if constexpr (DstAligned) _mm_sfence();
-    } else if constexpr (CopySize == 128) {
-        for (std::size_t i = 0; i < repeat_count; ++i) {
-            memcpy_128<SrcAligned, DstAligned>(dst, src);
-            dst += dst_stride;
-            src += src_stride;
-        }
-        if constexpr (DstAligned) _mm_sfence();
-    } else if constexpr (CopySize == 256) {
-        for (std::size_t i = 0; i < repeat_count; ++i) {
-            memcpy_256<SrcAligned, DstAligned>(dst, src);
-            dst += dst_stride;
-            src += src_stride;
-        }
-        if constexpr (DstAligned) _mm_sfence();
-    } else if constexpr (CopySize == 512) {
-        for (std::size_t i = 0; i < repeat_count; ++i) {
-            memcpy_256<SrcAligned, DstAligned>(dst, src);
-            memcpy_256<SrcAligned, DstAligned>(dst + 256, src + 256);
-            dst += dst_stride;
-            src += src_stride;
-        }
-        if constexpr (DstAligned) _mm_sfence();
-    } else if constexpr (CopySize == 1024) {
-        for (std::size_t i = 0; i < repeat_count; ++i) {
-            memcpy_256<SrcAligned, DstAligned>(dst, src);
-            memcpy_256<SrcAligned, DstAligned>(dst + 256, src + 256);
-            memcpy_256<SrcAligned, DstAligned>(dst + 512, src + 512);
-            memcpy_256<SrcAligned, DstAligned>(dst + 768, src + 768);
-            dst += dst_stride;
-            src += src_stride;
-        }
-        if constexpr (DstAligned) _mm_sfence();
-    }
-#else
-    else {
-        // Generic fallback for non-power-of-2 sizes
-        for (std::size_t i = 0; i < repeat_count; ++i) {
-            memcpy_generic<SrcAligned, DstAligned>(dst, src, CopySize);
-            dst += dst_stride;
-            src += src_stride;
-        }
-#if defined(TIFFCONCEPT_HAS_SSE2) || defined(TIFFCONCEPT_HAS_AVX2)
-        if constexpr (DstAligned && CopySize >= 32) _mm_sfence();
-#endif
-    }
+#if defined(__SSE2__) || defined(__AVX2__) || defined(__AVX512F__)
+    if constexpr (DstAligned && CopySize >= 32) _mm_sfence();
 #endif
 }
 
@@ -668,10 +683,10 @@ TIFFCONCEPT_FORCE_INLINE void repeat_memcpy_dispatch_alignment(void* __restrict 
                                             std::size_t dst_stride,
                                             std::size_t src_stride,
                                             std::size_t repeat_count) noexcept {
-#ifdef TIFFCONCEPT_HAS_AVX2
+#ifdef __AVX2__
     const bool src_aligned = is_aligned<32>(src_base) && src_stride % 32 == 0;
     const bool dst_aligned = is_aligned<32>(dst_base) && dst_stride % 32 == 0;
-#elif defined(TIFFCONCEPT_HAS_SSE2)
+#elif defined(__SSE2__)
     const bool src_aligned = is_aligned<16>(src_base) && src_stride % 16 == 0;
     const bool dst_aligned = is_aligned<16>(dst_base) && dst_stride % 16 == 0;
 #else
@@ -726,10 +741,10 @@ inline void repeat_memcpy(void* __restrict dst_base,
             auto* dst = static_cast<char*>(dst_base);
             const auto* src = static_cast<const char*>(src_base);
             
-#ifdef TIFFCONCEPT_HAS_AVX2
+#ifdef __AVX2__
             const bool src_aligned = detail::is_aligned<32>(src_base) && src_stride % 32 == 0;
             const bool dst_aligned = detail::is_aligned<32>(dst_base) && dst_stride % 32 == 0;
-#elif defined(TIFFCONCEPT_HAS_SSE2)
+#elif defined(__SSE2__)
             const bool src_aligned = detail::is_aligned<16>(src_base) && src_stride % 16 == 0;
             const bool dst_aligned = detail::is_aligned<16>(dst_base) && dst_stride % 16 == 0;
 #else
@@ -763,7 +778,7 @@ inline void repeat_memcpy(void* __restrict dst_base,
                 }
             }
             
-#if defined(TIFFCONCEPT_HAS_SSE2) || defined(TIFFCONCEPT_HAS_AVX2)
+#if defined(__SSE2__) || defined(__AVX2__)
             _mm_sfence();
 #endif
             break;
