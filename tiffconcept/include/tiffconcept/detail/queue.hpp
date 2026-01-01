@@ -27,6 +27,7 @@ struct alignas(64) LockFreeJobQueue {
     }
 
     /// @brief Reset and resize the queue
+    /// @note queue must be unused when calling reset
     void reset(size_t new_capacity) {
         write_idx.store(0, std::memory_order_release);
         read_idx.store(0, std::memory_order_release);
@@ -64,32 +65,15 @@ struct alignas(64) LockFreeJobQueue {
         }
     }
     
-    /// @brief Push multiple jobs at once (single-producer only)
-    /// @param new_jobs Jobs to push
-    /// @return true if all jobs pushed, false if queue full
-    bool push_batch(std::span<Job> new_jobs) {
-        size_t current_write = write_idx.load(std::memory_order_relaxed);
-        
-        // Check capacity
-        size_t available = capacity_ - current_write;
-        if (new_jobs.size() > available) {
-            return false; // Queue full
-        }
-        
-        // Copy jobs into buffer
-        for (size_t i = 0; i < new_jobs.size(); ++i) {
-            jobs[(current_write + i)] = std::move(new_jobs[i]);
-        }
-        
-        // Publish all jobs at once
-        write_idx.store(current_write + new_jobs.size(), std::memory_order_release);
-        return true;
-    }
-    
     /// @brief Push a single job (single-producer only)
     void push(Job job) {
-        Job jobs_array[1] = {std::move(job)};
-        push_batch(jobs_array);
+        size_t current_write = write_idx.load(std::memory_order_acquire);
+
+        assert(current_write < capacity_ && "Queue full on push");
+        jobs[current_write] = std::move(job);
+
+        // Publish job, release to ensure write finishes before updating write_idx
+        write_idx.store(current_write + 1, std::memory_order_release);
     }
     
     /// @brief Get current queue size (approximate)
@@ -107,88 +91,141 @@ struct alignas(64) LockFreeJobQueue {
 
 /// @brief Lock-free multi-producer, single-consumer queue for completion tokens
 /// 
+/// Uses sequence numbers to handle out-of-order writes from multiple producers.
+/// Consumer can safely read tokens even if producers complete out-of-order.
+/// 
 /// Optimized for:
 /// - Multiple worker threads push completion tokens after processing tiles
-/// - Single consumer thread batches completions for I/O or aggregation
+/// - Single consumer thread (which may also be a producer) batches completions
+/// - No blocking: consumer never waits for slow producers
 /// - Cache-line optimized to reduce false sharing
 template <typename Token>
 struct alignas(64) LockFreeMPSCQueue {
-    alignas(64) std::atomic<size_t> write_idx{0};  // Producers compete here
-    alignas(64) std::atomic<size_t> read_idx{0};   // Consumer only
-    alignas(64) std::vector<Token> tokens;         // Pre-allocated buffer
-    size_t capacity_;                              // Max tokens, pending or not
+    alignas(64) std::atomic<size_t> claim_idx{0};     // Producers claim slots here
+    alignas(64) std::atomic<size_t> read_idx{0};      // Consumer reads from here
+    alignas(64) std::vector<Token> tokens;            // Pre-allocated buffer
+
+    // Padded atomic to prevent false sharing between sequence slots
+    struct alignas(64) PaddedAtomic {
+        std::atomic<size_t> value;
+        
+        PaddedAtomic() : value(0) {}
+        explicit PaddedAtomic(size_t v) : value(v) {}
+        
+        // Provide atomic-like interface
+        size_t load(std::memory_order order) const noexcept {
+            return value.load(order);
+        }
+        
+        void store(size_t v, std::memory_order order) noexcept {
+            value.store(v, order);
+        }
+    };
+    alignas(64) std::unique_ptr<PaddedAtomic[]> sequences;  // Per-slot sequence numbers
+    size_t capacity_;                                 // Max tokens
 
     LockFreeMPSCQueue() = default;
     
-    LockFreeMPSCQueue(size_t capacity) {
-        capacity_ = capacity;
+    LockFreeMPSCQueue(size_t capacity) : capacity_(capacity) {
         tokens.resize(capacity_);
+        sequences = std::make_unique<PaddedAtomic[]>(capacity_);
+        // Initialize sequences: slot i is ready when sequences[i] == i
+        for (size_t i = 0; i < capacity_; ++i) {
+            sequences[i].store(SIZE_MAX, std::memory_order_release);
+        }
     }
 
     /// @brief Reset and resize the queue
+    /// @note queue must be unused when calling reset
     void reset(size_t new_capacity) {
-        write_idx.store(0, std::memory_order_release);
+        claim_idx.store(0, std::memory_order_release);
         read_idx.store(0, std::memory_order_release);
-        capacity_ = new_capacity;
         tokens.resize(new_capacity);
-    }
-    
-    /// @brief Try to push a token (multi-producer safe)
-    /// @return true if token was pushed, false if queue full
-    bool try_push(Token token) {
-        // Load current write position
-        size_t current_write = write_idx.load(std::memory_order_acquire);
-        
-        while (true) {
-            // current_write is updated by compare_exchange_strong
-            // Queue full?
-            if (current_write >= capacity_) {
-                return false;
-            }
-            
-            // Try to claim this slot (compete with other producers)
-            if (write_idx.compare_exchange_strong(
-                    current_write, 
-                    current_write + 1,
-                    std::memory_order_acq_rel,
-                    std::memory_order_acquire)) {
-                
-                // We won! Write the token
-                tokens[current_write] = std::move(token);
-                return true;
-            }
-            
-            // CAS failed, another thread claimed it. Retry with updated current_write
+        if (new_capacity > capacity_)
+            sequences = std::make_unique<PaddedAtomic[]>(new_capacity);
+        for (size_t i = 0; i < new_capacity; ++i) {
+            sequences[i].store(SIZE_MAX, std::memory_order_release);
         }
+        capacity_ = new_capacity;
     }
     
-    /// @brief Try to pop a single token (single-consumer only)
-    /// @return true if token was popped, false if queue empty
+    /// @brief Push a token (multi-producer safe, lock-free)
+    void push(Token token) {
+        // Atomically claim a slot
+        size_t slot = claim_idx.fetch_add(1, std::memory_order_acquire);
+        
+        // Queue full?
+        assert(slot < capacity_ && "Queue full on push");
+        
+        // Write token to claimed slot (no one else can write here)
+        tokens[slot] = std::move(token);
+        
+        // Publish: mark this slot as ready by storing its sequence number
+        // This creates a happens-before relationship with consumer's acquire load
+        sequences[slot].store(slot, std::memory_order_release);
+    }
+    
+    /// @brief Try to pop a single token (single-consumer only, lock-free)
+    /// @return true if token was popped, false if queue empty or next slot not ready
     bool try_pop(Token& out_token) {
         size_t current_read = read_idx.load(std::memory_order_acquire);
-        size_t current_write = write_idx.load(std::memory_order_acquire);
-        
-        // Queue empty?
-        if (current_read >= current_write) {
-            return false;
-        }
 
-        // End of the queue (test is redundant)
-        if (current_read >= capacity_) [[unlikely]] {
+        if (current_read >= capacity_) {
+            // Reached capacity - no more items can come
             return false;
         }
         
-        // Read the token
+        // Check if next slot is ready
+        // If sequence[current_read] == current_read, the token is published
+        size_t seq = sequences[current_read].load(std::memory_order_acquire);
+        
+        if (seq != current_read) {
+            // Slot not ready yet - either empty or producer still writing
+            return false;
+        }
+        
+        // Slot is ready! Read the token
         out_token = std::move(tokens[current_read]);
+        
+        // Mark slot as consumed (for debugging/reuse)
+        sequences[current_read].store(SIZE_MAX, std::memory_order_release);
+        
+        // Advance read position
         read_idx.store(current_read + 1, std::memory_order_release);
+        
         return true;
     }
+
+    /// @brief Pop a single token (single-consumer only, lock-free) (fails only if empty)
+    bool pop(Token& out_token) {
+        while (true) {
+            if (try_pop(out_token)) {
+                return true;
+            }
+#if 0       // alternate version that fails when capacity reached
+            // Check if we're truly at capacity (no more items can come)
+            size_t current_read = read_idx.load(std::memory_order_acquire);
+            size_t claimed = claim_idx.load(std::memory_order_acquire);
+            if (current_read >= claimed && current_read >= capacity_) {
+                return false;
+            }
+#endif
+            // check if all producers are done with their pending writes
+            size_t current_read = read_idx.load(std::memory_order_acquire);
+            if (current_read >= claim_idx.load(std::memory_order_acquire)) {
+                return false; // queue empty
+            }            
+
+            // Brief yield to avoid burning CPU
+            std::this_thread::yield();
+        }
+    }
     
-    /// @brief Get current queue size (approximate)
+    /// @brief Get current queue size (approximate, may include in-flight writes)
     size_t size() const {
-        size_t write = write_idx.load(std::memory_order_acquire);
+        size_t claimed = claim_idx.load(std::memory_order_acquire);
         size_t read = read_idx.load(std::memory_order_acquire);
-        return write - read;
+        return claimed > read ? claimed - read : 0;
     }
     
     /// @brief Check if queue is empty (approximate)

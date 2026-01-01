@@ -1131,7 +1131,7 @@ struct alignas(64) FastReader<PixelType, DecompSpec>::JobState {
     [[nodiscard]] inline std::unique_ptr<std::byte[], std::function<void(std::byte*)>> 
     allocate_batch_buffer(size_t size) {
         // Check previous releases
-        free_released_buffers();
+        free_released_buffers_relaxed();
 
         void* ptr = buffer_pool.allocate(size, memory::CACHE_LINE_SIZE);
         bytes_in_flight.fetch_add(size, std::memory_order_relaxed);
@@ -1145,9 +1145,7 @@ struct alignas(64) FastReader<PixelType, DecompSpec>::JobState {
     /// @brief Delayed release of a buffer back to the pool
     /// @note thread-safe, done by main thread or workers.
     inline void release_batch_buffer(void* ptr, std::size_t size) noexcept {
-        bool success = buffer_release_queue.try_push({ptr, size});
-        assert(success && "Buffer release queue is full");
-        (void)success;
+        buffer_release_queue.push({ptr, size});
         //std::cerr << "Thread" << std::this_thread::get_id() 
         //          << " released batch buffer of pointer " << ptr << "\n" << std::flush;
         
@@ -1156,6 +1154,18 @@ struct alignas(64) FastReader<PixelType, DecompSpec>::JobState {
     /// @brief Free released buffers from the release queue
     /// @note not thread-safe, done only by main thread.
     inline void free_released_buffers() noexcept {
+        std::pair<void*, std::size_t> release_pair;
+        while (buffer_release_queue.pop(release_pair)) {
+            //std::cerr << "Releasing batch buffer of pointer: " << release_pair.first << "\n" << std::flush;
+            // free buffer from pool
+            buffer_pool.deallocate(release_pair.first, release_pair.second, memory::CACHE_LINE_SIZE);
+            // Decrement bytes in flight
+            bytes_in_flight.fetch_sub(release_pair.second, std::memory_order_relaxed);
+        }
+    }
+
+    /// @brief Same as free_released_buffers but doesn't wait for consumers to finish writing
+    inline void free_released_buffers_relaxed() noexcept {
         std::pair<void*, std::size_t> release_pair;
         while (buffer_release_queue.try_pop(release_pair)) {
             //std::cerr << "Releasing batch buffer of pointer: " << release_pair.first << "\n" << std::flush;
