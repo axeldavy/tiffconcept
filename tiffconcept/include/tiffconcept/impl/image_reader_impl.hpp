@@ -1207,21 +1207,24 @@ struct alignas(64) FastReader<PixelType, DecompSpec>::JobState {
 
 /// @brief Tile processing job (for job stealing)
 template <typename PixelType, typename DecompSpec>
-struct FastReader<PixelType, DecompSpec>::TileJob {
+struct alignas(64) FastReader<PixelType, DecompSpec>::TileJob {
+    // Function pointer for type-safe processing (no allocation)
+    using ProcessFn = void(*)(JobState&, const void*, const void*,
+                              const void*, 
+                              std::span<PixelType>, size_t, size_t);
+
     JobState* job_state;
+    ProcessFn process_fn;
+    size_t batch_idx;
+    size_t tile_idx;
+
     const void* metadata_ptr;      // Type-erased ExtractedTags<TagSpec>*
     const void* shape_ptr;         // Type-erased ImageShape*
     const void* region_ptr;        // Type-erased ImageRegion*
     PixelType* output_buffer_ptr;
     size_t output_buffer_size;
-    size_t batch_idx;
-    size_t tile_idx;
     
-    // Function pointer for type-safe processing (no allocation)
-    using ProcessFn = void(*)(JobState&, const void*, const void*,
-                              const void*, 
-                              std::span<PixelType>, size_t, size_t);
-    ProcessFn process_fn;
+    
     
     TileJob() : job_state(nullptr), process_fn(nullptr) {}
     TileJob(JobState& job_state_param,

@@ -360,7 +360,7 @@ private:
     struct Batch;
     struct BatchBuffer;
     struct alignas(64) JobState;
-    struct TileJob;
+    struct alignas(64) TileJob;
 
     /// @brief RAII wrapper for batch submission and cleanup
     template <typename Reader>
