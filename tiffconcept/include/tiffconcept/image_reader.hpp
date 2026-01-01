@@ -359,9 +359,38 @@ private:
     struct alignas(64) ActiveJobGuard;
     struct Batch;
     struct BatchBuffer;
-    template <typename Reader> struct BatchSubmissionGuard;
     struct alignas(64) JobState;
     struct TileJob;
+
+    /// @brief RAII wrapper for batch submission and cleanup
+    template <typename Reader>
+    struct BatchSubmissionGuard { // not forward declared because MSVC fails else.
+        JobState& job_state;
+        const Reader& reader;
+        
+        BatchSubmissionGuard(JobState& js, const Reader& r)
+            : job_state(js), reader(r) {
+        }
+        
+        ~BatchSubmissionGuard() {
+            if (reader.flush_async_operations()) {
+                // Wait for any pending operations to complete
+                while (reader.pending_operations() > 0) {
+                    std::vector<std::pair<uint64_t, Result<std::size_t>>> completions;
+                    (void)reader.wait_completions(completions, 0);
+    #if 0 // TODO: seems to cause a leak
+                    for (const auto& [handle, res] : completions) {
+                        std::size_t batch_idx = job_state.find_batch_index(handle);
+                        // free buffer if needed
+                        if (batch_idx < job_state.batches.size()) {
+                            job_state.storage_buffers[batch_idx].buffer.reset();
+                        }
+                    }
+    #endif
+                }
+            }
+        }
+    };
 
     Config config_;
     
