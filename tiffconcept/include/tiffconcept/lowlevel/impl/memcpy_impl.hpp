@@ -781,8 +781,8 @@ inline void repeat_memcpy(void* __restrict dst_base,
 #if defined(__SSE2__) || defined(__AVX2__)
             _mm_sfence();
 #endif
-            break;
         }
+        break;
     }
 }
 
