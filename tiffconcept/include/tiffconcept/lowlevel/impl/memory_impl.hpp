@@ -20,7 +20,7 @@ namespace memory {
 // ============================================================================
 
 // MSVC doesn't defined std::aligned_alloc
-#if defined(_aligned_malloc)
+#ifdef _MSC_VER
 inline void* aligned_alloc(std::size_t alignment, std::size_t size) {
     return _aligned_malloc(size, alignment);
 }
