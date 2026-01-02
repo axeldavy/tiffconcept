@@ -114,11 +114,18 @@ public:
     
     /// Configuration for IOCP setup
     struct Config {
-        DWORD max_concurrent_threads = 0;  ///< Max threads for IOCP (0 = # of processors)
-        bool use_unbuffered = false;       ///< Use FILE_FLAG_NO_BUFFERING (requires aligned I/O)
-        bool use_write_through = false;    ///< Use FILE_FLAG_WRITE_THROUGH (bypass cache)
-        bool use_sequential_scan = false;  ///< Hint sequential access pattern
-        bool use_random_access = false;    ///< Hint random access pattern
+        /// @brief Hint sequential access pattern
+        /// May improve performance for sequential reads
+        /// Most likely will have little positive effect
+        /// for FastReader given its batched-ahead access pattern.
+        bool use_sequential_scan = false;
+        /// @brief Hint random access pattern
+        /// Can improve significantly performance for bandwidth-bound IO,
+        /// for instance if you only read a portion of the image on
+        /// a network share (disables aggressive read-ahead).
+        /// Negative performance impact will be small for FastReader,
+        /// due to its batched-ahead access pattern.
+        bool use_random_access = false;
     };
 
 private:
@@ -131,6 +138,7 @@ private:
     HANDLE iocp_handle_{INVALID_HANDLE_VALUE};
     std::size_t size_{0};
     std::string path_;
+    Config stored_config_;
     
     // Operation tracking
     mutable std::atomic<uint64_t> next_user_data_{1};
@@ -153,6 +161,10 @@ public:
     IOCPFileReader(std::string_view path, const Config& config) noexcept {
         (void)open(path, config);
     }
+
+    IOCPFileReader(const Config& config) noexcept {
+        stored_config_ = config;
+    }
     
     ~IOCPFileReader() noexcept {
         close();
@@ -168,6 +180,7 @@ public:
         , iocp_handle_(other.iocp_handle_)
         , size_(other.size_)
         , path_(std::move(other.path_))
+        , stored_config_(other.stored_config_)
         , next_user_data_(other.next_user_data_.load())
         , pending_ops_(other.pending_ops_.load())
         , operation_contexts_(std::move(other.operation_contexts_)) {
@@ -185,6 +198,7 @@ public:
             iocp_handle_ = other.iocp_handle_;
             size_ = other.size_;
             path_ = std::move(other.path_);
+            stored_config_ = other.stored_config_;
             next_user_data_.store(other.next_user_data_.load());
             pending_ops_.store(other.pending_ops_.load());
             operation_contexts_ = std::move(other.operation_contexts_);
@@ -200,7 +214,7 @@ public:
 
     /// Open file with default configuration
     [[nodiscard]] Result<void> open(std::string_view path) noexcept {
-        return open(path, Config{});
+        return open(path, stored_config_);
     }
     
     /// Open file and initialize IOCP
@@ -210,13 +224,8 @@ public:
         path_ = path;
         
         // Build flags
+        stored_config_ = config;
         DWORD flags = FILE_FLAG_OVERLAPPED;  // Required for async I/O
-        if (config.use_unbuffered) {
-            flags |= FILE_FLAG_NO_BUFFERING;
-        }
-        if (config.use_write_through) {
-            flags |= FILE_FLAG_WRITE_THROUGH;
-        }
         if (config.use_sequential_scan) {
             flags |= FILE_FLAG_SEQUENTIAL_SCAN;
         }
@@ -257,8 +266,8 @@ public:
         iocp_handle_ = CreateIoCompletionPort(
             file_handle_,
             nullptr,  // Create new IOCP
-            0,        // Completion key (not used, we use OVERLAPPED user data)
-            config.max_concurrent_threads
+            0,        // Completion key (not used, we use OVERLAPPED pointers)
+            0         // max concurrent threads (0 = default, # of processors)
         );
         
         if (iocp_handle_ == nullptr) [[unlikely]] {

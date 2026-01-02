@@ -133,7 +133,12 @@ public:
     
     /// Open file with custom configuration
     IoUringFileReader(std::string_view path, const Config& config) noexcept {
+        stored_config_ = config;
         (void)open(path, config);
+    }
+
+    IoUringFileReader(const Config& config) noexcept {
+        stored_config_ = config;
     }
     
     ~IoUringFileReader() noexcept {
@@ -189,7 +194,7 @@ public:
 
     /// Open file with default configuration
     [[nodiscard]] Result<void> open(std::string_view path) noexcept {
-        return open(path, Config{});
+        return open(path, stored_config_);
     }
 
     /// Allocate the async io_uring resources
