@@ -1435,9 +1435,18 @@ BENCHMARK(BM_LibTIFF_Read_SizeVariation_test_data<uint8_t>)
     ->Name("LibTIFF/Read/SizeVariation/uint8")
     ->Unit(benchmark::kMillisecond);
 */
+/*
+BENCHMARK(BM_Read_SizeVariation<uint8_t, CPULimitedReader<uint8_t, DecompressorSpec<NoneDecompressorDesc, ZstdDecompressorDesc>>>)
+    ->Args({8192, 1, 1, 0})    // 8192x8192, 1ch, ZSTD, Little
+    ->Name("TiffConcept/Read/CPULimitedReader/SizeVariation/uint8")
+    ->Unit(benchmark::kMillisecond);
+*/
+BENCHMARK(BM_Read_SizeVariation<uint8_t, FastReaderType<uint8_t, DecompressorSpec<NoneDecompressorDesc, ZstdDecompressorDesc>>>)
+    ->Args({8192, 1, 1, 0})    // 8192x8192, 1ch, ZSTD, Little
+    ->Name("TiffConcept/Read/FastReader/SizeVariation/uint8")
+    ->Unit(benchmark::kMillisecond);
 
-
-#if 1
+#if 0
 // ============================================================================
 // Benchmark Registration
 // ============================================================================

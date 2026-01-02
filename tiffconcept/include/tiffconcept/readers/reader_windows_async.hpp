@@ -120,7 +120,22 @@ public:
         bool use_sequential_scan = false;  ///< Hint sequential access pattern
         bool use_random_access = false;    ///< Hint random access pattern
     };
+
+private:
+    HANDLE file_handle_{INVALID_HANDLE_VALUE};
+    HANDLE iocp_handle_{INVALID_HANDLE_VALUE};
+    std::size_t size_{0};
+    std::string path_;
     
+    // Operation tracking
+    mutable std::atomic<uint64_t> next_user_data_{1};
+    mutable std::atomic<std::size_t> pending_ops_{0};
+    
+    // Operation context storage (mutable for const methods)
+    mutable std::mutex context_mutex_;
+    mutable std::unordered_map<uint64_t, OperationContext> operation_contexts_;
+
+public:
     IOCPFileReader() noexcept = default;
     
     /// Open file with default configuration
@@ -149,7 +164,8 @@ public:
         , size_(other.size_)
         , path_(std::move(other.path_))
         , next_user_data_(other.next_user_data_.load())
-        , pending_ops_(other.pending_ops_.load()) {
+        , pending_ops_(other.pending_ops_.load())
+        , operation_contexts_(std::move(other.operation_contexts_)) {
         other.file_handle_ = INVALID_HANDLE_VALUE;
         other.iocp_handle_ = INVALID_HANDLE_VALUE;
         other.size_ = 0;
@@ -166,11 +182,13 @@ public:
             path_ = std::move(other.path_);
             next_user_data_.store(other.next_user_data_.load());
             pending_ops_.store(other.pending_ops_.load());
+            operation_contexts_ = std::move(other.operation_contexts_);
             other.file_handle_ = INVALID_HANDLE_VALUE;
             other.iocp_handle_ = INVALID_HANDLE_VALUE;
             other.size_ = 0;
             other.next_user_data_.store(1);
             other.pending_ops_.store(0);
+            other.operation_contexts_.clear();
         }
         return *this;
     }
@@ -478,13 +496,10 @@ public:
             };
         }
         
-        // Submit read operation
-        OVERLAPPED* overlapped_ptr = nullptr;
-        {
-            std::lock_guard lock(context_mutex_);
-            overlapped_ptr = operation_contexts_[user_data].overlapped.get();
-        }
+        // Track pending operation
+        pending_ops_.fetch_add(1, std::memory_order_release);
         
+        // Submit read operation
         DWORD bytes_read = 0;
         BOOL result = ReadFile(
             file_handle_,
@@ -496,17 +511,39 @@ public:
         
         DWORD error = GetLastError();
         
-        // Check for immediate completion or pending
-        if (!result && error != ERROR_IO_PENDING) [[unlikely]] {
-            // Operation failed
+        // Handle immediate completion (result == TRUE means completed synchronously)
+        if (result) [[unlikely]] {
+            // Operation completed immediately - manually post to IOCP for consistency
+            // This ensures all completions go through the same path
+            BOOL posted = PostQueuedCompletionStatus(
+                iocp_handle_,
+                bytes_read,
+                0,  // completion key (unused)
+                overlapped_ptr
+            );
+            
+            if (!posted) [[unlikely]] {
+                // Failed to post - clean up manually
+                error = GetLastError();
+                pending_ops_.fetch_sub(1, std::memory_order_release);
+                std::lock_guard lock(context_mutex_);
+                operation_contexts_.erase(user_data);
+                return Err(Error::Code::ReadError, 
+                        "PostQueuedCompletionStatus failed (Error " + std::to_string(error) + ")");
+            }
+            
+            return Ok(uint64_t{user_data});
+        }
+        
+        // Check for errors (pending is OK)
+        if (error != ERROR_IO_PENDING) [[unlikely]] {
+            // Operation failed - clean up
+            pending_ops_.fetch_sub(1, std::memory_order_release);
             std::lock_guard lock(context_mutex_);
             operation_contexts_.erase(user_data);
             return Err(Error::Code::ReadError, 
-                      "ReadFile failed (Error " + std::to_string(error) + ")");
+                    "ReadFile failed (Error " + std::to_string(error) + ")");
         }
-        
-        // Track pending operation
-        pending_ops_.fetch_add(1, std::memory_order_release);
         
         return Ok(uint64_t{user_data});
     }
@@ -714,19 +751,6 @@ private:
         // Return number of bytes read
         return {uint64_t{user_data}, Ok(static_cast<std::size_t>(bytes_transferred))};
     }
-    
-    HANDLE file_handle_{INVALID_HANDLE_VALUE};
-    HANDLE iocp_handle_{INVALID_HANDLE_VALUE};
-    std::size_t size_{0};
-    std::string path_;
-    
-    // Operation tracking
-    mutable std::atomic<uint64_t> next_user_data_{1};
-    mutable std::atomic<std::size_t> pending_ops_{0};
-    
-    // Operation context storage (mutable for const methods)
-    mutable std::mutex context_mutex_;
-    mutable std::unordered_map<uint64_t, OperationContext> operation_contexts_;
 };
 
 static_assert(RawReader<IOCPFileReader>, 
