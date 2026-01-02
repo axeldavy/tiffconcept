@@ -518,32 +518,8 @@ public:
         
         DWORD error = GetLastError();
         
-        // Handle immediate completion (result == TRUE means completed synchronously)
-        if (result) [[unlikely]] {
-            // Operation completed immediately - manually post to IOCP for consistency
-            // This ensures all completions go through the same path
-            BOOL posted = PostQueuedCompletionStatus(
-                iocp_handle_,
-                bytes_read,
-                0,  // completion key (unused)
-                overlapped_ptr
-            );
-            
-            if (!posted) [[unlikely]] {
-                // Failed to post - clean up manually
-                error = GetLastError();
-                pending_ops_.fetch_sub(1, std::memory_order_release);
-                std::lock_guard lock(context_mutex_);
-                operation_contexts_.erase(user_data);
-                return Err(Error::Code::ReadError, 
-                        "PostQueuedCompletionStatus failed (Error " + std::to_string(error) + ")");
-            }
-            
-            return Ok(uint64_t{user_data});
-        }
-        
         // Check for errors (pending is OK)
-        if (error != ERROR_IO_PENDING) [[unlikely]] {
+        if (!result && error != ERROR_IO_PENDING) [[unlikely]] {
             // Operation failed - clean up
             pending_ops_.fetch_sub(1, std::memory_order_release);
             std::lock_guard lock(context_mutex_);
@@ -568,8 +544,8 @@ public:
         }
         
         // Poll with zero timeout
-        std::size_t count = 0;
-        while (max_completions == 0 || count < max_completions) {
+        std::size_t init_count = completions.size();
+        while (max_completions == 0 || (completions.size() - init_count) < max_completions) {
             DWORD bytes_transferred = 0;
             ULONG_PTR completion_key = 0;
             OVERLAPPED* overlapped = nullptr;
@@ -586,12 +562,17 @@ public:
                 // No completions available
                 break;
             }
-            
-            completions.push_back(process_completion(overlapped, result, bytes_transferred));
-            count++;
+
+            // Check for errors
+            if (!result) [[unlikely]] {
+                DWORD error = GetLastError();
+                std::cerr << "IOCP read failed (Error " + std::to_string(error) + ")";
+            }
+
+            process_completion(completions, overlapped, bytes_transferred);
         }
         
-        return count;
+        return completions.size() - init_count;
     }
     
     /// Wait for at least one completion (blocking)
@@ -619,13 +600,18 @@ public:
             INFINITE
         );
         
-        std::size_t count = 0;
+        std::size_t init_count = completions.size();
         if (overlapped != nullptr) {
-            completions.push_back(process_completion(overlapped, result, bytes_transferred));
-            ++count;
+            // Check for errors
+            if (!result) [[unlikely]] {
+                DWORD error = GetLastError();
+                std::cerr << "IOCP read failed (Error " + std::to_string(error) + ")";
+            }
+
+            process_completion(completions, overlapped, bytes_transferred);
             
             // Also poll for any other completions that arrived
-            while (max_completions == 0 || count < max_completions) {
+            while (max_completions == 0 || (completions.size() - init_count) < max_completions) {
                 result = GetQueuedCompletionStatus(
                     iocp_handle_,
                     &bytes_transferred,
@@ -637,13 +623,18 @@ public:
                 if (overlapped == nullptr) {
                     break;
                 }
+
+                // Check for errors
+                if (!result) [[unlikely]] {
+                    DWORD error = GetLastError();
+                    std::cerr << "IOCP read failed (Error " + std::to_string(error) + ")";
+                }
                 
-                completions.push_back(process_completion(overlapped, result, bytes_transferred));
-                count++;
+                process_completion(completions, overlapped, bytes_transferred);
             }
         }
         
-        return count;
+        return completions.size() - init_count;
     }
     
     /// Wait for completions with timeout
@@ -674,13 +665,18 @@ public:
             timeout_ms
         );
         
-        std::size_t count = 0;
+        std::size_t init_count = completions.size();
         if (overlapped != nullptr) {
-            completions.push_back(process_completion(overlapped, result, bytes_transferred));
-            ++count;
+            // Check for errors
+            if (!result) [[unlikely]] {
+                DWORD error = GetLastError();
+                std::cerr << "IOCP read failed (Error " + std::to_string(error) + ")";
+            }
+
+            process_completion(completions, overlapped, bytes_transferred);
             
             // Poll for any other completions
-            while (max_completions == 0 || count < max_completions) {
+            while (max_completions == 0 || (completions.size() - init_count) < max_completions) {
                 result = GetQueuedCompletionStatus(
                     iocp_handle_,
                     &bytes_transferred,
@@ -692,13 +688,18 @@ public:
                 if (overlapped == nullptr) {
                     break;
                 }
+
+                // Check for errors
+                if (!result) [[unlikely]] {
+                    DWORD error = GetLastError();
+                    std::cerr << "IOCP read failed (Error " + std::to_string(error) + ")";
+                }
                 
-                completions.push_back(process_completion(overlapped, result, bytes_transferred));
-                count++;
+                process_completion(completions, overlapped, bytes_transferred);
             }
         }
         
-        return count;
+        return completions.size() - init_count;
     }
     
     /// Get number of pending operations
@@ -725,15 +726,20 @@ private:
                 return user_data;
             }
         }
-        return 0;  // Not found (should never happen)
+        return 0;  // Not found (happens for sync operations)
     }
     
     /// Process a completed operation
-    [[nodiscard]] std::pair<uint64_t, Result<std::size_t>> 
-    process_completion(OVERLAPPED* overlapped, BOOL success, DWORD bytes_transferred) const noexcept {
+    void process_completion(std::vector<std::pair<uint64_t, Result<std::size_t>>>& completions,
+                            OVERLAPPED* overlapped, DWORD bytes_transferred) const noexcept {
         
         // Find user data from OVERLAPPED
         uint64_t user_data = find_user_data(overlapped);
+
+        if (user_data == 0) {
+            // Sync operation
+            return;
+        }
         
         // Decrement pending counter
         pending_ops_.fetch_sub(1, std::memory_order_release);
@@ -743,16 +749,9 @@ private:
             std::lock_guard lock(context_mutex_);
             operation_contexts_.erase(user_data);
         }
-        
-        // Check for errors
-        if (!success) [[unlikely]] {
-            DWORD error = GetLastError();
-            return {uint64_t{user_data}, Err(Error::Code::ReadError, 
-                   "IOCP read failed (Error " + std::to_string(error) + ")")};
-        }
-        
+
         // Return number of bytes read
-        return {uint64_t{user_data}, Ok(static_cast<std::size_t>(bytes_transferred))};
+        completions.push_back({uint64_t{user_data}, Ok(static_cast<std::size_t>(bytes_transferred))});
     }
 };
 
