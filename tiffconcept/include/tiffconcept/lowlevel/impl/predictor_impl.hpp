@@ -103,31 +103,34 @@ TIFFCONCEPT_FORCE_INLINE __m256i prefix_sum_avx2_u8(__m256i delta, __m256i& carr
     sum = _mm256_add_epi8(sum, _mm256_bslli_epi128(sum, 2));
     sum = _mm256_add_epi8(sum, _mm256_bslli_epi128(sum, 4));
     sum = _mm256_add_epi8(sum, _mm256_bslli_epi128(sum, 8));
-    
-    // Add carry from previous vector
-    sum = _mm256_add_epi8(sum, carry_vec);
 
 #if defined(__AVX512VL__) && defined(__AVX512VBMI__)
+    // Get a vector full of the last element of the lower lane
     __m256i lower_lane_last = _mm256_permutexvar_epi8(
-        _mm256_set1_epi8(15), // Index 15 from each lane (broadcasts from both lanes)
+        _mm256_set1_epi8(15), // Index 15 from each lane
         sum
     );
     // Blend: keep lower lane as-is, add to upper lane
     __m256i lane_carry = _mm256_mask_blend_epi8(0xFFFF0000, _mm256_setzero_si256(), lower_lane_last);
     sum = _mm256_add_epi8(sum, lane_carry);
-    
-    // Extract and broadcast new carry (last element) using permutexvar
-    carry_vec = _mm256_permutexvar_epi8(_mm256_set1_epi8(31), sum);
-
 #else
+    // Retrieve last element of lower 128-bit lane
     uint8_t lower_lane_last = static_cast<uint8_t>(_mm256_extract_epi8(sum, 15));
+    // Build carry vector
     __m256i lane_carry = _mm256_set_m128i(
         _mm_set1_epi8(static_cast<char>(lower_lane_last)),
         _mm_setzero_si128()
     );
     sum = _mm256_add_epi8(sum, lane_carry);
-    
+#endif
+
+    // Add carry from previous vector
+    sum = _mm256_add_epi8(sum, carry_vec);
+
     // Extract and broadcast new carry (last element)
+#if defined(__AVX512VL__) && defined(__AVX512VBMI__)
+    carry_vec = _mm256_permutexvar_epi8(_mm256_set1_epi8(31), sum);
+#else
     carry_vec = _mm256_set1_epi8(static_cast<char>(_mm256_extract_epi8(sum, 31)));
 #endif
 
@@ -140,12 +143,10 @@ TIFFCONCEPT_FORCE_INLINE __m256i prefix_sum_avx2_u16(__m256i delta, __m256i& car
     __m256i sum = _mm256_add_epi16(delta, _mm256_bslli_epi128(delta, 2));
     sum = _mm256_add_epi16(sum, _mm256_bslli_epi128(sum, 4));
     sum = _mm256_add_epi16(sum, _mm256_bslli_epi128(sum, 8));
-    
-    // Add carry from previous vector
-    sum = _mm256_add_epi16(sum, carry_vec);
 
+    // Add first 128-bit lane's last element to second 128-bit lane
 #if defined(__AVX512VL__)  && defined(__AVX512BW__)
-    // AVX512VL path: permutexvar_epi16 is available with just AVX512VL (no VBMI needed for 16-bit)
+    // Get a vector full of the last element of the lower lane
     __m256i lower_lane_last = _mm256_permutexvar_epi16(
         _mm256_set1_epi16(7), // Index 7 from each lane
         sum
@@ -153,20 +154,25 @@ TIFFCONCEPT_FORCE_INLINE __m256i prefix_sum_avx2_u16(__m256i delta, __m256i& car
     // Blend: keep lower lane as-is, add to upper lane
     __m256i lane_carry = _mm256_mask_blend_epi16(0xFF00, _mm256_setzero_si256(), lower_lane_last);
     sum = _mm256_add_epi16(sum, lane_carry);
-    
-    // Extract and broadcast new carry (last element)
-    carry_vec = _mm256_permutexvar_epi16(_mm256_set1_epi16(15), sum);
 
 #else
-    // AVX2-only path
+    // Retrieve last element of lower 128-bit lane
     uint16_t lower_lane_last = static_cast<uint16_t>(_mm256_extract_epi16(sum, 7));
+    // Build carry vector
     __m256i lane_carry = _mm256_set_m128i(
         _mm_set1_epi16(static_cast<int16_t>(lower_lane_last)),
         _mm_setzero_si128()
     );
     sum = _mm256_add_epi16(sum, lane_carry);
-    
+#endif
+
+    // Add carry from previous vector
+    sum = _mm256_add_epi16(sum, carry_vec);
+
     // Extract and broadcast new carry (last element)
+#if defined(__AVX512VL__)  && defined(__AVX512BW__)
+    carry_vec = _mm256_permutexvar_epi16(_mm256_set1_epi16(15), sum);
+#else
     carry_vec = _mm256_set1_epi16(static_cast<int16_t>(_mm256_extract_epi16(sum, 15)));
 #endif
 
@@ -205,9 +211,6 @@ TIFFCONCEPT_FORCE_INLINE __m512i prefix_sum_avx512_u8(__m512i delta, __m512i& ca
     sum = _mm512_add_epi8(sum, _mm512_bslli_epi128(sum, 4));
     sum = _mm512_add_epi8(sum, _mm512_bslli_epi128(sum, 8));
     
-    // Add carry from previous vector
-    sum = _mm512_add_epi8(sum, carry_vec);
-    
 #if defined(__AVX512VBMI__)
     // Use VBMI for efficient cross-lane propagation
     __m512i lane_carries = _mm512_permutexvar_epi8(
@@ -236,6 +239,9 @@ TIFFCONCEPT_FORCE_INLINE __m512i prefix_sum_avx512_u8(__m512i delta, __m512i& ca
 #endif
     
     sum = _mm512_add_epi8(sum, lane_carries);
+
+    // Add carry from previous vector
+    sum = _mm512_add_epi8(sum, carry_vec);
     
     // Extract final carry
     carry_vec = _mm512_permutexvar_epi8(_mm512_set1_epi8(63), sum);
@@ -258,6 +264,9 @@ TIFFCONCEPT_FORCE_INLINE __m512i prefix_sum_avx512_u8(__m512i delta, __m512i& ca
     
     sum = _mm512_inserti32x4(_mm512_inserti32x4(_mm512_inserti32x4(
         _mm512_castsi128_si512(lane0), lane1, 1), lane2, 2), lane3, 3);
+
+    // Add carry from previous vector
+    sum = _mm512_add_epi8(sum, carry_vec);
     
     // Extract final carry
     uint8_t carry3 = static_cast<uint8_t>(_mm_extract_epi16(lane3, 7) >> 8);
@@ -274,9 +283,6 @@ TIFFCONCEPT_FORCE_INLINE __m512i prefix_sum_avx512_u16(__m512i delta, __m512i& c
     sum = _mm512_add_epi16(sum, _mm512_bslli_epi128(sum, 4));
     sum = _mm512_add_epi16(sum, _mm512_bslli_epi128(sum, 8));
     
-    // Add carry from previous vector
-    sum = _mm512_add_epi16(sum, carry_vec);
-    
 #if defined(__AVX512BW__)
     // Cross-lane carry propagation using permutexvar (requires AVX512BW for epi16)
     __m512i lane_carries = _mm512_permutexvar_epi16(
@@ -291,6 +297,9 @@ TIFFCONCEPT_FORCE_INLINE __m512i prefix_sum_avx512_u16(__m512i delta, __m512i& c
     // Zero out lane 0's carry
     lane_carries = _mm512_maskz_mov_epi16(0xFFFFFF00, lane_carries);
     sum = _mm512_add_epi16(sum, lane_carries);
+
+    // Add carry from previous vector
+    sum = _mm512_add_epi16(sum, carry_vec);
     
     // Extract final carry
     carry_vec = _mm512_permutexvar_epi16(_mm512_set1_epi16(31), sum);
@@ -313,6 +322,9 @@ TIFFCONCEPT_FORCE_INLINE __m512i prefix_sum_avx512_u16(__m512i delta, __m512i& c
     
     sum = _mm512_inserti32x4(_mm512_inserti32x4(_mm512_inserti32x4(
         _mm512_castsi128_si512(lane0), lane1, 1), lane2, 2), lane3, 3);
+
+    // Add carry from previous vector
+    sum = _mm512_add_epi16(sum, carry_vec);
     
     // Extract final carry
     uint16_t carry3 = static_cast<uint16_t>(_mm_extract_epi16(lane3, 7));
