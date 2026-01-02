@@ -518,12 +518,12 @@ public:
     }
     
     /// Poll for completed operations (non-blocking)
-    std::size_t poll_completions(
+    Result<std::size_t> poll_completions(
         std::vector<std::pair<uint64_t, Result<std::size_t>>>& completions,
         std::size_t max_completions = 0) const noexcept {
         
         if (!is_valid()) [[unlikely]] {
-            return {};
+            return Err(Error::Code::ReadError, "File not open");
         }
         
         std::lock_guard lock(liburing_mutex_);
@@ -554,12 +554,12 @@ public:
     /// @param completions Output vector for completions (appended, not cleared)
     /// @param max_completions Maximum new completions to retrieve (0 = all available)
     /// @return Number of completions added to the vector
-    size_t wait_completions(
+    Result<size_t> wait_completions(
         std::vector<std::pair<uint64_t, Result<std::size_t>>>& completions,
         std::size_t max_completions = 0) const noexcept {
         
         if (!is_valid()) [[unlikely]] {
-            return 0;
+            return Err(Error::Code::ReadError, "File not open");
         }
         
         std::lock_guard lock(liburing_mutex_);
@@ -568,8 +568,8 @@ public:
         int ret = io_uring_wait_cqe(ring_.get(), &cqe);
         
         if (ret < 0) [[unlikely]] {
-            // Wait failed - return 0 (could be interrupted by signal)
-            return 0;
+            return Err(Error::Code::ReadError, 
+                      "io_uring_wait_cqe failed: " + std::string(std::strerror(-ret)));
         }
         
         size_t count = 0;
@@ -602,13 +602,13 @@ public:
     /// @param timeout Maximum time to wait
     /// @param max_completions Maximum completions to retrieve (0 = all available)
     /// @return Number of completions added to the vector
-    size_t wait_completions_for(
+    Result<size_t> wait_completions_for(
         std::vector<std::pair<uint64_t, Result<std::size_t>>>& completions,
         std::chrono::milliseconds timeout, 
         std::size_t max_completions = 0) const noexcept {
         
         if (!is_valid()) [[unlikely]] {
-            return 0;
+            return Err(Error::Code::ReadError, "File not open");
         }
         
         std::lock_guard lock(liburing_mutex_);
@@ -628,7 +628,8 @@ public:
         
         if (ret < 0) [[unlikely]] {
             // Other error
-            return 0;
+            return Err(Error::Code::ReadError, 
+                      "io_uring_wait_cqe_timeout failed: " + std::string(std::strerror(-ret)));
         }
         
         size_t count = 0;

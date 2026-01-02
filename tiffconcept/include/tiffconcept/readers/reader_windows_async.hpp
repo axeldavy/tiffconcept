@@ -238,8 +238,8 @@ public:
         if (file_handle_ == INVALID_HANDLE_VALUE) [[unlikely]] {
             DWORD error = GetLastError();
             return Err(Error::Code::FileNotFound, 
-                      "Failed to open file: " + std::string(path) + 
-                      " (Error " + std::to_string(error) + ")");
+                      "Failed to open file: '" + std::string(path) + 
+                      "': " + format_windows_error(error));
         }
         
         // Get file size
@@ -249,7 +249,7 @@ public:
             CloseHandle(file_handle_);
             file_handle_ = INVALID_HANDLE_VALUE;
             return Err(Error::Code::ReadError, 
-                      "Failed to get file size (Error " + std::to_string(error) + ")");
+                      "Failed to get file size:  " + format_windows_error(error));
         }
         size_ = static_cast<std::size_t>(file_size.QuadPart);
         
@@ -266,7 +266,7 @@ public:
             CloseHandle(file_handle_);
             file_handle_ = INVALID_HANDLE_VALUE;
             return Err(Error::Code::ReadError, 
-                      "Failed to create IOCP (Error " + std::to_string(error) + ")");
+                      "Failed to create I/O Completion Port: " + format_windows_error(error));
         }
         
         return Ok();
@@ -325,7 +325,10 @@ public:
         overlapped.hEvent = CreateEvent(nullptr, TRUE, FALSE, nullptr);
         
         if (!overlapped.hEvent) [[unlikely]] {
-            return Err(Error::Code::ReadError, "Failed to create event for synchronous read");
+            DWORD error = GetLastError();
+            return Err(Error::Code::ReadError,
+                       "Failed to create event for synchronous read "
+                       + format_windows_error(error));
         }
         
         DWORD bytes_read = 0;
@@ -341,7 +344,7 @@ public:
             DWORD error = GetLastError();
             CloseHandle(overlapped.hEvent);
             return Err(Error::Code::ReadError, 
-                      "ReadFile failed (Error " + std::to_string(error) + ")");
+                      "ReadFile failed: " + format_windows_error(error));
         }
         
         // Wait for completion
@@ -349,7 +352,7 @@ public:
             DWORD error = GetLastError();
             CloseHandle(overlapped.hEvent);
             return Err(Error::Code::ReadError, 
-                      "GetOverlappedResult failed (Error " + std::to_string(error) + ")");
+                      "GetOverlappedResult failed: " + format_windows_error(error));
         }
         
         CloseHandle(overlapped.hEvent);
@@ -380,7 +383,10 @@ public:
         overlapped.hEvent = CreateEvent(nullptr, TRUE, FALSE, nullptr);
         
         if (!overlapped.hEvent) [[unlikely]] {
-            return Err(Error::Code::ReadError, "Failed to create event for synchronous read");
+            DWORD error = GetLastError();
+            return Err(Error::Code::ReadError,
+                       "Failed to create event for synchronous read: "
+                       + format_windows_error(error));
         }
         
         DWORD bytes_read = 0;
@@ -396,14 +402,14 @@ public:
             DWORD error = GetLastError();
             CloseHandle(overlapped.hEvent);
             return Err(Error::Code::ReadError, 
-                      "ReadFile failed (Error " + std::to_string(error) + ")");
+                      "ReadFile failed: " + format_windows_error(error));
         }
         
         if (!GetOverlappedResult(file_handle_, &overlapped, &bytes_read, TRUE)) [[unlikely]] {
             DWORD error = GetLastError();
             CloseHandle(overlapped.hEvent);
             return Err(Error::Code::ReadError, 
-                      "GetOverlappedResult failed (Error " + std::to_string(error) + ")");
+                      "GetOverlappedResult failed: " + format_windows_error(error));
         }
         
         CloseHandle(overlapped.hEvent);
@@ -525,7 +531,7 @@ public:
             std::lock_guard lock(context_mutex_);
             operation_contexts_.erase(user_data);
             return Err(Error::Code::ReadError, 
-                    "ReadFile failed (Error " + std::to_string(error) + ")");
+                    "ReadFile failed: " + format_windows_error(error));
         }
         
         return Ok(uint64_t{user_data});
@@ -535,12 +541,12 @@ public:
     /// @param completions Output vector for completions (appended, not cleared)
     /// @param max_completions Maximum completions to retrieve (0 = all available)
     /// @return Number of completions added to the vector
-    size_t poll_completions(
+    Result<size_t> poll_completions(
         std::vector<std::pair<uint64_t, Result<std::size_t>>>& completions,
         std::size_t max_completions = 0) const noexcept {
         
         if (!is_valid()) [[unlikely]] {
-            return 0;
+            return Err(Error::Code::ReadError, "File not open");
         }
         
         // Poll with zero timeout
@@ -557,19 +563,15 @@ public:
                 &overlapped,
                 0  // Zero timeout = non-blocking
             );
-            
+
+            // Since we use a zero timeout, overlapped == nullptr means no completions available
+            // in which case result is FALSE.
             if (overlapped == nullptr) {
                 // No completions available
                 break;
             }
 
-            // Check for errors
-            if (!result) [[unlikely]] {
-                DWORD error = GetLastError();
-                std::cerr << "IOCP read failed (Error " + std::to_string(error) + ")";
-            }
-
-            process_completion(completions, overlapped, bytes_transferred);
+            process_completion(completions, overlapped, result, bytes_transferred);
         }
         
         return completions.size() - init_count;
@@ -579,12 +581,12 @@ public:
     /// @param completions Output vector for completions (appended, not cleared)
     /// @param max_completions Maximum completions to retrieve (0 = all available)
     /// @return Number of completions added to the vector
-    size_t wait_completions(
+    Result<size_t> wait_completions(
         std::vector<std::pair<uint64_t, Result<std::size_t>>>& completions,
         std::size_t max_completions = 0) const noexcept {
         
         if (!is_valid()) [[unlikely]] {
-            return 0;
+            return Err(Error::Code::ReadError, "File not open");
         }
         
         // Wait for first completion (blocking)
@@ -599,16 +601,17 @@ public:
             &overlapped,
             INFINITE
         );
+
+        if (!result && overlapped == nullptr) {
+            // This indicates a failure in waiting for completions
+            DWORD error = GetLastError();
+            return Err(Error::Code::ReadError, 
+                      "GetQueuedCompletionStatus failed: " + format_windows_error(error));
+        }
         
         std::size_t init_count = completions.size();
         if (overlapped != nullptr) {
-            // Check for errors
-            if (!result) [[unlikely]] {
-                DWORD error = GetLastError();
-                std::cerr << "IOCP read failed (Error " + std::to_string(error) + ")";
-            }
-
-            process_completion(completions, overlapped, bytes_transferred);
+            process_completion(completions, overlapped, result, bytes_transferred);
             
             // Also poll for any other completions that arrived
             while (max_completions == 0 || (completions.size() - init_count) < max_completions) {
@@ -624,13 +627,7 @@ public:
                     break;
                 }
 
-                // Check for errors
-                if (!result) [[unlikely]] {
-                    DWORD error = GetLastError();
-                    std::cerr << "IOCP read failed (Error " + std::to_string(error) + ")";
-                }
-                
-                process_completion(completions, overlapped, bytes_transferred);
+                process_completion(completions, overlapped, result, bytes_transferred);
             }
         }
         
@@ -642,13 +639,13 @@ public:
     /// @param timeout Maximum time to wait
     /// @param max_completions Maximum completions to retrieve (0 = all available)
     /// @return Number of completions added to the vector
-    size_t wait_completions_for(
+    Result<size_t> wait_completions_for(
         std::vector<std::pair<uint64_t, Result<std::size_t>>>& completions,
         std::chrono::milliseconds timeout, 
         std::size_t max_completions = 0) const noexcept {
         
         if (!is_valid()) [[unlikely]] {
-            return 0;
+            return Err(Error::Code::ReadError, "File not open");
         }
         
         DWORD timeout_ms = static_cast<DWORD>(timeout.count());
@@ -664,16 +661,22 @@ public:
             &overlapped,
             timeout_ms
         );
+
+        if (!result && overlapped == nullptr) {
+            // Timeout or failure
+            DWORD error = GetLastError();
+            if (error == WAIT_TIMEOUT) {
+                // Timeout - no completions
+                return 0;
+            } else {
+                return Err(Error::Code::ReadError, 
+                          "GetQueuedCompletionStatus failed: " + format_windows_error(error));
+            }
+        }
         
         std::size_t init_count = completions.size();
         if (overlapped != nullptr) {
-            // Check for errors
-            if (!result) [[unlikely]] {
-                DWORD error = GetLastError();
-                std::cerr << "IOCP read failed (Error " + std::to_string(error) + ")";
-            }
-
-            process_completion(completions, overlapped, bytes_transferred);
+            process_completion(completions, overlapped, result, bytes_transferred);
             
             // Poll for any other completions
             while (max_completions == 0 || (completions.size() - init_count) < max_completions) {
@@ -689,13 +692,7 @@ public:
                     break;
                 }
 
-                // Check for errors
-                if (!result) [[unlikely]] {
-                    DWORD error = GetLastError();
-                    std::cerr << "IOCP read failed (Error " + std::to_string(error) + ")";
-                }
-                
-                process_completion(completions, overlapped, bytes_transferred);
+                process_completion(completions, overlapped, result, bytes_transferred);
             }
         }
         
@@ -717,6 +714,37 @@ public:
     }
 
 private:
+    static std::string format_windows_error(DWORD error_code) noexcept {
+        char* message_buffer = nullptr;
+        DWORD size = FormatMessageA(
+            FORMAT_MESSAGE_ALLOCATE_BUFFER | FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_IGNORE_INSERTS,
+            nullptr,
+            error_code,
+            MAKELANGID(LANG_NEUTRAL, SUBLANG_DEFAULT),
+            reinterpret_cast<LPSTR>(&message_buffer),
+            0,
+            nullptr
+        );
+        
+        if (size == 0 || message_buffer == nullptr) {
+            // FormatMessage failed, return numeric code
+            return "Error " + std::to_string(error_code);
+        }
+        
+        // Copy message and remove trailing newlines
+        std::string result(message_buffer, size);
+        LocalFree(message_buffer);
+        
+        // Trim trailing whitespace/newlines
+        while (!result.empty() && (result.back() == '\r' || result.back() == '\n' || result.back() == ' ')) {
+            result.pop_back();
+        }
+        
+        // Append error code for reference
+        result += " (Error " + std::to_string(error_code) + ")";
+        
+        return result;
+    }
     
     /// Find user data from OVERLAPPED pointer
     [[nodiscard]] uint64_t find_user_data(OVERLAPPED* overlapped) const noexcept {
@@ -728,30 +756,41 @@ private:
         }
         return 0;  // Not found (happens for sync operations)
     }
+
+    /// remove a pending operation from the current list
+    void remove_pending_operation(uint64_t user_data) const noexcept {
+        std::lock_guard lock(context_mutex_);
+        operation_contexts_.erase(user_data);
+        // Decrement pending counter
+        assert (user_data != 0);
+        pending_ops_.fetch_sub(1, std::memory_order_release);
+    }
     
     /// Process a completed operation
     void process_completion(std::vector<std::pair<uint64_t, Result<std::size_t>>>& completions,
-                            OVERLAPPED* overlapped, DWORD bytes_transferred) const noexcept {
+                            OVERLAPPED* overlapped,
+                            BOOL success,
+                            DWORD bytes_transferred) const noexcept {
         
         // Find user data from OVERLAPPED
         uint64_t user_data = find_user_data(overlapped);
 
         if (user_data == 0) {
-            // Sync operation
+            // Sync operation or failure not associated with a known async operation
             return;
         }
-        
-        // Decrement pending counter
-        pending_ops_.fetch_sub(1, std::memory_order_release);
-        
-        // Retrieve and remove operation context
-        {
-            std::lock_guard lock(context_mutex_);
-            operation_contexts_.erase(user_data);
-        }
 
-        // Return number of bytes read
-        completions.push_back({uint64_t{user_data}, Ok(static_cast<std::size_t>(bytes_transferred))});
+        // Remove from pending operations
+        remove_pending_operation(user_data);
+
+        if (success) {
+            completions.push_back({uint64_t{user_data}, Ok(static_cast<std::size_t>(bytes_transferred))});
+        } else {
+            DWORD error = GetLastError();
+            completions.emplace_back(user_data, 
+                Err(Error::Code::ReadError, 
+                    "IOCP read failed: " + format_windows_error(error)));
+        }
     }
 };
 

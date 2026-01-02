@@ -229,7 +229,7 @@ concept AsyncRawReader = RawReader<T> && requires(
     { reader.poll_completions(
         std::declval<std::vector<std::pair<uint64_t, Result<std::size_t>>>&>(),
         std::size_t{}) }
-        -> std::same_as<size_t>;
+        -> std::same_as<Result<std::size_t>>;
     
     /// Wait for at least one operation to complete (blocking)
     /// 
@@ -250,7 +250,7 @@ concept AsyncRawReader = RawReader<T> && requires(
     { reader.wait_completions(
         std::declval<std::vector<std::pair<uint64_t, Result<std::size_t>>>&>(),
         std::size_t{}) } 
-        -> std::same_as<size_t>;
+        -> std::same_as<Result<std::size_t>>;
     
     /// Wait for completions with timeout (blocking)
     /// 
@@ -265,7 +265,7 @@ concept AsyncRawReader = RawReader<T> && requires(
     { reader.wait_completions_for(
         std::declval<std::vector<std::pair<uint64_t, Result<std::size_t>>>&>(),
         timeout, std::size_t{}) } 
-        -> std::same_as<size_t>;
+        -> std::same_as<Result<std::size_t>>;
     
     // ========================================================================
     // Operation Management

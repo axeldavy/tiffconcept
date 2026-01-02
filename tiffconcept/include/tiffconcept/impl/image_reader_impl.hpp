@@ -1237,14 +1237,14 @@ struct alignas(64) FastReader<PixelType, DecompSpec>::TileJob {
             size_t tile_index,
             ProcessFn fn)
         : job_state(&job_state_param)
+        , process_fn(fn)
+        , batch_idx(batch_index)
+        , tile_idx(tile_index) 
         , metadata_ptr(metadata)
         , shape_ptr(shape)
         , region_ptr(region)
         , output_buffer_ptr(output_buffer)
-        , output_buffer_size(output_buffer_size_param)
-        , batch_idx(batch_index)
-        , tile_idx(tile_index)
-        , process_fn(fn) {}
+        , output_buffer_size(output_buffer_size_param){}
     
     operator bool() const { return process_fn != nullptr; }
 
@@ -1360,14 +1360,21 @@ inline Result<void> FastReader<PixelType, DecompSpec>::read_region(
         }
         
         // Poll for completions using preallocated buffer
-        reader.poll_completions(job_state.completion_buffer, 0);
+        auto poll_result = reader.poll_completions(job_state.completion_buffer, 0);
+        if (poll_result.is_error()) {
+            return poll_result.error();
+        }
         
         if (job_state.completion_buffer.empty() && job_state.job_queue.empty()) {
             // Wait briefly for completions
-            reader.wait_completions_for(
+            auto wait_result = reader.wait_completions_for(
                 job_state.completion_buffer,
                 std::chrono::milliseconds(1), 0
             );
+
+            if (wait_result.is_error()) {
+                return wait_result.error();
+            }
             
             if (job_state.completion_buffer.empty()) {
                 continue;
@@ -1507,14 +1514,21 @@ inline Result<void> FastReader<PixelType, DecompSpec>::read_region_single_thread
         }
         
         // Poll for completions using preallocated buffer
-        reader.poll_completions(job_state.completion_buffer, 0);
+        auto poll_result = reader.poll_completions(job_state.completion_buffer, 0);
+        if (poll_result.is_error()) {
+            return poll_result.error();
+        }
         
         if (job_state.completion_buffer.empty()) {
             // Wait briefly for completions
-            reader.wait_completions_for(
+            auto wait_result = reader.wait_completions_for(
                 job_state.completion_buffer,
                 std::chrono::milliseconds(1), 0
             );
+
+            if (wait_result.is_error()) {
+                return wait_result.error();
+            }
             
             if (job_state.completion_buffer.empty()) {
                 continue;
