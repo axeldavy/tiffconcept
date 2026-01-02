@@ -122,6 +122,11 @@ public:
     };
 
 private:
+    /// Context for a pending operation - just keeps OVERLAPPED alive until completion
+    struct OperationContext {
+        std::unique_ptr<OVERLAPPED> overlapped;  ///< OVERLAPPED structure (must persist)
+    };
+
     HANDLE file_handle_{INVALID_HANDLE_VALUE};
     HANDLE iocp_handle_{INVALID_HANDLE_VALUE};
     std::size_t size_{0};
@@ -487,6 +492,8 @@ public:
         std::memset(overlapped.get(), 0, sizeof(OVERLAPPED));
         overlapped->Offset = static_cast<DWORD>(offset & 0xFFFFFFFF);
         overlapped->OffsetHigh = static_cast<DWORD>(offset >> 32);
+
+        OVERLAPPED* overlapped_ptr = overlapped.get();
         
         // Store operation context
         {
@@ -709,10 +716,6 @@ public:
     }
 
 private:
-    /// Context for a pending operation - just keeps OVERLAPPED alive until completion
-    struct OperationContext {
-        std::unique_ptr<OVERLAPPED> overlapped;  ///< OVERLAPPED structure (must persist)
-    };
     
     /// Find user data from OVERLAPPED pointer
     [[nodiscard]] uint64_t find_user_data(OVERLAPPED* overlapped) const noexcept {
