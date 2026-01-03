@@ -23,10 +23,23 @@ public:
     constexpr NoneDecompressor(NoneDecompressor&&) noexcept = default;
     constexpr NoneDecompressor& operator=(NoneDecompressor&&) noexcept = default;
     
+    /// Check if format is supported (supports all formats)
+    [[nodiscard]] static constexpr bool supports_format(
+        [[maybe_unused]] const TileSize& tile_size,
+        [[maybe_unused]] std::span<const SampleFormat> sample_formats,
+        [[maybe_unused]] std::span<const uint8_t> bits_per_sample,
+        [[maybe_unused]] std::endian endianness) noexcept {
+        return true; // Uncompressed supports all formats
+    }
+    
     /// Copy uncompressed data
     [[nodiscard]] Result<std::size_t> decompress(
         std::span<std::byte> output,
-        std::span<const std::byte> input) const noexcept {
+        std::span<const std::byte> input,
+        [[maybe_unused]] const TileSize& tile_size,
+        [[maybe_unused]] std::span<const SampleFormat> sample_formats,
+        [[maybe_unused]] std::span<const uint8_t> bits_per_sample,
+        [[maybe_unused]] std::endian endianness) const noexcept {
         
         if (input.size() > output.size()) [[unlikely]] {
             return Err(Error::Code::InvalidFormat,
@@ -59,6 +72,15 @@ public:
     // Movable
     constexpr PackBitsDecompressor(PackBitsDecompressor&&) noexcept = default;
     constexpr PackBitsDecompressor& operator=(PackBitsDecompressor&&) noexcept = default;
+
+    /// Check if format is supported (supports all formats)
+    [[nodiscard]] static constexpr bool supports_format(
+        [[maybe_unused]] const TileSize& tile_size,
+        [[maybe_unused]] std::span<const SampleFormat> sample_formats,
+        [[maybe_unused]] std::span<const uint8_t> bits_per_sample,
+        [[maybe_unused]] std::endian endianness) noexcept {
+        return true; // PackBits is format-agnostic
+    }
     
     /// Decompress PackBits encoded data
     /// Algorithm:
@@ -68,7 +90,11 @@ public:
     /// - If n == -128: no operation (skip)
     [[nodiscard]] Result<std::size_t> decompress(
         std::span<std::byte> output,
-        std::span<const std::byte> input) const noexcept {
+        std::span<const std::byte> input,
+        [[maybe_unused]] const TileSize& tile_size,
+        [[maybe_unused]] std::span<const SampleFormat> sample_formats,
+        [[maybe_unused]] std::span<const uint8_t> bits_per_sample,
+        [[maybe_unused]] std::endian endianness) const noexcept {
         
         std::size_t in_pos = 0;
         std::size_t out_pos = 0;

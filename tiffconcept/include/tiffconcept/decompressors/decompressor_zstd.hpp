@@ -68,12 +68,25 @@ public:
     // Movable
     ZstdDecompressor(ZstdDecompressor&&) noexcept = default;
     ZstdDecompressor& operator=(ZstdDecompressor&&) noexcept = default;
+
+    /// Check if format is supported (supports all formats)
+    [[nodiscard]] static constexpr bool supports_format(
+        [[maybe_unused]] const TileSize& tile_size,
+        [[maybe_unused]] std::span<const SampleFormat> sample_formats,
+        [[maybe_unused]] std::span<const uint8_t> bits_per_sample,
+        [[maybe_unused]] std::endian endianness) noexcept {
+        return true; // ZSTD is format-agnostic, operates on byte streams
+    }
     
     /// Decompress data using the context (thread-safe if each thread has its own context)
     /// Context is created lazily on first use
     [[nodiscard]] Result<std::size_t> decompress(
         std::span<std::byte> output,
-        std::span<const std::byte> input) const noexcept {
+        std::span<const std::byte> input,
+        [[maybe_unused]] const TileSize& tile_size,
+        [[maybe_unused]] std::span<const SampleFormat> sample_formats,
+        [[maybe_unused]] std::span<const uint8_t> bits_per_sample,
+        [[maybe_unused]] std::endian endianness) const noexcept {
         
         auto ctx_result = ensure_context();
         if (!ctx_result) {

@@ -87,18 +87,24 @@ TEST(EncoderDecoderRoundtrip, Simple2D_Uint8_NoCompression) {
     auto original = generate_test_image<uint8_t>(width, height, 1, channels);
     
     // Encode
-    auto encode_result = encoder.encode_2d(
-        original, 0, 0, 0, width, height, 0,
-        CompressionScheme::None, Predictor::None, channels
+    TileDescriptor tile_desc{
+        .index = 0,
+        .coords = {0, 0, 0, 0},
+        .size = {width, height, 1, channels}
+    };
+    auto encode_result = encoder.encode(
+        original, tile_desc,
+        CompressionScheme::None, Predictor::None
     );
     ASSERT_TRUE(encode_result.is_ok());
     
     const auto& encoded = encode_result.value();
     
     // Decode
+    TileSize tile_size{width, height, 1, channels};
     auto decode_result = decoder.decode(
-        encoded.data, width, height,
-        CompressionScheme::None, Predictor::None, channels
+        encoded.data, tile_size,
+        CompressionScheme::None, Predictor::None
     );
     ASSERT_TRUE(decode_result.is_ok());
     
@@ -127,18 +133,23 @@ TEST(EncoderDecoderRoundtrip, RGB_Uint8_ZSTD_HorizontalPredictor) {
     const uint16_t channels = 3;
     auto original = generate_test_image<uint8_t>(width, height, 1, channels);
     
-    auto encode_result = encoder.encode_2d(
-        original, 0, 0, 0, width, height, 0,
-        CompressionScheme::ZSTD, Predictor::Horizontal, channels
+    TileDescriptor tile_desc{
+        .index = 0,
+        .coords = {0, 0, 0, 0},
+        .size = {width, height, 1, channels}
+    };
+    auto encode_result = encoder.encode(
+        original, tile_desc,
+        CompressionScheme::ZSTD, Predictor::Horizontal
     );
     ASSERT_TRUE(encode_result.is_ok());
     
     const auto& encoded = encode_result.value();
-    //EXPECT_LT(encoded.info.compressed_size, encoded.info.uncompressed_size); -> no because of random data
     
+    TileSize tile_size{width, height, 1, channels};
     auto decode_result = decoder.decode(
-        encoded.data, width, height,
-        CompressionScheme::ZSTD, Predictor::Horizontal, channels
+        encoded.data, tile_size,
+        CompressionScheme::ZSTD, Predictor::Horizontal
     );
     ASSERT_TRUE(decode_result.is_ok());
     
@@ -164,15 +175,21 @@ TEST(EncoderDecoderRoundtrip, Uint16_ZSTD) {
     const uint16_t channels = 1;
     auto original = generate_test_image<uint16_t>(width, height, 1, channels);
     
-    auto encode_result = encoder.encode_2d(
-        original, 0, 0, 0, width, height, 0,
-        CompressionScheme::ZSTD, Predictor::None, channels
+    TileDescriptor tile_desc{
+        .index = 0,
+        .coords = {0, 0, 0, 0},
+        .size = {width, height, 1, channels}
+    };
+    auto encode_result = encoder.encode(
+        original, tile_desc,
+        CompressionScheme::ZSTD, Predictor::None
     );
     ASSERT_TRUE(encode_result.is_ok());
     
+    TileSize tile_size{width, height, 1, channels};
     auto decode_result = decoder.decode(
-        encode_result.value().data, width, height,
-        CompressionScheme::ZSTD, Predictor::None, channels
+        encode_result.value().data, tile_size,
+        CompressionScheme::ZSTD, Predictor::None
     );
     ASSERT_TRUE(decode_result.is_ok());
     
@@ -197,15 +214,21 @@ TEST(EncoderDecoderRoundtrip, Float_FloatingPointPredictor) {
     const uint16_t channels = 1;
     auto original = generate_test_image<float>(width, height, 1, channels, 123);
     
-    auto encode_result = encoder.encode_2d(
-        original, 0, 0, 0, width, height, 0,
-        CompressionScheme::ZSTD, Predictor::FloatingPoint, channels
+    TileDescriptor tile_desc{
+        .index = 0,
+        .coords = {0, 0, 0, 0},
+        .size = {width, height, 1, channels}
+    };
+    auto encode_result = encoder.encode(
+        original, tile_desc,
+        CompressionScheme::ZSTD, Predictor::FloatingPoint
     );
     ASSERT_TRUE(encode_result.is_ok());
     
+    TileSize tile_size{width, height, 1, channels};
     auto decode_result = decoder.decode(
-        encode_result.value().data, width, height,
-        CompressionScheme::ZSTD, Predictor::FloatingPoint, channels
+        encode_result.value().data, tile_size,
+        CompressionScheme::ZSTD, Predictor::FloatingPoint
     );
     ASSERT_TRUE(decode_result.is_ok());
     
@@ -229,15 +252,21 @@ TEST(EncoderDecoderRoundtrip, Volume3D_Uint8) {
     const uint16_t channels = 1;
     auto original = generate_test_image<uint8_t>(width, height, depth, channels);
     
+    TileDescriptor tile_desc{
+        .index = 0,
+        .coords = {0, 0, 0, 0},
+        .size = {width, height, depth, channels}
+    };
     auto encode_result = encoder.encode(
-        original, 0, 0, 0, 0, width, height, depth, 0,
-        CompressionScheme::None, Predictor::None, channels
+        original, tile_desc,
+        CompressionScheme::None, Predictor::None
     );
     ASSERT_TRUE(encode_result.is_ok());
     
+    TileSize tile_size{width, height * depth, 1, channels};
     auto decode_result = decoder.decode(
-        encode_result.value().data, width, height * depth,
-        CompressionScheme::None, Predictor::None, channels
+        encode_result.value().data, tile_size,
+        CompressionScheme::None, Predictor::None
     );
     ASSERT_TRUE(decode_result.is_ok());
     
@@ -263,15 +292,21 @@ TEST(EncoderDecoderRoundtrip, Volume3D_Multichannel_ZSTD) {
     const uint16_t channels = 3;
     auto original = generate_test_image<uint16_t>(width, height, depth, channels);
     
+    TileDescriptor tile_desc{
+        .index = 0,
+        .coords = {0, 0, 0, 0},
+        .size = {width, height, depth, channels}
+    };
     auto encode_result = encoder.encode(
-        original, 0, 0, 0, 0, width, height, depth, 0,
-        CompressionScheme::ZSTD, Predictor::Horizontal, channels
+        original, tile_desc,
+        CompressionScheme::ZSTD, Predictor::Horizontal
     );
     ASSERT_TRUE(encode_result.is_ok());
     
+    TileSize tile_size{width, height * depth, 1, channels};
     auto decode_result = decoder.decode(
-        encode_result.value().data, width, height * depth,
-        CompressionScheme::ZSTD, Predictor::Horizontal, channels
+        encode_result.value().data, tile_size,
+        CompressionScheme::ZSTD, Predictor::Horizontal
     );
     ASSERT_TRUE(decode_result.is_ok());
     

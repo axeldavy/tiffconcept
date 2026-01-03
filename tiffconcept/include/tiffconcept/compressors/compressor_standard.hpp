@@ -25,14 +25,18 @@ public:
     constexpr NoneCompressor(NoneCompressor&&) noexcept = default;
     constexpr NoneCompressor& operator=(NoneCompressor&&) noexcept = default;
     
-    /// Clone this compressor for multi-threading
-    [[nodiscard]] NoneCompressor clone() const noexcept {
-        return NoneCompressor{};
-    }
-    
     /// Get the default compression scheme for this compressor
     [[nodiscard]] static constexpr CompressionScheme get_default_scheme() noexcept {
         return CompressionScheme::None;
+    }
+    
+    /// Check if format is supported (supports all formats)
+    [[nodiscard]] static constexpr bool supports_format(
+        [[maybe_unused]] const TileSize& tile_size,
+        [[maybe_unused]] std::span<const SampleFormat> sample_formats,
+        [[maybe_unused]] std::span<const uint8_t> bits_per_sample,
+        [[maybe_unused]] std::endian endianness) noexcept {
+        return true; // Uncompressed supports all formats
     }
     
     /// Copy uncompressed data
@@ -43,7 +47,11 @@ public:
     [[nodiscard]] Result<std::size_t> compress(
         std::vector<std::byte>& output,
         std::size_t offset,
-        std::span<const std::byte> input) const noexcept {
+        std::span<const std::byte> input,
+        [[maybe_unused]] const TileSize& tile_size,
+        [[maybe_unused]] std::span<const SampleFormat> sample_formats,
+        [[maybe_unused]] std::span<const uint8_t> bits_per_sample,
+        [[maybe_unused]] std::endian endianness) const noexcept {
         
         std::size_t required_size = offset + input.size();
         
@@ -84,14 +92,18 @@ public:
     constexpr PackBitsCompressor(PackBitsCompressor&&) noexcept = default;
     constexpr PackBitsCompressor& operator=(PackBitsCompressor&&) noexcept = default;
     
-    /// Clone this compressor for multi-threading
-    [[nodiscard]] PackBitsCompressor clone() const noexcept {
-        return PackBitsCompressor{};
-    }
-    
     /// Get the default compression scheme for this compressor
     [[nodiscard]] static constexpr CompressionScheme get_default_scheme() noexcept {
         return CompressionScheme::PackBits;
+    }
+    
+    /// Check if format is supported (supports all formats)
+    [[nodiscard]] static constexpr bool supports_format(
+        [[maybe_unused]] const TileSize& tile_size,
+        [[maybe_unused]] std::span<const SampleFormat> sample_formats,
+        [[maybe_unused]] std::span<const uint8_t> bits_per_sample,
+        [[maybe_unused]] std::endian endianness) noexcept {
+        return true; // PackBits is format-agnostic
     }
     
     /// Compress data using PackBits encoding
@@ -108,7 +120,11 @@ public:
     [[nodiscard]] Result<std::size_t> compress(
         std::vector<std::byte>& output,
         std::size_t offset,
-        std::span<const std::byte> input) const noexcept {
+        std::span<const std::byte> input,
+        [[maybe_unused]] const TileSize& tile_size,
+        [[maybe_unused]] std::span<const SampleFormat> sample_formats,
+        [[maybe_unused]] std::span<const uint8_t> bits_per_sample,
+        [[maybe_unused]] std::endian endianness) const noexcept {
         
         if (input.empty()) {
             return Ok(std::size_t{0});

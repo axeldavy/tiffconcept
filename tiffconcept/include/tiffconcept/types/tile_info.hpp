@@ -10,6 +10,7 @@ struct TileCoordinates {
     uint32_t y{0};          ///< Y coordinate
     uint32_t z{0};          ///< Z coordinate
     uint32_t s{0};          ///< Sample coordinate (== channel == plane)
+    auto operator<=>(const TileCoordinates&) const = default;
 };
 
 /// @brief Dimensions of a tile/strip
@@ -18,6 +19,7 @@ struct TileSize {
     uint32_t height{1};     ///< Height in pixels
     uint32_t depth{1};      ///< Depth in pixels
     uint32_t nsamples{1};   ///< Number of samples (channels) per pixel
+    auto operator<=>(const TileSize&) const = default;
 };
 
 /// @brief Identity and geometry of a tile
@@ -26,6 +28,7 @@ struct TileDescriptor {
     uint32_t index{0};      ///< Linear index (tile or strip index)
     TileCoordinates coords; ///< Logical coordinates
     TileSize size;          ///< Dimensions
+    auto operator<=>(const TileDescriptor&) const = default;
 };
 
 /// @brief Physical location of data in the file
@@ -36,6 +39,7 @@ struct FileSpan {
 
     [[nodiscard]] constexpr bool is_empty() const noexcept { return length == 0; } /// Empty spans mean missing tiles
     [[nodiscard]] constexpr uint64_t end_offset() const noexcept { return offset + length; }
+    auto operator<=>(const FileSpan&) const = default;
 };
 
 /// @brief Complete tile information (Logical + Physical)
@@ -43,6 +47,7 @@ struct FileSpan {
 struct Tile {
     TileDescriptor id;      ///< Logical description
     FileSpan location;      ///< Physical location
+    auto operator<=>(const Tile&) const = default;
 };
 
 } // namespace tiffconcept

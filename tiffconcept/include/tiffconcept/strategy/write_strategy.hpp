@@ -6,6 +6,7 @@
 #include <vector>
 #include "../types/result.hpp"
 #include "../types/tiff_spec.hpp"
+#include "../types/tile_info.hpp"
 
 namespace tiffconcept {
 
@@ -15,15 +16,12 @@ template <typename T> class WriteContext;
 
 /// Information about a chunk to be written
 struct ChunkWriteInfo {
-    uint32_t chunk_index;           // Linear index of chunk
-    uint32_t pixel_x, pixel_y, pixel_z;  // Position in image
-    uint32_t width, height, depth;       // Chunk dimensions
-    uint16_t plane;                      // For planar configuration
+    TileDescriptor chunk_descriptor;     // Tile/strip position and size
     std::size_t uncompressed_size;       // Size before compression
     std::size_t compressed_size;         // Size after compression (0 if not yet known)
     std::size_t file_offset;             // Offset in file (0 if not yet known)
 
-    bool operator==(const ChunkWriteInfo&) const = default;
+    auto operator<=>(const ChunkWriteInfo&) const = default;
 };
 
 /// Encoded chunk data ready to write
@@ -245,10 +243,12 @@ struct ImageOrderTiles {
         // Sort by: z, plane, y, x
         std::sort(chunks.begin(), chunks.end(), 
             [](const ChunkWriteInfo& a, const ChunkWriteInfo& b) {
-                if (a.pixel_z != b.pixel_z) return a.pixel_z < b.pixel_z;
-                if (a.plane != b.plane) return a.plane < b.plane;
-                if (a.pixel_y != b.pixel_y) return a.pixel_y < b.pixel_y;
-                return a.pixel_x < b.pixel_x;
+                const TileCoordinates& coords_a = a.chunk_descriptor.coords;
+                const TileCoordinates& coords_b = b.chunk_descriptor.coords;
+                if (coords_a.z != coords_b.z) return coords_a.z < coords_b.z;
+                if (coords_a.s != coords_b.s) return coords_a.s < coords_b.s;
+                if (coords_a.y != coords_b.y) return coords_a.y < coords_b.y;
+                return coords_a.x < coords_b.x;
             });
     }
 };
@@ -262,7 +262,7 @@ struct SequentialTiles {
         // Keep existing order (chunk_index order)
         std::sort(chunks.begin(), chunks.end(),
             [](const ChunkWriteInfo& a, const ChunkWriteInfo& b) {
-                return a.chunk_index < b.chunk_index;
+                return a.chunk_descriptor.index < b.chunk_descriptor.index;
             });
     }
 };

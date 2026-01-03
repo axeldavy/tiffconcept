@@ -785,11 +785,9 @@ inline void CPULimitedReader<PixelType, DecompSpec>::process_tile_task(
                     // Decode tile (decompress + predictor)
                     decode_res = thread_decoder.decode(
                         read_res.value().data(),
-                        tile.id.size.width,
-                        tile.id.size.height * tile.id.size.depth,
+                        tile.id.size,
                         compression,
-                        predictor,
-                        tile.id.size.nsamples
+                        predictor
                     );
                 } else {
                     // for cache locality, reuse buffer for each tile
@@ -821,11 +819,9 @@ inline void CPULimitedReader<PixelType, DecompSpec>::process_tile_task(
                             encoded_tile_buffer.data(), 
                             tile.location.length
                         ),
-                        tile.id.size.width,
-                        tile.id.size.height * tile.id.size.depth,
+                        tile.id.size,
                         compression,
-                        predictor,
-                        tile.id.size.nsamples
+                        predictor
                     );
                 }
                 if (!decode_res) [[unlikely]] {
@@ -1888,11 +1884,9 @@ inline Result<void> FastReader<PixelType, DecompSpec>::process_tile(
     // Decode tile
     auto decode_res = thread_decoder.decode(
         compressed_data,
-        tile.id.size.width,
-        tile.id.size.height * tile.id.size.depth,
+        tile.id.size,
         compression,
-        predictor,
-        tile.id.size.nsamples
+        predictor
     );
     
     if (decode_res.is_error()) {

@@ -83,6 +83,26 @@ bool span_equals_vector(std::span<const std::byte> span, const std::vector<std::
     return std::memcmp(span.data(), vec.data(), size) == 0;
 }
 
+/// Create TileSize for given data count and samples per pixel
+TileSize make_tile_size(std::size_t count, uint32_t nsamples = 1) {
+    TileSize size;
+    size.width = static_cast<uint32_t>(count / nsamples);
+    size.height = 1;
+    size.depth = 1;
+    size.nsamples = nsamples;
+    return size;
+}
+
+/// Create sample formats array (all unsigned integers)
+std::vector<SampleFormat> make_sample_formats(uint32_t nsamples) {
+    return std::vector<SampleFormat>(nsamples, SampleFormat::UnsignedInt);
+}
+
+/// Create bits per sample array (all 8-bit)
+std::vector<uint8_t> make_bits_per_sample(uint32_t nsamples) {
+    return std::vector<uint8_t>(nsamples, 8);
+}
+
 // ============================================================================
 // None Compressor/Decompressor Tests
 // ============================================================================
@@ -94,12 +114,16 @@ TEST(NoneCompressorDecompressor, EmptyData) {
     std::vector<std::byte> input;
     std::vector<std::byte> compressed;
     
-    auto compress_result = compressor.compress(compressed, 0, input);
+    auto tile_size = make_tile_size(0);
+    auto sample_formats = make_sample_formats(1);
+    auto bits_per_sample = make_bits_per_sample(1);
+    
+    auto compress_result = compressor.compress(compressed, 0, input, tile_size, sample_formats, bits_per_sample, std::endian::native);
     ASSERT_TRUE(compress_result.is_ok());
     EXPECT_EQ(compress_result.value(), 0);
     
     std::vector<std::byte> decompressed(0);
-    auto decompress_result = decompressor.decompress(decompressed, compressed);
+    auto decompress_result = decompressor.decompress(decompressed, compressed, tile_size, sample_formats, bits_per_sample, std::endian::native);
     ASSERT_TRUE(decompress_result.is_ok());
     EXPECT_EQ(decompress_result.value(), 0);
 }
@@ -112,14 +136,18 @@ TEST(NoneCompressorDecompressor, SmallData) {
         std::byte{0x01}, std::byte{0x02}, std::byte{0x03}, std::byte{0x04}
     };
     
+    auto tile_size = make_tile_size(4);
+    auto sample_formats = make_sample_formats(1);
+    auto bits_per_sample = make_bits_per_sample(1);
+    
     std::vector<std::byte> compressed;
-    auto compress_result = compressor.compress(compressed, 0, input);
+    auto compress_result = compressor.compress(compressed, 0, input, tile_size, sample_formats, bits_per_sample, std::endian::native);
     ASSERT_TRUE(compress_result.is_ok());
     EXPECT_EQ(compress_result.value(), 4);
     EXPECT_TRUE(vectors_equal(compressed, input));
     
     std::vector<std::byte> decompressed(4);
-    auto decompress_result = decompressor.decompress(decompressed, compressed);
+    auto decompress_result = decompressor.decompress(decompressed, compressed, tile_size, sample_formats, bits_per_sample, std::endian::native);
     ASSERT_TRUE(decompress_result.is_ok());
     EXPECT_EQ(decompress_result.value(), 4);
     EXPECT_TRUE(vectors_equal(decompressed, input));
@@ -131,14 +159,18 @@ TEST(NoneCompressorDecompressor, LargeRandomData) {
     
     auto input = generate_random_bytes(10000);
     
+    auto tile_size = make_tile_size(input.size());
+    auto sample_formats = make_sample_formats(1);
+    auto bits_per_sample = make_bits_per_sample(1);
+    
     std::vector<std::byte> compressed;
-    auto compress_result = compressor.compress(compressed, 0, input);
+    auto compress_result = compressor.compress(compressed, 0, input, tile_size, sample_formats, bits_per_sample, std::endian::native);
     ASSERT_TRUE(compress_result.is_ok());
     EXPECT_EQ(compress_result.value(), input.size());
     EXPECT_TRUE(vectors_equal(compressed, input));
     
     std::vector<std::byte> decompressed(input.size());
-    auto decompress_result = decompressor.decompress(decompressed, compressed);
+    auto decompress_result = decompressor.decompress(decompressed, compressed, tile_size, sample_formats, bits_per_sample, std::endian::native);
     ASSERT_TRUE(decompress_result.is_ok());
     EXPECT_EQ(decompress_result.value(), input.size());
     EXPECT_TRUE(vectors_equal(decompressed, input));
@@ -152,10 +184,14 @@ TEST(NoneCompressorDecompressor, WithOffset) {
         std::byte{0xAA}, std::byte{0xBB}, std::byte{0xCC}
     };
     
+    auto tile_size = make_tile_size(3);
+    auto sample_formats = make_sample_formats(1);
+    auto bits_per_sample = make_bits_per_sample(1);
+    
     std::vector<std::byte> compressed;
     compressed.resize(10, std::byte{0x00});
     
-    auto compress_result = compressor.compress(compressed, 5, input);
+    auto compress_result = compressor.compress(compressed, 5, input, tile_size, sample_formats, bits_per_sample, std::endian::native);
     ASSERT_TRUE(compress_result.is_ok());
     EXPECT_EQ(compress_result.value(), 3);
     
@@ -167,7 +203,8 @@ TEST(NoneCompressorDecompressor, WithOffset) {
     std::vector<std::byte> decompressed(3);
     auto decompress_result = decompressor.decompress(
         decompressed, 
-        std::span<const std::byte>(compressed.data() + 5, 3)
+        std::span<const std::byte>(compressed.data() + 5, 3),
+        tile_size, sample_formats, bits_per_sample, std::endian::native
     );
     ASSERT_TRUE(decompress_result.is_ok());
     EXPECT_TRUE(vectors_equal(decompressed, input));
@@ -180,8 +217,12 @@ TEST(NoneDecompressor, OutputBufferTooSmall) {
         std::byte{0x01}, std::byte{0x02}, std::byte{0x03}, std::byte{0x04}
     };
     
+    auto tile_size = make_tile_size(4);
+    auto sample_formats = make_sample_formats(1);
+    auto bits_per_sample = make_bits_per_sample(1);
+    
     std::vector<std::byte> output(2);  // Too small
-    auto result = decompressor.decompress(output, input);
+    auto result = decompressor.decompress(output, input, tile_size, sample_formats, bits_per_sample, std::endian::native);
     ASSERT_TRUE(result.is_error());
     EXPECT_EQ(result.error().code, Error::Code::InvalidFormat);
 }
@@ -196,7 +237,11 @@ TEST(PackBitsCompressorDecompressor, EmptyData) {
     std::vector<std::byte> input;
     std::vector<std::byte> compressed;
     
-    auto compress_result = compressor.compress(compressed, 0, input);
+    auto tile_size = make_tile_size(0);
+    auto sample_formats = make_sample_formats(1);
+    auto bits_per_sample = make_bits_per_sample(1);
+    
+    auto compress_result = compressor.compress(compressed, 0, input, tile_size, sample_formats, bits_per_sample, std::endian::native);
     ASSERT_TRUE(compress_result.is_ok());
     EXPECT_EQ(compress_result.value(), 0);
 }
@@ -207,14 +252,19 @@ TEST(PackBitsCompressorDecompressor, SingleByte) {
     
     std::vector<std::byte> input = {std::byte{0x42}};
     
+    auto tile_size = make_tile_size(1);
+    auto sample_formats = make_sample_formats(1);
+    auto bits_per_sample = make_bits_per_sample(1);
+    
     std::vector<std::byte> compressed;
-    auto compress_result = compressor.compress(compressed, 0, input);
+    auto compress_result = compressor.compress(compressed, 0, input, tile_size, sample_formats, bits_per_sample, std::endian::native);
     ASSERT_TRUE(compress_result.is_ok());
     
     std::vector<std::byte> decompressed(1);
     auto decompress_result = decompressor.decompress(
         decompressed, 
-        std::span<const std::byte>(compressed.data(), compress_result.value())
+        std::span<const std::byte>(compressed.data(), compress_result.value()),
+        tile_size, sample_formats, bits_per_sample, std::endian::native
     );
     ASSERT_TRUE(decompress_result.is_ok());
     EXPECT_TRUE(vectors_equal(decompressed, input));
@@ -230,8 +280,12 @@ TEST(PackBitsCompressorDecompressor, ReplicatedRun) {
         std::byte{0xAA}, std::byte{0xAA}
     };
     
+    auto tile_size = make_tile_size(5);
+    auto sample_formats = make_sample_formats(1);
+    auto bits_per_sample = make_bits_per_sample(1);
+    
     std::vector<std::byte> compressed;
-    auto compress_result = compressor.compress(compressed, 0, input);
+    auto compress_result = compressor.compress(compressed, 0, input, tile_size, sample_formats, bits_per_sample, std::endian::native);
     ASSERT_TRUE(compress_result.is_ok());
     
     // Should be encoded as: -4 (= 1-5), 0xAA
@@ -242,7 +296,8 @@ TEST(PackBitsCompressorDecompressor, ReplicatedRun) {
     std::vector<std::byte> decompressed(5);
     auto decompress_result = decompressor.decompress(
         decompressed, 
-        std::span<const std::byte>(compressed.data(), compress_result.value())
+        std::span<const std::byte>(compressed.data(), compress_result.value()),
+        tile_size, sample_formats, bits_per_sample, std::endian::native
     );
     ASSERT_TRUE(decompress_result.is_ok());
     EXPECT_EQ(decompress_result.value(), 5);
@@ -258,8 +313,12 @@ TEST(PackBitsCompressorDecompressor, LiteralRun) {
         std::byte{0x01}, std::byte{0x02}, std::byte{0x03}
     };
     
+    auto tile_size = make_tile_size(3);
+    auto sample_formats = make_sample_formats(1);
+    auto bits_per_sample = make_bits_per_sample(1);
+    
     std::vector<std::byte> compressed;
-    auto compress_result = compressor.compress(compressed, 0, input);
+    auto compress_result = compressor.compress(compressed, 0, input, tile_size, sample_formats, bits_per_sample, std::endian::native);
     ASSERT_TRUE(compress_result.is_ok());
     
     // Should be encoded as: 2 (= 3-1), 0x01, 0x02, 0x03
@@ -269,7 +328,8 @@ TEST(PackBitsCompressorDecompressor, LiteralRun) {
     std::vector<std::byte> decompressed(3);
     auto decompress_result = decompressor.decompress(
         decompressed, 
-        std::span<const std::byte>(compressed.data(), compress_result.value())
+        std::span<const std::byte>(compressed.data(), compress_result.value()),
+        tile_size, sample_formats, bits_per_sample, std::endian::native
     );
     ASSERT_TRUE(decompress_result.is_ok());
     EXPECT_EQ(decompress_result.value(), 3);
@@ -288,14 +348,19 @@ TEST(PackBitsCompressorDecompressor, MixedRuns) {
         std::byte{0xBB}                                      // 1 more identical
     };
     
+    auto tile_size = make_tile_size(input.size());
+    auto sample_formats = make_sample_formats(1);
+    auto bits_per_sample = make_bits_per_sample(1);
+    
     std::vector<std::byte> compressed;
-    auto compress_result = compressor.compress(compressed, 0, input);
+    auto compress_result = compressor.compress(compressed, 0, input, tile_size, sample_formats, bits_per_sample, std::endian::native);
     ASSERT_TRUE(compress_result.is_ok());
     
     std::vector<std::byte> decompressed(input.size());
     auto decompress_result = decompressor.decompress(
         decompressed, 
-        std::span<const std::byte>(compressed.data(), compress_result.value())
+        std::span<const std::byte>(compressed.data(), compress_result.value()),
+        tile_size, sample_formats, bits_per_sample, std::endian::native
     );
     ASSERT_TRUE(decompress_result.is_ok());
     EXPECT_EQ(decompress_result.value(), input.size());
@@ -309,8 +374,12 @@ TEST(PackBitsCompressorDecompressor, LongReplicatedRun) {
     // 128 identical bytes (maximum for one run)
     std::vector<std::byte> input(128, std::byte{0xFF});
     
+    auto tile_size = make_tile_size(128);
+    auto sample_formats = make_sample_formats(1);
+    auto bits_per_sample = make_bits_per_sample(1);
+    
     std::vector<std::byte> compressed;
-    auto compress_result = compressor.compress(compressed, 0, input);
+    auto compress_result = compressor.compress(compressed, 0, input, tile_size, sample_formats, bits_per_sample, std::endian::native);
     ASSERT_TRUE(compress_result.is_ok());
     
     // Should be encoded as: -127 (= 1-128), 0xFF
@@ -321,7 +390,8 @@ TEST(PackBitsCompressorDecompressor, LongReplicatedRun) {
     std::vector<std::byte> decompressed(128);
     auto decompress_result = decompressor.decompress(
         decompressed, 
-        std::span<const std::byte>(compressed.data(), compress_result.value())
+        std::span<const std::byte>(compressed.data(), compress_result.value()),
+        tile_size, sample_formats, bits_per_sample, std::endian::native
     );
     ASSERT_TRUE(decompress_result.is_ok());
     EXPECT_EQ(decompress_result.value(), 128);
@@ -334,8 +404,12 @@ TEST(PackBitsCompressorDecompressor, DataWithRuns) {
     
     auto input = generate_data_with_runs(1000);
     
+    auto tile_size = make_tile_size(input.size());
+    auto sample_formats = make_sample_formats(1);
+    auto bits_per_sample = make_bits_per_sample(1);
+    
     std::vector<std::byte> compressed;
-    auto compress_result = compressor.compress(compressed, 0, input);
+    auto compress_result = compressor.compress(compressed, 0, input, tile_size, sample_formats, bits_per_sample, std::endian::native);
     ASSERT_TRUE(compress_result.is_ok());
     
     // Compression should reduce size for data with runs
@@ -344,7 +418,8 @@ TEST(PackBitsCompressorDecompressor, DataWithRuns) {
     std::vector<std::byte> decompressed(input.size());
     auto decompress_result = decompressor.decompress(
         decompressed, 
-        std::span<const std::byte>(compressed.data(), compress_result.value())
+        std::span<const std::byte>(compressed.data(), compress_result.value()),
+        tile_size, sample_formats, bits_per_sample, std::endian::native
     );
     ASSERT_TRUE(decompress_result.is_ok());
     EXPECT_EQ(decompress_result.value(), input.size());
@@ -357,14 +432,19 @@ TEST(PackBitsCompressorDecompressor, RandomData) {
     
     auto input = generate_random_bytes(500);
     
+    auto tile_size = make_tile_size(input.size());
+    auto sample_formats = make_sample_formats(1);
+    auto bits_per_sample = make_bits_per_sample(1);
+    
     std::vector<std::byte> compressed;
-    auto compress_result = compressor.compress(compressed, 0, input);
+    auto compress_result = compressor.compress(compressed, 0, input, tile_size, sample_formats, bits_per_sample, std::endian::native);
     ASSERT_TRUE(compress_result.is_ok());
     
     std::vector<std::byte> decompressed(input.size());
     auto decompress_result = decompressor.decompress(
         decompressed, 
-        std::span<const std::byte>(compressed.data(), compress_result.value())
+        std::span<const std::byte>(compressed.data(), compress_result.value()),
+        tile_size, sample_formats, bits_per_sample, std::endian::native
     );
     ASSERT_TRUE(decompress_result.is_ok());
     EXPECT_EQ(decompress_result.value(), input.size());
@@ -381,8 +461,12 @@ TEST(PackBitsDecompressor, InvalidControlByte128) {
         std::byte{0x42}
     };
     
+    auto tile_size = make_tile_size(1);
+    auto sample_formats = make_sample_formats(1);
+    auto bits_per_sample = make_bits_per_sample(1);
+    
     std::vector<std::byte> output(1);
-    auto result = decompressor.decompress(output, input);
+    auto result = decompressor.decompress(output, input, tile_size, sample_formats, bits_per_sample, std::endian::native);
     ASSERT_TRUE(result.is_ok());
     EXPECT_EQ(result.value(), 1);
     EXPECT_EQ(output[0], std::byte{0x42});
@@ -397,8 +481,12 @@ TEST(PackBitsDecompressor, UnexpectedEndOfInput) {
         std::byte{0x01}, std::byte{0x02}  // Only 2 bytes
     };
     
+    auto tile_size = make_tile_size(10);
+    auto sample_formats = make_sample_formats(1);
+    auto bits_per_sample = make_bits_per_sample(1);
+    
     std::vector<std::byte> output(10);
-    auto result = decompressor.decompress(output, input);
+    auto result = decompressor.decompress(output, input, tile_size, sample_formats, bits_per_sample, std::endian::native);
     ASSERT_TRUE(result.is_error());
     EXPECT_EQ(result.error().code, Error::Code::InvalidFormat);
 }
@@ -411,8 +499,12 @@ TEST(PackBitsDecompressor, OutputBufferTooSmall) {
         std::byte{0xFF}
     };
     
+    auto tile_size = make_tile_size(3);
+    auto sample_formats = make_sample_formats(1);
+    auto bits_per_sample = make_bits_per_sample(1);
+    
     std::vector<std::byte> output(2);  // Too small for 3 bytes
-    auto result = decompressor.decompress(output, input);
+    auto result = decompressor.decompress(output, input, tile_size, sample_formats, bits_per_sample, std::endian::native);
     ASSERT_TRUE(result.is_error());
     EXPECT_EQ(result.error().code, Error::Code::InvalidFormat);
 }
@@ -428,7 +520,11 @@ TEST(ZstdCompressorDecompressor, EmptyData) {
     std::vector<std::byte> input;
     std::vector<std::byte> compressed;
     
-    auto compress_result = compressor.compress(compressed, 0, input);
+    auto tile_size = make_tile_size(0);
+    auto sample_formats = make_sample_formats(1);
+    auto bits_per_sample = make_bits_per_sample(1);
+    
+    auto compress_result = compressor.compress(compressed, 0, input, tile_size, sample_formats, bits_per_sample, std::endian::native);
     ASSERT_TRUE(compress_result.is_ok());
     
     // ZSTD will produce a valid frame even for empty data
@@ -437,7 +533,8 @@ TEST(ZstdCompressorDecompressor, EmptyData) {
     std::vector<std::byte> decompressed(0);
     auto decompress_result = decompressor.decompress(
         decompressed, 
-        std::span<const std::byte>(compressed.data(), compress_result.value())
+        std::span<const std::byte>(compressed.data(), compress_result.value()),
+        tile_size, sample_formats, bits_per_sample, std::endian::native
     );
     ASSERT_TRUE(decompress_result.is_ok());
     EXPECT_EQ(decompress_result.value(), 0);
@@ -451,15 +548,20 @@ TEST(ZstdCompressorDecompressor, SmallData) {
         std::byte{0x01}, std::byte{0x02}, std::byte{0x03}, std::byte{0x04}
     };
     
+    auto tile_size = make_tile_size(4);
+    auto sample_formats = make_sample_formats(1);
+    auto bits_per_sample = make_bits_per_sample(1);
+    
     std::vector<std::byte> compressed;
-    auto compress_result = compressor.compress(compressed, 0, input);
+    auto compress_result = compressor.compress(compressed, 0, input, tile_size, sample_formats, bits_per_sample, std::endian::native);
     ASSERT_TRUE(compress_result.is_ok());
     EXPECT_GT(compress_result.value(), 0);
     
     std::vector<std::byte> decompressed(4);
     auto decompress_result = decompressor.decompress(
         decompressed, 
-        std::span<const std::byte>(compressed.data(), compress_result.value())
+        std::span<const std::byte>(compressed.data(), compress_result.value()),
+        tile_size, sample_formats, bits_per_sample, std::endian::native
     );
     ASSERT_TRUE(decompress_result.is_ok());
     EXPECT_EQ(decompress_result.value(), 4);
@@ -472,8 +574,12 @@ TEST(ZstdCompressorDecompressor, CompressibleData) {
     
     auto input = generate_compressible_data(10000);
     
+    auto tile_size = make_tile_size(input.size());
+    auto sample_formats = make_sample_formats(1);
+    auto bits_per_sample = make_bits_per_sample(1);
+    
     std::vector<std::byte> compressed;
-    auto compress_result = compressor.compress(compressed, 0, input);
+    auto compress_result = compressor.compress(compressed, 0, input, tile_size, sample_formats, bits_per_sample, std::endian::native);
     ASSERT_TRUE(compress_result.is_ok());
     
     // Should achieve good compression
@@ -482,7 +588,8 @@ TEST(ZstdCompressorDecompressor, CompressibleData) {
     std::vector<std::byte> decompressed(input.size());
     auto decompress_result = decompressor.decompress(
         decompressed, 
-        std::span<const std::byte>(compressed.data(), compress_result.value())
+        std::span<const std::byte>(compressed.data(), compress_result.value()),
+        tile_size, sample_formats, bits_per_sample, std::endian::native
     );
     ASSERT_TRUE(decompress_result.is_ok());
     EXPECT_EQ(decompress_result.value(), input.size());
@@ -495,14 +602,19 @@ TEST(ZstdCompressorDecompressor, RandomData) {
     
     auto input = generate_random_bytes(5000);
     
+    auto tile_size = make_tile_size(input.size());
+    auto sample_formats = make_sample_formats(1);
+    auto bits_per_sample = make_bits_per_sample(1);
+    
     std::vector<std::byte> compressed;
-    auto compress_result = compressor.compress(compressed, 0, input);
+    auto compress_result = compressor.compress(compressed, 0, input, tile_size, sample_formats, bits_per_sample, std::endian::native);
     ASSERT_TRUE(compress_result.is_ok());
     
     std::vector<std::byte> decompressed(input.size());
     auto decompress_result = decompressor.decompress(
         decompressed, 
-        std::span<const std::byte>(compressed.data(), compress_result.value())
+        std::span<const std::byte>(compressed.data(), compress_result.value()),
+        tile_size, sample_formats, bits_per_sample, std::endian::native
     );
     ASSERT_TRUE(decompress_result.is_ok());
     EXPECT_EQ(decompress_result.value(), input.size());
@@ -515,14 +627,19 @@ TEST(ZstdCompressorDecompressor, LargeData) {
     
     auto input = generate_compressible_data(100000);
     
+    auto tile_size = make_tile_size(input.size());
+    auto sample_formats = make_sample_formats(1);
+    auto bits_per_sample = make_bits_per_sample(1);
+    
     std::vector<std::byte> compressed;
-    auto compress_result = compressor.compress(compressed, 0, input);
+    auto compress_result = compressor.compress(compressed, 0, input, tile_size, sample_formats, bits_per_sample, std::endian::native);
     ASSERT_TRUE(compress_result.is_ok());
     
     std::vector<std::byte> decompressed(input.size());
     auto decompress_result = decompressor.decompress(
         decompressed, 
-        std::span<const std::byte>(compressed.data(), compress_result.value())
+        std::span<const std::byte>(compressed.data(), compress_result.value()),
+        tile_size, sample_formats, bits_per_sample, std::endian::native
     );
     ASSERT_TRUE(decompress_result.is_ok());
     EXPECT_EQ(decompress_result.value(), input.size());
@@ -532,24 +649,28 @@ TEST(ZstdCompressorDecompressor, LargeData) {
 TEST(ZstdCompressor, DifferentCompressionLevels) {
     auto input = generate_compressible_data(10000);
     
+    auto tile_size = make_tile_size(input.size());
+    auto sample_formats = make_sample_formats(1);
+    auto bits_per_sample = make_bits_per_sample(1);
+    
     std::vector<std::byte> compressed_level1;
     std::vector<std::byte> compressed_level9;
     std::vector<std::byte> compressed_level15;
     
     {
         ZstdCompressor compressor(1);
-        auto result1 = compressor.compress(compressed_level1, 0, input);
+        auto result1 = compressor.compress(compressed_level1, 0, input, tile_size, sample_formats, bits_per_sample, std::endian::native);
         ASSERT_TRUE(result1.is_ok());
     }
     
     {
         ZstdCompressor compressor(9);
-        auto result9 = compressor.compress(compressed_level9, 0, input);
+        auto result9 = compressor.compress(compressed_level9, 0, input, tile_size, sample_formats, bits_per_sample, std::endian::native);
         ASSERT_TRUE(result9.is_ok());
     }
     
     ZstdCompressor compressor(15);
-    auto result15 = compressor.compress(compressed_level15, 0, input);
+    auto result15 = compressor.compress(compressed_level15, 0, input, tile_size, sample_formats, bits_per_sample, std::endian::native);
     ASSERT_TRUE(result15.is_ok());
     
     // Higher compression levels should produce smaller output
@@ -560,7 +681,7 @@ TEST(ZstdCompressor, DifferentCompressionLevels) {
     ZstdDecompressor decompressor;
     std::vector<std::byte> decompressed(input.size());
     
-    auto result = decompressor.decompress(decompressed, std::span<const std::byte>(compressed_level15.data(), result15.value()));
+    auto result = decompressor.decompress(decompressed, std::span<const std::byte>(compressed_level15.data(), result15.value()), tile_size, sample_formats, bits_per_sample, std::endian::native);
     if (!result.is_ok()) {
         std::cout << "Decompression error: " << result.error().message << std::endl;
         std::cout << "Compressed size: " << compressed_level15.size() << std::endl;
@@ -577,7 +698,11 @@ TEST(ZstdCompressor, WithOffset) {
     std::vector<std::byte> compressed;
     compressed.resize(50, std::byte{0xFF});  // Pre-fill with data
     
-    auto compress_result = compressor.compress(compressed, 50, input);
+    auto tile_size = make_tile_size(input.size());
+    auto sample_formats = make_sample_formats(1);
+    auto bits_per_sample = make_bits_per_sample(1);
+    
+    auto compress_result = compressor.compress(compressed, 50, input, tile_size, sample_formats, bits_per_sample, std::endian::native);
     ASSERT_TRUE(compress_result.is_ok());
     
     // First 50 bytes should be untouched
@@ -590,7 +715,8 @@ TEST(ZstdCompressor, WithOffset) {
     std::vector<std::byte> decompressed(input.size());
     auto decompress_result = decompressor.decompress(
         decompressed,
-        std::span<const std::byte>(compressed.data() + 50, compress_result.value())
+        std::span<const std::byte>(compressed.data() + 50, compress_result.value()),
+        tile_size, sample_formats, bits_per_sample, std::endian::native
     );
     ASSERT_TRUE(decompress_result.is_ok());
     EXPECT_TRUE(vectors_equal(decompressed, input));
@@ -606,8 +732,12 @@ TEST(ZstdCompressor, GetCompressBound) {
     auto input = generate_random_bytes(input_size);
     ZstdCompressor compressor;
     
+    auto tile_size = make_tile_size(input_size);
+    auto sample_formats = make_sample_formats(1);
+    auto bits_per_sample = make_bits_per_sample(1);
+    
     std::vector<std::byte> compressed;
-    auto result = compressor.compress(compressed, 0, input);
+    auto result = compressor.compress(compressed, 0, input, tile_size, sample_formats, bits_per_sample, std::endian::native);
     ASSERT_TRUE(result.is_ok());
     EXPECT_LE(result.value(), bound);
 }
@@ -616,8 +746,12 @@ TEST(ZstdDecompressor, GetDecompressedSize) {
     ZstdCompressor compressor;
     auto input = generate_random_bytes(1234);
     
+    auto tile_size = make_tile_size(input.size());
+    auto sample_formats = make_sample_formats(1);
+    auto bits_per_sample = make_bits_per_sample(1);
+    
     std::vector<std::byte> compressed;
-    auto compress_result = compressor.compress(compressed, 0, input);
+    auto compress_result = compressor.compress(compressed, 0, input, tile_size, sample_formats, bits_per_sample, std::endian::native);
     ASSERT_TRUE(compress_result.is_ok());
     
     auto size_result = ZstdDecompressor::get_decompressed_size(
@@ -634,8 +768,12 @@ TEST(ZstdDecompressor, InvalidFrame) {
         std::byte{0x00}, std::byte{0x01}, std::byte{0x02}, std::byte{0x03}
     };
     
+    auto tile_size = make_tile_size(100);
+    auto sample_formats = make_sample_formats(1);
+    auto bits_per_sample = make_bits_per_sample(1);
+    
     std::vector<std::byte> output(100);
-    auto result = decompressor.decompress(output, invalid_data);
+    auto result = decompressor.decompress(output, invalid_data, tile_size, sample_formats, bits_per_sample, std::endian::native);
     ASSERT_TRUE(result.is_error());
     EXPECT_EQ(result.error().code, Error::Code::InvalidFormat);
 }
@@ -693,8 +831,12 @@ TEST(CompressorDecompressorStorage, NoneScheme) {
     auto input = generate_random_bytes(1000);
     std::vector<std::byte> compressed;
     
+    auto tile_size = make_tile_size(input.size());
+    auto sample_formats = make_sample_formats(1);
+    auto bits_per_sample = make_bits_per_sample(1);
+    
     auto compress_result = compressor_storage.compress(
-        compressed, 0, input, CompressionScheme::None
+        compressed, 0, input, CompressionScheme::None, tile_size, sample_formats, bits_per_sample, std::endian::native
     );
     ASSERT_TRUE(compress_result.is_ok());
     
@@ -702,7 +844,8 @@ TEST(CompressorDecompressorStorage, NoneScheme) {
     auto decompress_result = decompressor_storage.decompress(
         decompressed,
         std::span<const std::byte>(compressed.data(), compress_result.value()),
-        CompressionScheme::None
+        CompressionScheme::None,
+        tile_size, sample_formats, bits_per_sample, std::endian::native
     );
     ASSERT_TRUE(decompress_result.is_ok());
     EXPECT_TRUE(vectors_equal(decompressed, input));
@@ -715,8 +858,12 @@ TEST(CompressorDecompressorStorage, PackBitsScheme) {
     auto input = generate_data_with_runs(1000);
     std::vector<std::byte> compressed;
     
+    auto tile_size = make_tile_size(input.size());
+    auto sample_formats = make_sample_formats(1);
+    auto bits_per_sample = make_bits_per_sample(1);
+    
     auto compress_result = compressor_storage.compress(
-        compressed, 0, input, CompressionScheme::PackBits
+        compressed, 0, input, CompressionScheme::PackBits, tile_size, sample_formats, bits_per_sample, std::endian::native
     );
     ASSERT_TRUE(compress_result.is_ok());
     
@@ -724,7 +871,8 @@ TEST(CompressorDecompressorStorage, PackBitsScheme) {
     auto decompress_result = decompressor_storage.decompress(
         decompressed,
         std::span<const std::byte>(compressed.data(), compress_result.value()),
-        CompressionScheme::PackBits
+        CompressionScheme::PackBits,
+        tile_size, sample_formats, bits_per_sample, std::endian::native
     );
     ASSERT_TRUE(decompress_result.is_ok());
     EXPECT_TRUE(vectors_equal(decompressed, input));
@@ -737,8 +885,12 @@ TEST(CompressorDecompressorStorage, ZstdScheme) {
     auto input = generate_compressible_data(5000);
     std::vector<std::byte> compressed;
     
+    auto tile_size = make_tile_size(input.size());
+    auto sample_formats = make_sample_formats(1);
+    auto bits_per_sample = make_bits_per_sample(1);
+    
     auto compress_result = compressor_storage.compress(
-        compressed, 0, input, CompressionScheme::ZSTD
+        compressed, 0, input, CompressionScheme::ZSTD, tile_size, sample_formats, bits_per_sample, std::endian::native
     );
     ASSERT_TRUE(compress_result.is_ok());
     
@@ -746,7 +898,8 @@ TEST(CompressorDecompressorStorage, ZstdScheme) {
     auto decompress_result = decompressor_storage.decompress(
         decompressed,
         std::span<const std::byte>(compressed.data(), compress_result.value()),
-        CompressionScheme::ZSTD
+        CompressionScheme::ZSTD,
+        tile_size, sample_formats, bits_per_sample, std::endian::native
     );
     ASSERT_TRUE(decompress_result.is_ok());
     EXPECT_TRUE(vectors_equal(decompressed, input));
@@ -759,9 +912,13 @@ TEST(CompressorDecompressorStorage, ZstdAltScheme) {
     auto input = generate_random_bytes(2000);
     std::vector<std::byte> compressed;
     
+    auto tile_size = make_tile_size(input.size());
+    auto sample_formats = make_sample_formats(1);
+    auto bits_per_sample = make_bits_per_sample(1);
+    
     // Compress with ZSTD_Alt scheme
     auto compress_result = compressor_storage.compress(
-        compressed, 0, input, CompressionScheme::ZSTD_Alt
+        compressed, 0, input, CompressionScheme::ZSTD_Alt, tile_size, sample_formats, bits_per_sample, std::endian::native
     );
     ASSERT_TRUE(compress_result.is_ok());
     
@@ -770,7 +927,8 @@ TEST(CompressorDecompressorStorage, ZstdAltScheme) {
     auto decompress_result = decompressor_storage.decompress(
         decompressed,
         std::span<const std::byte>(compressed.data(), compress_result.value()),
-        CompressionScheme::ZSTD_Alt
+        CompressionScheme::ZSTD_Alt,
+        tile_size, sample_formats, bits_per_sample, std::endian::native
     );
     ASSERT_TRUE(decompress_result.is_ok());
     EXPECT_TRUE(vectors_equal(decompressed, input));
@@ -782,8 +940,12 @@ TEST(CompressorStorage, UnsupportedScheme) {
     auto input = generate_random_bytes(100);
     std::vector<std::byte> compressed;
     
+    auto tile_size = make_tile_size(input.size());
+    auto sample_formats = make_sample_formats(1);
+    auto bits_per_sample = make_bits_per_sample(1);
+    
     auto result = storage.compress(
-        compressed, 0, input, CompressionScheme::ZSTD
+        compressed, 0, input, CompressionScheme::ZSTD, tile_size, sample_formats, bits_per_sample, std::endian::native
     );
     ASSERT_TRUE(result.is_error());
     EXPECT_EQ(result.error().code, Error::Code::UnsupportedFeature);
@@ -795,8 +957,12 @@ TEST(DecompressorStorage, UnsupportedScheme) {
     std::vector<std::byte> input = {std::byte{0x01}, std::byte{0x02}};
     std::vector<std::byte> output(10);
     
+    auto tile_size = make_tile_size(10);
+    auto sample_formats = make_sample_formats(1);
+    auto bits_per_sample = make_bits_per_sample(1);
+    
     auto result = storage.decompress(
-        output, input, CompressionScheme::ZSTD
+        output, input, CompressionScheme::ZSTD, tile_size, sample_formats, bits_per_sample, std::endian::native
     );
     ASSERT_TRUE(result.is_error());
     EXPECT_EQ(result.error().code, Error::Code::UnsupportedFeature);
@@ -821,8 +987,12 @@ TEST(RoundTrip, AllSchemesWithRandomData) {
         auto input = generate_random_bytes(1000, static_cast<uint64_t>(scheme));
         std::vector<std::byte> compressed;
         
+        auto tile_size = make_tile_size(input.size());
+        auto sample_formats = make_sample_formats(1);
+        auto bits_per_sample = make_bits_per_sample(1);
+        
         auto compress_result = compressor_storage.compress(
-            compressed, 0, input, scheme
+            compressed, 0, input, scheme, tile_size, sample_formats, bits_per_sample, std::endian::native
         );
         ASSERT_TRUE(compress_result.is_ok()) << "Scheme: " << static_cast<int>(scheme);
         
@@ -830,7 +1000,8 @@ TEST(RoundTrip, AllSchemesWithRandomData) {
         auto decompress_result = decompressor_storage.decompress(
             decompressed,
             std::span<const std::byte>(compressed.data(), compress_result.value()),
-            scheme
+            scheme,
+            tile_size, sample_formats, bits_per_sample, std::endian::native
         );
         ASSERT_TRUE(decompress_result.is_ok()) << "Scheme: " << static_cast<int>(scheme);
         EXPECT_TRUE(vectors_equal(decompressed, input)) << "Scheme: " << static_cast<int>(scheme);
@@ -851,8 +1022,12 @@ TEST(RoundTrip, AllSchemesWithCompressibleData) {
         auto input = generate_compressible_data(5000);
         std::vector<std::byte> compressed;
         
+        auto tile_size = make_tile_size(input.size());
+        auto sample_formats = make_sample_formats(1);
+        auto bits_per_sample = make_bits_per_sample(1);
+        
         auto compress_result = compressor_storage.compress(
-            compressed, 0, input, scheme
+            compressed, 0, input, scheme, tile_size, sample_formats, bits_per_sample, std::endian::native
         );
         ASSERT_TRUE(compress_result.is_ok()) << "Scheme: " << static_cast<int>(scheme);
         
@@ -860,7 +1035,8 @@ TEST(RoundTrip, AllSchemesWithCompressibleData) {
         auto decompress_result = decompressor_storage.decompress(
             decompressed,
             std::span<const std::byte>(compressed.data(), compress_result.value()),
-            scheme
+            scheme,
+            tile_size, sample_formats, bits_per_sample, std::endian::native
         );
         ASSERT_TRUE(decompress_result.is_ok()) << "Scheme: " << static_cast<int>(scheme);
         EXPECT_TRUE(vectors_equal(decompressed, input)) << "Scheme: " << static_cast<int>(scheme);
@@ -877,13 +1053,18 @@ TEST(RoundTrip, MultipleSizesPackBits) {
         auto input = generate_data_with_runs(size, size);
         std::vector<std::byte> compressed;
         
-        auto compress_result = compressor.compress(compressed, 0, input);
+        auto tile_size = make_tile_size(size);
+        auto sample_formats = make_sample_formats(1);
+        auto bits_per_sample = make_bits_per_sample(1);
+        
+        auto compress_result = compressor.compress(compressed, 0, input, tile_size, sample_formats, bits_per_sample, std::endian::native);
         ASSERT_TRUE(compress_result.is_ok()) << "Size: " << size;
         
         std::vector<std::byte> decompressed(size);
         auto decompress_result = decompressor.decompress(
             decompressed,
-            std::span<const std::byte>(compressed.data(), compress_result.value())
+            std::span<const std::byte>(compressed.data(), compress_result.value()),
+            tile_size, sample_formats, bits_per_sample, std::endian::native
         );
         ASSERT_TRUE(decompress_result.is_ok()) << "Size: " << size;
         EXPECT_TRUE(vectors_equal(decompressed, input)) << "Size: " << size;
@@ -900,13 +1081,18 @@ TEST(RoundTrip, MultipleSizesZstd) {
         auto input = generate_compressible_data(size);
         std::vector<std::byte> compressed;
         
-        auto compress_result = compressor.compress(compressed, 0, input);
+        auto tile_size = make_tile_size(size);
+        auto sample_formats = make_sample_formats(1);
+        auto bits_per_sample = make_bits_per_sample(1);
+        
+        auto compress_result = compressor.compress(compressed, 0, input, tile_size, sample_formats, bits_per_sample, std::endian::native);
         ASSERT_TRUE(compress_result.is_ok()) << "Size: " << size;
         
         std::vector<std::byte> decompressed(size);
         auto decompress_result = decompressor.decompress(
             decompressed,
-            std::span<const std::byte>(compressed.data(), compress_result.value())
+            std::span<const std::byte>(compressed.data(), compress_result.value()),
+            tile_size, sample_formats, bits_per_sample, std::endian::native
         );
         ASSERT_TRUE(decompress_result.is_ok()) << "Size: " << size;
         EXPECT_TRUE(vectors_equal(decompressed, input)) << "Size: " << size;

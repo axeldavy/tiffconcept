@@ -4,6 +4,7 @@
 #include <concepts>
 #include <cstdint>
 #include <span>
+#include <iostream>
 #include "../../types/tiff_spec.hpp"
 #include "../../detail/compilers.hpp"
 

@@ -49,14 +49,15 @@ namespace tiffconcept {
             for (uint32_t y = 0; y < layout.chunks_down; ++y) {
                 for (uint32_t x = 0; x < layout.chunks_across; ++x) {
                     ChunkWriteInfo chunk;
-                    chunk.chunk_index = chunk_index++;
-                    chunk.pixel_x = x * tile_width;
-                    chunk.pixel_y = y * tile_height;
-                    chunk.pixel_z = z * tile_depth;
-                    chunk.width = std::min(tile_width, image_width - chunk.pixel_x);
-                    chunk.height = std::min(tile_height, image_height - chunk.pixel_y);
-                    chunk.depth = std::min(tile_depth, image_depth - chunk.pixel_z);
-                    chunk.plane = plane;
+                    chunk.chunk_descriptor.index = chunk_index++;
+                    chunk.chunk_descriptor.coords.x = x * tile_width;
+                    chunk.chunk_descriptor.coords.y = y * tile_height;
+                    chunk.chunk_descriptor.coords.z = z * tile_depth;
+                    chunk.chunk_descriptor.coords.s = plane;
+                    chunk.chunk_descriptor.size.width = std::min(tile_width, image_width - chunk.chunk_descriptor.coords.x);
+                    chunk.chunk_descriptor.size.height = std::min(tile_height, image_height - chunk.chunk_descriptor.coords.y);
+                    chunk.chunk_descriptor.size.depth = std::min(tile_depth, image_depth - chunk.chunk_descriptor.coords.z);
+                    chunk.chunk_descriptor.size.nsamples = (planar_config == PlanarConfiguration::Planar) ? 1 : samples_per_pixel;
                     chunk.uncompressed_size = 0;  // Will be set during encoding
                     chunk.compressed_size = 0;
                     chunk.file_offset = 0;
@@ -177,10 +178,10 @@ inline Result<WrittenImageInfo> ImageWriter<PixelType, CompSpec, WriteConfig_, T
                     samples_per_pixel
                 },
                 TileCoordinates{
-                    chunk_info.pixel_x,
-                    chunk_info.pixel_y,
-                    chunk_info.pixel_z,
-                    chunk_info.plane
+                    chunk_info.chunk_descriptor.coords.x,
+                    chunk_info.chunk_descriptor.coords.y,
+                    chunk_info.chunk_descriptor.coords.z,
+                    chunk_info.chunk_descriptor.coords.s
                 }
             );
         } else {
@@ -200,10 +201,10 @@ inline Result<WrittenImageInfo> ImageWriter<PixelType, CompSpec, WriteConfig_, T
                     samples_per_pixel
                 },
                 TileCoordinates{
-                    chunk_info.pixel_x,
-                    chunk_info.pixel_y,
-                    chunk_info.pixel_z,
-                    chunk_info.plane
+                    chunk_info.chunk_descriptor.coords.x,
+                    chunk_info.chunk_descriptor.coords.y,
+                    chunk_info.chunk_descriptor.coords.z,
+                    chunk_info.chunk_descriptor.coords.s
                 }
             );
         }
@@ -211,17 +212,9 @@ inline Result<WrittenImageInfo> ImageWriter<PixelType, CompSpec, WriteConfig_, T
         // Encode chunk (use actual chunk dimensions for encoding)
         auto encoded_result = encoder_.encode(
             std::span<const PixelType>(tile_buffer),
-            chunk_info.chunk_index,
-            0,  // Tile is already extracted, so starts at 0
-            0,
-            0,
-            tile_width,   // Use full tile dimensions
-            tile_height,
-            tile_depth,
-            chunk_info.plane,
+            chunk_info.chunk_descriptor,
             compression,
-            predictor,
-            effective_samples
+            predictor
         );
         
         if (encoded_result.is_error()) [[unlikely]] {
@@ -242,8 +235,8 @@ inline Result<WrittenImageInfo> ImageWriter<PixelType, CompSpec, WriteConfig_, T
     
     for (auto& encoded_chunk : encoded_chunks) {
         // Record offset
-        info.tile_offsets[encoded_chunk.info.chunk_index] = current_offset;
-        info.tile_byte_counts[encoded_chunk.info.chunk_index] = encoded_chunk.info.compressed_size;
+        info.tile_offsets[encoded_chunk.info.chunk_descriptor.index] = current_offset;
+        info.tile_byte_counts[encoded_chunk.info.chunk_descriptor.index] = encoded_chunk.info.compressed_size;
         
         // Write chunk data
         auto write_result = buffering_strategy.write(

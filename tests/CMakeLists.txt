@@ -28,13 +28,13 @@ include_directories(${CMAKE_SOURCE_DIR}/../tiffconcept/include)
 
 # Add ZSTD library (single-file decoder)
 add_library(zstd_static STATIC
-    ${CMAKE_SOURCE_DIR}/../tiffconcept/src/zstd.c
+    ${CMAKE_SOURCE_DIR}/../tiffconcept/external/zstd/src/zstd.c
 )
 target_include_directories(zstd_static PRIVATE
-    ${CMAKE_SOURCE_DIR}/../tiffconcept/include/zstd
+    ${CMAKE_SOURCE_DIR}/../tiffconcept/external/zstd/include
 )
 target_include_directories(zstd_static PUBLIC
-    ${CMAKE_SOURCE_DIR}/../tiffconcept/include/zstd
+    ${CMAKE_SOURCE_DIR}/../tiffconcept/external/zstd/include
 )
 set_target_properties(zstd_static PROPERTIES
     C_STANDARD 99

@@ -220,7 +220,10 @@ TEST(ErrorHandling, PackBits_OutputBufferTooSmall) {
     std::vector<std::byte> input(100, std::byte{0x42});
     std::vector<std::byte> output(10);  // Too small!
     
-    auto result = compressor.compress(output, 0, input, CompressionScheme::PackBits);
+    auto result = compressor.compress(output, 0, input, CompressionScheme::PackBits,
+                                      TileSize{.width=10, .height=10, .depth=1, .nsamples=1},
+                                      std::vector<SampleFormat>{SampleFormat::UnsignedInt},
+                                      std::vector<uint8_t>{8}, std::endian::little);
     EXPECT_TRUE(result.is_ok()); // Resize should make this OK
     EXPECT_GT(output.size(), 10);
 }
@@ -237,7 +240,10 @@ TEST(ErrorHandling, PackBits_InvalidControlByte) {
     };
     
     std::vector<std::byte> output(100);
-    auto result = decompressor.decompress(output, invalid_input, CompressionScheme::PackBits);
+    auto result = decompressor.decompress(output, invalid_input, CompressionScheme::PackBits, 
+                                          TileSize{.width=10, .height=10, .depth=1, .nsamples=1},
+                                          std::vector<SampleFormat>{SampleFormat::UnsignedInt},
+                                          std::vector<uint8_t>{8}, std::endian::little);
     EXPECT_FALSE(result.is_ok());
     EXPECT_EQ(result.error().code, Error::Code::InvalidFormat);
 }
@@ -255,7 +261,10 @@ TEST(ErrorHandling, ZSTD_CorruptedData) {
     }
     
     std::vector<std::byte> output(1000);
-    auto result = decompressor.decompress(output, corrupted, CompressionScheme::ZSTD);
+    auto result = decompressor.decompress(output, corrupted, CompressionScheme::ZSTD,
+                                          TileSize{.width=100, .height=10, .depth=1, .nsamples=1},
+                                          std::vector<SampleFormat>{SampleFormat::UnsignedInt},
+                                          std::vector<uint8_t>{8}, std::endian::little);
     EXPECT_FALSE(result.is_ok());
     EXPECT_EQ(result.error().code, Error::Code::InvalidFormat);
 }
@@ -268,7 +277,10 @@ TEST(ErrorHandling, UnsupportedCompressionScheme) {
     std::vector<std::byte> output(200);
     
     // Try to use PackBits when only None is supported
-    auto result = compressor.compress(output, 0, input, CompressionScheme::PackBits);
+    auto result = compressor.compress(output, 0, input, CompressionScheme::PackBits,
+                                      TileSize{.width=10, .height=10, .depth=1, .nsamples=1},
+                                      std::vector<SampleFormat>{SampleFormat::UnsignedInt},
+                                      std::vector<uint8_t>{8}, std::endian::little);
     EXPECT_FALSE(result.is_ok());
     EXPECT_EQ(result.error().code, Error::Code::UnsupportedFeature);
 }
@@ -284,14 +296,26 @@ TEST(ErrorHandling, Encoder_EmptyChunk) {
     std::vector<uint8_t> data(100, 42);
     
     // Zero width
-    auto result = encoder.encode_2d(data, 0, 0, 0, 0, 100, 0,
-                                     CompressionScheme::None, Predictor::None, 1);
+    TileDescriptor tile_desc_zero_width{
+        .index = 0,
+        .coords = {0, 0, 0, 0},
+        .size = {0, 100, 1, 1}
+    };
+    
+    auto result = encoder.encode(data, tile_desc_zero_width,
+                                  CompressionScheme::None, Predictor::None);
     EXPECT_FALSE(result.is_ok());
     EXPECT_EQ(result.error().code, Error::Code::UnsupportedFeature);
     
     // Zero height
-    result = encoder.encode_2d(data, 0, 0, 0, 100, 0, 0,
-                                CompressionScheme::None, Predictor::None, 1);
+    TileDescriptor tile_desc_zero_height{
+        .index = 0,
+        .coords = {0, 0, 0, 0},
+        .size = {100, 0, 1, 1}
+    };
+    
+    result = encoder.encode(data, tile_desc_zero_height,
+                             CompressionScheme::None, Predictor::None);
     EXPECT_FALSE(result.is_ok());
     EXPECT_EQ(result.error().code, Error::Code::UnsupportedFeature);
 }
@@ -303,8 +327,14 @@ TEST(ErrorHandling, Encoder_InputDataTooSmall) {
     std::vector<uint8_t> data(50, 42);  // Only 50 elements
     
     // Request encoding 100x100 (needs 10000 elements)
-    auto result = encoder.encode_2d(data, 0, 0, 0, 100, 100, 0,
-                                     CompressionScheme::None, Predictor::None, 1);
+    TileDescriptor tile_desc{
+        .index = 0,
+        .coords = {0, 0, 0, 0},
+        .size = {100, 100, 1, 1}
+    };
+    
+    auto result = encoder.encode(data, tile_desc,
+                                  CompressionScheme::None, Predictor::None);
     EXPECT_FALSE(result.is_ok());
     EXPECT_EQ(result.error().code, Error::Code::OutOfBounds);
 }
@@ -316,8 +346,10 @@ TEST(ErrorHandling, Decoder_OutputBufferTooSmall) {
     std::vector<std::byte> compressed_data(100);
     std::vector<std::byte> output(50);  // Too small!
     
-    auto result = decoder.decode_into(compressed_data, output, 10, 10,
-                                      CompressionScheme::None, Predictor::None, 1);
+    TileSize tile_size{.width = 10, .height = 10, .depth = 1, .nsamples = 1};
+    
+    auto result = decoder.decode_into(compressed_data, output, tile_size,
+                                      CompressionScheme::None, Predictor::None);
     EXPECT_FALSE(result.is_ok());
     EXPECT_EQ(result.error().code, Error::Code::OutOfBounds);
 }

@@ -16,14 +16,15 @@ std::vector<ChunkWriteInfo> create_test_chunks(uint32_t count) {
     std::vector<ChunkWriteInfo> chunks;
     for (uint32_t i = 0; i < count; ++i) {
         ChunkWriteInfo chunk;
-        chunk.chunk_index = i;
-        chunk.pixel_x = (i % 4) * 64;
-        chunk.pixel_y = (i / 4) * 64;
-        chunk.pixel_z = 0;
-        chunk.width = 64;
-        chunk.height = 64;
-        chunk.depth = 1;
-        chunk.plane = 0;
+        chunk.chunk_descriptor.index = i;
+        chunk.chunk_descriptor.coords.x = (i % 4) * 64;
+        chunk.chunk_descriptor.coords.y = (i / 4) * 64;
+        chunk.chunk_descriptor.coords.z = 0;
+        chunk.chunk_descriptor.coords.s = 0;
+        chunk.chunk_descriptor.size.width = 64;
+        chunk.chunk_descriptor.size.height = 64;
+        chunk.chunk_descriptor.size.depth = 1;
+        chunk.chunk_descriptor.size.nsamples = 1;
         chunk.uncompressed_size = 64 * 64;
         chunk.compressed_size = 64 * 64;
         chunk.file_offset = 0;
@@ -104,11 +105,16 @@ TEST(TileOrderingStrategy, ImageOrderTiles) {
         const auto& prev = chunks[i - 1];
         const auto& curr = chunks[i];
         
-        bool correct_order = 
-            (prev.pixel_z < curr.pixel_z) ||
-            (prev.pixel_z == curr.pixel_z && prev.plane < curr.plane) ||
-            (prev.pixel_z == curr.pixel_z && prev.plane == curr.plane && prev.pixel_y < curr.pixel_y) ||
-            (prev.pixel_z == curr.pixel_z && prev.plane == curr.plane && prev.pixel_y == curr.pixel_y && prev.pixel_x <= curr.pixel_x);
+        bool correct_order = prev.chunk_descriptor.coords.z < curr.chunk_descriptor.coords.z ||
+                             (prev.chunk_descriptor.coords.z == curr.chunk_descriptor.coords.z &&
+                              prev.chunk_descriptor.coords.s < curr.chunk_descriptor.coords.s) ||
+                             (prev.chunk_descriptor.coords.z == curr.chunk_descriptor.coords.z &&
+                              prev.chunk_descriptor.coords.s == curr.chunk_descriptor.coords.s &&
+                              prev.chunk_descriptor.coords.y < curr.chunk_descriptor.coords.y) ||
+                             (prev.chunk_descriptor.coords.z == curr.chunk_descriptor.coords.z &&
+                              prev.chunk_descriptor.coords.s == curr.chunk_descriptor.coords.s &&
+                              prev.chunk_descriptor.coords.y == curr.chunk_descriptor.coords.y &&
+                              prev.chunk_descriptor.coords.x < curr.chunk_descriptor.coords.x);
         
         EXPECT_TRUE(correct_order);
     }
@@ -123,14 +129,14 @@ TEST(TileOrderingStrategy, SequentialTiles) {
     
     // Scramble by spatial position but keep chunk_index
     for (auto& chunk : chunks) {
-        chunk.pixel_x = 1000 - chunk.pixel_x;
+        chunk.chunk_descriptor.coords.x = 1000 - chunk.chunk_descriptor.coords.x;
     }
     
     strategy.order_chunks(std::span<ChunkWriteInfo>(chunks));
     
     // Should be sorted by chunk_index
     for (std::size_t i = 0; i < chunks.size(); ++i) {
-        EXPECT_EQ(chunks[i].chunk_index, i);
+        EXPECT_EQ(chunks[i].chunk_descriptor.index, i);
     }
     
     EXPECT_FALSE(strategy.supports_parallel_encoding);
@@ -396,7 +402,7 @@ TEST(WriteStrategies, CompleteWorkflow) {
     buffering.set_base_offset(1000);
     for (const auto& chunk : chunks) {
         auto data = create_test_data(chunk.compressed_size);
-        ASSERT_TRUE(buffering.write(writer, 1000 + chunk.chunk_index * 100,
+        ASSERT_TRUE(buffering.write(writer, 1000 + chunk.chunk_descriptor.index * 100,
                                    std::span<const std::byte>(data)).is_ok());
     }
     

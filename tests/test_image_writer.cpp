@@ -119,8 +119,8 @@ TEST(ChunkLayout, EdgeTiles) {
     
     // Check edge tiles have correct dimensions
     const auto& last_tile_x = layout.chunks[3];  // Last tile in first row
-    EXPECT_EQ(last_tile_x.width, 500 - 3 * 128);  // 116
-    EXPECT_EQ(last_tile_x.height, 128);
+    EXPECT_EQ(last_tile_x.chunk_descriptor.size.width, 500 - 3 * 128);  // 116
+    EXPECT_EQ(last_tile_x.chunk_descriptor.size.height, 128);
 }
 
 // ============================================================================

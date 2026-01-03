@@ -16,6 +16,7 @@
 #include "../tiffconcept/include/tiffconcept/lowlevel/encoder.hpp"
 #include "../tiffconcept/include/tiffconcept/types/result.hpp"
 #include "../tiffconcept/include/tiffconcept/types/tiff_spec.hpp"
+#include "../tiffconcept/include/tiffconcept/types/tile_info.hpp"
 
 using namespace tiffconcept;
 
@@ -85,23 +86,25 @@ TEST(ChunkEncoder, EncodeNoCompression) {
     
     auto input = generate_test_image<uint8_t>(64, 64, 1);
     
-    auto result = encoder.encode_2d(
+    TileDescriptor tile_desc{
+        .index = 0,
+        .coords = {0, 0, 0, 0},
+        .size = {64, 64, 1, 1}
+    };
+    
+    auto result = encoder.encode(
         input,
-        0,      // chunk_index
-        0, 0,   // pixel position
-        64, 64, // dimensions
-        0,      // plane
+        tile_desc,
         CompressionScheme::None,
-        Predictor::None,
-        1       // samples_per_pixel
+        Predictor::None
     );
     
     ASSERT_TRUE(result.is_ok());
     
     const auto& chunk = result.value();
-    EXPECT_EQ(chunk.info.chunk_index, 0);
-    EXPECT_EQ(chunk.info.width, 64);
-    EXPECT_EQ(chunk.info.height, 64);
+    EXPECT_EQ(chunk.info.chunk_descriptor.index, 0);
+    EXPECT_EQ(chunk.info.chunk_descriptor.size.width, 64);
+    EXPECT_EQ(chunk.info.chunk_descriptor.size.height, 64);
     EXPECT_EQ(chunk.info.uncompressed_size, 64 * 64);
     EXPECT_EQ(chunk.info.compressed_size, 64 * 64);  // No compression
     EXPECT_EQ(chunk.data.size(), 64 * 64);
@@ -118,15 +121,17 @@ TEST(ChunkEncoder, EncodeWithZSTD) {
     // Generate compressible data
     auto input = generate_gradient_image<uint16_t>(128, 128, 1);
     
-    auto result = encoder.encode_2d(
+    TileDescriptor tile_desc{
+        .index = 0,
+        .coords = {0, 0, 0, 0},
+        .size = {128, 128, 1, 1}
+    };
+    
+    auto result = encoder.encode(
         input,
-        0,
-        0, 0,
-        128, 128,
-        0,
+        tile_desc,
         CompressionScheme::ZSTD,
-        Predictor::None,
-        1
+        Predictor::None
     );
     
     ASSERT_TRUE(result.is_ok());
@@ -146,15 +151,17 @@ TEST(ChunkEncoder, EncodeWithPredictor) {
     
     auto input = generate_gradient_image<uint16_t>(64, 64, 3);
     
-    auto result = encoder.encode_2d(
+    TileDescriptor tile_desc{
+        .index = 0,
+        .coords = {0, 0, 0, 0},
+        .size = {64, 64, 1, 3}
+    };
+    
+    auto result = encoder.encode(
         input,
-        0,
-        0, 0,
-        64, 64,
-        0,
+        tile_desc,
         CompressionScheme::None,
-        Predictor::Horizontal,
-        3  // RGB
+        Predictor::Horizontal
     );
     
     ASSERT_TRUE(result.is_ok());
@@ -173,15 +180,17 @@ TEST(ChunkEncoder, EncodeFloatWithFloatingPointPredictor) {
     
     auto input = generate_gradient_image<float>(32, 32, 4);
     
-    auto result = encoder.encode_2d(
+    TileDescriptor tile_desc{
+        .index = 0,
+        .coords = {0, 0, 0, 0},
+        .size = {32, 32, 1, 4}
+    };
+    
+    auto result = encoder.encode(
         input,
-        0,
-        0, 0,
-        32, 32,
-        0,
+        tile_desc,
         CompressionScheme::None,
-        Predictor::FloatingPoint,
-        4
+        Predictor::FloatingPoint
     );
     
     ASSERT_TRUE(result.is_ok());
@@ -207,10 +216,16 @@ TEST(EncoderDecoder, RoundTripNoCompressionNoPredictor) {
     
     auto original = generate_test_image<uint8_t>(64, 64, 1, 123);
     
+    TileDescriptor tile_desc{
+        .index = 0,
+        .coords = {0, 0, 0, 0},
+        .size = {64, 64, 1, 1}
+    };
+    
     // Encode
-    auto encode_result = encoder.encode_2d(
-        original, 0, 0, 0, 64, 64, 0,
-        CompressionScheme::None, Predictor::None, 1
+    auto encode_result = encoder.encode(
+        original, tile_desc,
+        CompressionScheme::None, Predictor::None
     );
     ASSERT_TRUE(encode_result.is_ok());
     
@@ -218,8 +233,8 @@ TEST(EncoderDecoder, RoundTripNoCompressionNoPredictor) {
     
     // Decode
     auto decode_result = decoder.decode(
-        encoded.data, 64, 64,
-        CompressionScheme::None, Predictor::None, 1
+        encoded.data, tile_desc.size,
+        CompressionScheme::None, Predictor::None
     );
     ASSERT_TRUE(decode_result.is_ok());
     
@@ -245,10 +260,16 @@ TEST(EncoderDecoder, RoundTripZSTDNoPredictor) {
     
     auto original = generate_gradient_image<uint16_t>(128, 128, 3);
     
+    TileDescriptor tile_desc{
+        .index = 0,
+        .coords = {0, 0, 0, 0},
+        .size = {128, 128, 1, 3}
+    };
+    
     // Encode
-    auto encode_result = encoder.encode_2d(
-        original, 0, 0, 0, 128, 128, 0,
-        CompressionScheme::ZSTD, Predictor::None, 3
+    auto encode_result = encoder.encode(
+        original, tile_desc,
+        CompressionScheme::ZSTD, Predictor::None
     );
     ASSERT_TRUE(encode_result.is_ok());
     
@@ -256,8 +277,8 @@ TEST(EncoderDecoder, RoundTripZSTDNoPredictor) {
     
     // Decode
     auto decode_result = decoder.decode(
-        encoded.data, 128, 128,
-        CompressionScheme::ZSTD, Predictor::None, 3
+        encoded.data, tile_desc.size,
+        CompressionScheme::ZSTD, Predictor::None
     );
     ASSERT_TRUE(decode_result.is_ok());
     
@@ -282,10 +303,16 @@ TEST(EncoderDecoder, RoundTripNoCompressionHorizontalPredictor) {
     
     auto original = generate_test_image<uint16_t>(64, 64, 3, 456);
     
+    TileDescriptor tile_desc{
+        .index = 0,
+        .coords = {0, 0, 0, 0},
+        .size = {64, 64, 1, 3}
+    };
+    
     // Encode
-    auto encode_result = encoder.encode_2d(
-        original, 0, 0, 0, 64, 64, 0,
-        CompressionScheme::None, Predictor::Horizontal, 3
+    auto encode_result = encoder.encode(
+        original, tile_desc,
+        CompressionScheme::None, Predictor::Horizontal
     );
     ASSERT_TRUE(encode_result.is_ok());
     
@@ -293,8 +320,8 @@ TEST(EncoderDecoder, RoundTripNoCompressionHorizontalPredictor) {
     
     // Decode
     auto decode_result = decoder.decode(
-        encoded.data, 64, 64,
-        CompressionScheme::None, Predictor::Horizontal, 3
+        encoded.data, tile_desc.size,
+        CompressionScheme::None, Predictor::Horizontal
     );
     ASSERT_TRUE(decode_result.is_ok());
     
@@ -321,10 +348,16 @@ TEST(EncoderDecoder, RoundTripZSTDHorizontalPredictor) {
     
     auto original = generate_gradient_image<uint8_t>(256, 256, 1);
     
+    TileDescriptor tile_desc{
+        .index = 0,
+        .coords = {0, 0, 0, 0},
+        .size = {256, 256, 1, 1}
+    };
+    
     // Encode
-    auto encode_result = encoder.encode_2d(
-        original, 0, 0, 0, 256, 256, 0,
-        CompressionScheme::ZSTD, Predictor::Horizontal, 1
+    auto encode_result = encoder.encode(
+        original, tile_desc,
+        CompressionScheme::ZSTD, Predictor::Horizontal
     );
     ASSERT_TRUE(encode_result.is_ok());
     
@@ -335,8 +368,8 @@ TEST(EncoderDecoder, RoundTripZSTDHorizontalPredictor) {
     
     // Decode
     auto decode_result = decoder.decode(
-        encoded.data, 256, 256,
-        CompressionScheme::ZSTD, Predictor::Horizontal, 1
+        encoded.data, tile_desc.size,
+        CompressionScheme::ZSTD, Predictor::Horizontal
     );
     ASSERT_TRUE(decode_result.is_ok());
     
@@ -362,10 +395,16 @@ TEST(EncoderDecoder, RoundTripFloatFloatingPointPredictor) {
     
     auto original = generate_gradient_image<float>(64, 64, 4);
     
+    TileDescriptor tile_desc{
+        .index = 0,
+        .coords = {0, 0, 0, 0},
+        .size = {64, 64, 1, 4}
+    };
+    
     // Encode
-    auto encode_result = encoder.encode_2d(
-        original, 0, 0, 0, 64, 64, 0,
-        CompressionScheme::ZSTD, Predictor::FloatingPoint, 4
+    auto encode_result = encoder.encode(
+        original, tile_desc,
+        CompressionScheme::ZSTD, Predictor::FloatingPoint
     );
     ASSERT_TRUE(encode_result.is_ok());
     
@@ -373,8 +412,8 @@ TEST(EncoderDecoder, RoundTripFloatFloatingPointPredictor) {
     
     // Decode
     auto decode_result = decoder.decode(
-        encoded.data, 64, 64,
-        CompressionScheme::ZSTD, Predictor::FloatingPoint, 4
+        encoded.data, tile_desc.size,
+        CompressionScheme::ZSTD, Predictor::FloatingPoint
     );
     ASSERT_TRUE(decode_result.is_ok());
     
@@ -405,10 +444,16 @@ TEST(EncoderDecoder, RoundTripPackBits) {
         original[i] = static_cast<uint8_t>(i / 64);  // Creates runs
     }
     
+    TileDescriptor tile_desc{
+        .index = 0,
+        .coords = {0, 0, 0, 0},
+        .size = {128, 128, 1, 1}
+    };
+    
     // Encode
-    auto encode_result = encoder.encode_2d(
-        original, 0, 0, 0, 128, 128, 0,
-        CompressionScheme::PackBits, Predictor::None, 1
+    auto encode_result = encoder.encode(
+        original, tile_desc,
+        CompressionScheme::PackBits, Predictor::None
     );
     ASSERT_TRUE(encode_result.is_ok());
     
@@ -419,8 +464,8 @@ TEST(EncoderDecoder, RoundTripPackBits) {
     
     // Decode
     auto decode_result = decoder.decode(
-        encoded.data, 128, 128,
-        CompressionScheme::PackBits, Predictor::None, 1
+        encoded.data, tile_desc.size,
+        CompressionScheme::PackBits, Predictor::None
     );
     ASSERT_TRUE(decode_result.is_ok());
     
@@ -444,12 +489,18 @@ TEST(ChunkEncoder, EmptyChunk) {
     
     std::vector<uint8_t> empty;
     
-    auto result = encoder.encode_2d(
-        empty, 0, 0, 0, 0, 0, 0,
-        CompressionScheme::None, Predictor::None, 1
+    TileDescriptor tile_desc{
+        .index = 0,
+        .coords = {0, 0, 0, 0},
+        .size = {0, 0, 1, 1}
+    };
+    
+    auto result = encoder.encode(
+        empty, tile_desc,
+        CompressionScheme::None, Predictor::None
     );
     
-    // Should fail with OutOfBounds
+    // Should fail
     EXPECT_FALSE(result.is_ok());
 }
 
@@ -462,9 +513,15 @@ TEST(ChunkEncoder, SinglePixel) {
     
     std::vector<uint16_t> single = {42};
     
-    auto result = encoder.encode_2d(
-        single, 0, 0, 0, 1, 1, 0,
-        CompressionScheme::None, Predictor::None, 1
+    TileDescriptor tile_desc{
+        .index = 0,
+        .coords = {0, 0, 0, 0},
+        .size = {1, 1, 1, 1}
+    };
+    
+    auto result = encoder.encode(
+        single, tile_desc,
+        CompressionScheme::None, Predictor::None
     );
     
     ASSERT_TRUE(result.is_ok());
@@ -480,9 +537,15 @@ TEST(ChunkEncoder, MultiChannelSinglePixel) {
     
     std::vector<uint8_t> rgb = {255, 128, 64};
     
-    auto result = encoder.encode_2d(
-        rgb, 0, 0, 0, 1, 1, 0,
-        CompressionScheme::None, Predictor::None, 3
+    TileDescriptor tile_desc{
+        .index = 0,
+        .coords = {0, 0, 0, 0},
+        .size = {1, 1, 1, 3}
+    };
+    
+    auto result = encoder.encode(
+        rgb, tile_desc,
+        CompressionScheme::None, Predictor::None
     );
     
     ASSERT_TRUE(result.is_ok());
@@ -504,9 +567,15 @@ TEST(ChunkEncoder, BufferReuse) {
     for (int i = 0; i < 10; ++i) {
         auto input = generate_test_image<uint8_t>(64, 64, 1, i);
         
-        auto result = encoder.encode_2d(
-            input, i, 0, 0, 64, 64, 0,
-            CompressionScheme::None, Predictor::Horizontal, 1
+        TileDescriptor tile_desc{
+            .index = static_cast<uint32_t>(i),
+            .coords = {0, 0, 0, 0},
+            .size = {64, 64, 1, 1}
+        };
+        
+        auto result = encoder.encode(
+            input, tile_desc,
+            CompressionScheme::None, Predictor::Horizontal
         );
         
         ASSERT_TRUE(result.is_ok());
@@ -529,9 +598,16 @@ TEST(ChunkEncoder, ClearBuffers) {
     
     // Encode something
     auto input = generate_test_image<uint16_t>(128, 128, 3);
-    auto result = encoder.encode_2d(
-        input, 0, 0, 0, 128, 128, 0,
-        CompressionScheme::ZSTD, Predictor::Horizontal, 3
+    
+    TileDescriptor tile_desc{
+        .index = 0,
+        .coords = {0, 0, 0, 0},
+        .size = {128, 128, 1, 3}
+    };
+    
+    auto result = encoder.encode(
+        input, tile_desc,
+        CompressionScheme::ZSTD, Predictor::Horizontal
     );
     ASSERT_TRUE(result.is_ok());
     
@@ -561,8 +637,9 @@ TEST(ChunkEncoder, DifferentPixelTypes) {
     {
         ChunkEncoder<uint8_t, CompSpec> encoder;
         auto input = generate_test_image<uint8_t>(32, 32, 1);
-        auto result = encoder.encode_2d(input, 0, 0, 0, 32, 32, 0,
-                                       CompressionScheme::None, Predictor::None, 1);
+        TileDescriptor tile_desc{.index = 0, .coords = {0, 0, 0, 0}, .size = {32, 32, 1, 1}};
+        auto result = encoder.encode(input, tile_desc,
+                                       CompressionScheme::None, Predictor::None);
         ASSERT_TRUE(result.is_ok());
         EXPECT_EQ(result.value().info.uncompressed_size, 32 * 32);
     }
@@ -571,8 +648,9 @@ TEST(ChunkEncoder, DifferentPixelTypes) {
     {
         ChunkEncoder<uint16_t, CompSpec> encoder;
         auto input = generate_test_image<uint16_t>(32, 32, 1);
-        auto result = encoder.encode_2d(input, 0, 0, 0, 32, 32, 0,
-                                       CompressionScheme::None, Predictor::None, 1);
+        TileDescriptor tile_desc{.index = 0, .coords = {0, 0, 0, 0}, .size = {32, 32, 1, 1}};
+        auto result = encoder.encode(input, tile_desc,
+                                       CompressionScheme::None, Predictor::None);
         ASSERT_TRUE(result.is_ok());
         EXPECT_EQ(result.value().info.uncompressed_size, 32 * 32 * 2);
     }
@@ -581,8 +659,9 @@ TEST(ChunkEncoder, DifferentPixelTypes) {
     {
         ChunkEncoder<uint32_t, CompSpec> encoder;
         auto input = generate_test_image<uint32_t>(32, 32, 1);
-        auto result = encoder.encode_2d(input, 0, 0, 0, 32, 32, 0,
-                                       CompressionScheme::None, Predictor::None, 1);
+        TileDescriptor tile_desc{.index = 0, .coords = {0, 0, 0, 0}, .size = {32, 32, 1, 1}};
+        auto result = encoder.encode(input, tile_desc,
+                                       CompressionScheme::None, Predictor::None);
         ASSERT_TRUE(result.is_ok());
         EXPECT_EQ(result.value().info.uncompressed_size, 32 * 32 * 4);
     }
@@ -591,18 +670,19 @@ TEST(ChunkEncoder, DifferentPixelTypes) {
     {
         ChunkEncoder<float, CompSpec> encoder;
         auto input = generate_test_image<float>(32, 32, 1);
-        auto result = encoder.encode_2d(input, 0, 0, 0, 32, 32, 0,
-                                       CompressionScheme::None, Predictor::None, 1);
+        TileDescriptor tile_desc{.index = 0, .coords = {0, 0, 0, 0}, .size = {32, 32, 1, 1}};
+        auto result = encoder.encode(input, tile_desc,
+                                       CompressionScheme::None, Predictor::None);
         ASSERT_TRUE(result.is_ok());
         EXPECT_EQ(result.value().info.uncompressed_size, 32 * 32 * 4);
     }
 }
 
 // ============================================================================
-// Tile Index Tests
+// Tile Descriptor Tests
 // ============================================================================
 
-TEST(ChunkEncoder, EncodeTileIndices) {
+TEST(ChunkEncoder, EncodeTileWithDescriptor) {
     using CompSpec = CompressorSpec<
         NoneCompressorDesc
     >;
@@ -611,24 +691,21 @@ TEST(ChunkEncoder, EncodeTileIndices) {
     
     auto input = generate_test_image<uint8_t>(64, 64, 1);
     
-    auto result = encoder.encode_with_tile_indices(
-        input,
-        5,          // chunk_index
-        2, 3, 0,    // tile indices (x, y, z)
-        64, 64, 1,  // tile dimensions
-        0,          // plane
-        CompressionScheme::None,
-        Predictor::None,
-        1
+    TileDescriptor tile_desc{
+        .index = 5,
+        .coords = {2, 3, 0, 0},
+        .size = {64, 64, 1, 1}
+    };
+    
+    auto result = encoder.encode(
+        input, tile_desc,
+        CompressionScheme::None, Predictor::None
     );
     
     ASSERT_TRUE(result.is_ok());
     
     const auto& chunk = result.value();
-    EXPECT_EQ(chunk.info.chunk_index, 5);
-    EXPECT_EQ(chunk.info.pixel_x, 2 * 64);  // tile_x_index * tile_width
-    EXPECT_EQ(chunk.info.pixel_y, 3 * 64);
-    EXPECT_EQ(chunk.info.pixel_z, 0);
+    EXPECT_EQ(chunk.info.chunk_descriptor.index, 5);
 }
 
 int main(int argc, char** argv) {

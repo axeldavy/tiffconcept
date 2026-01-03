@@ -1,6 +1,7 @@
 #pragma once
 
 #include <array>
+#include <bit>
 #include <concepts>
 #include <cstddef>
 #include <cstdint>
@@ -10,6 +11,7 @@
 #include <vector>
 #include "../types/result.hpp"
 #include "../types/tiff_spec.hpp"
+#include "../types/tile_info.hpp"
 
 namespace tiffconcept {
 
@@ -17,8 +19,15 @@ namespace tiffconcept {
 template<typename T>
 concept DecompressorImpl = requires(const T& decompressor, 
                                     std::span<std::byte> output,
-                                    std::span<const std::byte> input) {
-    { decompressor.decompress(output, input) } -> std::same_as<Result<std::size_t>>;
+                                    std::span<const std::byte> input,
+                                    const TileSize& tile_size,
+                                    std::span<const SampleFormat> sample_formats,
+                                    std::span<const uint8_t> bits_per_sample,
+                                    std::endian endianness) {
+    { decompressor.decompress(output, input, tile_size, sample_formats, bits_per_sample, endianness) } 
+        -> std::same_as<Result<std::size_t>>;
+    { T::supports_format(tile_size, sample_formats, bits_per_sample, endianness) } 
+        -> std::same_as<bool>;
 };
 
 /// Decompressor descriptor - defines a decompressor at compile time
@@ -36,6 +45,14 @@ struct DecompressorDescriptor {
         }
         return false;
     }
+    
+    /// Check if this decompressor supports a specific format configuration
+    static bool supports_format(const TileSize& tile_size,
+                               std::span<const SampleFormat> sample_formats,
+                               std::span<const uint8_t> bits_per_sample,
+                               std::endian endianness) noexcept {
+        return DecompressorType::supports_format(tile_size, sample_formats, bits_per_sample, endianness);
+    }
 };
 
 /// Concept to check if a type is a DecompressorDescriptor
@@ -44,10 +61,13 @@ concept DecompressorDescriptorType = requires {
     typename T::decompressor_type;
     { T::schemes } -> std::convertible_to<std::span<const CompressionScheme>>;
     { T::handles(CompressionScheme::None) } -> std::same_as<bool>;
+    { T::supports_format(TileSize{}, std::span<const SampleFormat>{}, std::span<const uint8_t>{}, std::endian::native) } 
+        -> std::same_as<bool>;
     requires DecompressorImpl<typename T::decompressor_type>;
 };
 
 /// Type trait to check if a compression scheme is supported by any decompressor
+/// Note: This only checks compression scheme, not format compatibility
 template <CompressionScheme Scheme, typename... Decompressors>
 struct has_decompressor_for : std::false_type {};
 
@@ -60,73 +80,39 @@ struct has_decompressor_for<Scheme, First, Rest...>
 template <CompressionScheme Scheme, typename... Decompressors>
 inline constexpr bool has_decompressor_for_v = has_decompressor_for<Scheme, Decompressors...>::value;
 
-/// Get decompressor descriptor that handles a specific scheme
-template <CompressionScheme Scheme, typename... Decompressors>
-struct get_decompressor_for;
-
-template <CompressionScheme Scheme, typename First, typename... Rest>
-struct get_decompressor_for<Scheme, First, Rest...> {
-    using type = std::conditional_t<First::handles(Scheme), 
-                                    First, 
-                                    typename get_decompressor_for<Scheme, Rest...>::type>;
-};
-
-template <CompressionScheme Scheme>
-struct get_decompressor_for<Scheme> {
-    using type = void;
-};
-
-template <CompressionScheme Scheme, typename... Decompressors>
-using get_decompressor_for_t = typename get_decompressor_for<Scheme, Decompressors...>::type;
-
-/// Helper to check if compression schemes don't overlap across decompressors
-template <typename... Decompressors>
-inline consteval bool decompressor_schemes_are_unique() {
-    constexpr std::size_t total_schemes = (Decompressors::schemes.size() + ...);
-    std::array<CompressionScheme, total_schemes> all_schemes{};
-    
-    std::size_t idx = 0;
-    auto collect = [&]<typename Desc>() {
-        for (auto scheme : Desc::schemes) {
-            all_schemes[idx++] = scheme;
-        }
-    };
-    (collect.template operator()<Decompressors>(), ...);
-    
-    // Check for duplicates
-    for (std::size_t i = 0; i < all_schemes.size(); ++i) {
-        for (std::size_t j = i + 1; j < all_schemes.size(); ++j) {
-            if (all_schemes[i] == all_schemes[j]) {
-                return false;
-            }
-        }
-    }
-    return true;
-}
-
 /// Compile-time decompressor specification
 template <DecompressorDescriptorType... Decompressors>
 struct DecompressorSpec {
     static constexpr std::size_t num_decompressors = sizeof...(Decompressors);
 
-    // Compile-time check that no compression scheme is handled by multiple decompressors
-    static_assert(decompressor_schemes_are_unique<Decompressors...>(), 
-                  "Each compression scheme can only be handled by one decompressor");
-
-    /// Check if a compression scheme is supported
+    /// Check if a compression scheme is supported (compile-time, scheme only)
     template <CompressionScheme Scheme>
     static constexpr bool supports() noexcept {
         return has_decompressor_for_v<Scheme, Decompressors...>;
     }
     
-    /// Check if a compression scheme is supported (runtime version)
+    /// Check if a compression scheme is supported (runtime version, scheme only)
     static constexpr bool supports(CompressionScheme scheme) noexcept {
         return (Decompressors::handles(scheme) || ...);
     }
     
-    /// Get decompressor descriptor for a specific scheme
-    template <CompressionScheme Scheme>
-    using get_decompressor = get_decompressor_for_t<Scheme, Decompressors...>;
+    /// Check if a compression scheme and format combination is supported (runtime version)
+    static bool supports(CompressionScheme scheme,
+                        const TileSize& tile_size,
+                        std::span<const SampleFormat> sample_formats,
+                        std::span<const uint8_t> bits_per_sample,
+                        std::endian endianness) noexcept {
+        // Check each decompressor that handles this scheme
+        bool found = false;
+        auto check = [&]<typename Desc>() {
+            if (Desc::handles(scheme) && 
+                Desc::supports_format(tile_size, sample_formats, bits_per_sample, endianness)) {
+                found = true;
+            }
+        };
+        (check.template operator()<Decompressors>(), ...);
+        return found;
+    }
     
     /// Apply a function to each decompressor descriptor at compile time
     template <typename F>
@@ -142,9 +128,10 @@ concept ValidDecompressorSpec = requires {
     requires T::num_decompressors > 0;
 
     // Check that T has the expected interface of DecompressorSpec
-    typename T::template get_decompressor<CompressionScheme::None>;
     { T::template supports<CompressionScheme::None>() } -> std::same_as<bool>; // compile-time version
     { T::supports(CompressionScheme::None) } -> std::same_as<bool>; // runtime version
+    { T::supports(CompressionScheme::None, TileSize{}, std::span<const SampleFormat>{}, 
+                  std::span<const uint8_t>{}, std::endian::native) } -> std::same_as<bool>;
 };
 
 /// Storage helper for a single decompressor
@@ -159,8 +146,20 @@ public:
     
     [[nodiscard]] Result<std::size_t> decompress(
         std::span<std::byte> output,
-        std::span<const std::byte> input) const noexcept {
-        return decompressor_.decompress(output, input);
+        std::span<const std::byte> input,
+        const TileSize& tile_size,
+        std::span<const SampleFormat> sample_formats,
+        std::span<const uint8_t> bits_per_sample,
+        std::endian endianness) const noexcept {
+        return decompressor_.decompress(output, input, tile_size, sample_formats, bits_per_sample, endianness);
+    }
+    
+    [[nodiscard]] static bool supports_format(
+        const TileSize& tile_size,
+        std::span<const SampleFormat> sample_formats,
+        std::span<const uint8_t> bits_per_sample,
+        std::endian endianness) noexcept {
+        return DecompressorDesc::supports_format(tile_size, sample_formats, bits_per_sample, endianness);
     }
     
     static constexpr bool handles(CompressionScheme scheme) noexcept {
@@ -168,7 +167,7 @@ public:
     }
 };
 
-/// Decompressor storage with dynamic dispatch based on scheme
+/// Decompressor storage with dynamic dispatch based on scheme and format
 template <typename DecompSpec>
     requires ValidDecompressorSpec<DecompSpec>
 class DecompressorStorage {
@@ -183,17 +182,23 @@ private:
     [[nodiscard]] Result<std::size_t> decompress_impl(
         std::span<std::byte> output,
         std::span<const std::byte> input,
-        CompressionScheme scheme) const noexcept {
+        CompressionScheme scheme,
+        const TileSize& tile_size,
+        std::span<const SampleFormat> sample_formats,
+        std::span<const uint8_t> bits_per_sample,
+        std::endian endianness) const noexcept {
         
         if constexpr (I < std::tuple_size_v<decltype(holders_)>) {
-            const auto& holder = std::get<I>(holders_);
-            if (holder.handles(scheme)) {
-                return holder.decompress(output, input);
+            using HolderType = std::tuple_element_t<I, decltype(holders_)>;
+            if (HolderType::handles(scheme) && 
+                HolderType::supports_format(tile_size, sample_formats, bits_per_sample, endianness)) {
+                const auto& holder = std::get<I>(holders_);
+                return holder.decompress(output, input, tile_size, sample_formats, bits_per_sample, endianness);
             }
-            return decompress_impl<I + 1>(output, input, scheme);
+            return decompress_impl<I + 1>(output, input, scheme, tile_size, sample_formats, bits_per_sample, endianness);
         } else {
             return Err(Error::Code::UnsupportedFeature, 
-                      "Compression scheme not supported in this build");
+                      "Compression scheme or format not supported in this build");
         }
     }
 
@@ -207,33 +212,50 @@ public:
     constexpr DecompressorStorage(DecompressorStorage&&) noexcept = default;
     constexpr DecompressorStorage& operator=(DecompressorStorage&&) noexcept = default;
     
-    /// Decompress data based on compression scheme
+    /// Decompress data based on compression scheme and format
     [[nodiscard]] Result<std::size_t> decompress(
         std::span<std::byte> output,
         std::span<const std::byte> input,
-        CompressionScheme scheme) const noexcept {
+        CompressionScheme scheme,
+        const TileSize& tile_size,
+        std::span<const SampleFormat> sample_formats,
+        std::span<const uint8_t> bits_per_sample,
+        std::endian endianness) const noexcept {
         
-        return decompress_impl(output, input, scheme);
+        return decompress_impl(output, input, scheme, tile_size, sample_formats, bits_per_sample, endianness);
     }
     
     /// Overload for vector input
     [[nodiscard]] Result<std::size_t> decompress(
         std::span<std::byte> output,
         const std::vector<std::byte>& input,
-        CompressionScheme scheme) const noexcept {
+        CompressionScheme scheme,
+        const TileSize& tile_size,
+        std::span<const SampleFormat> sample_formats,
+        std::span<const uint8_t> bits_per_sample,
+        std::endian endianness) const noexcept {
         
-        return decompress(output, std::span{input}, scheme);
+        return decompress(output, std::span{input}, scheme, tile_size, sample_formats, bits_per_sample, endianness);
     }
     
-    /// Check if a compression scheme is supported at compile time
+    /// Check if a compression scheme is supported at compile time (scheme only)
     template <CompressionScheme Scheme>
     static constexpr bool supports() noexcept {
         return DecompSpec::template supports<Scheme>();
     }
     
-    /// Check if a compression scheme is supported at runtime
+    /// Check if a compression scheme is supported at runtime (scheme only)
     static constexpr bool supports(CompressionScheme scheme) noexcept {
         return DecompSpec::supports(scheme);
+    }
+    
+    /// Check if a compression scheme and format combination is supported at runtime
+    static bool supports(CompressionScheme scheme,
+                        const TileSize& tile_size,
+                        std::span<const SampleFormat> sample_formats,
+                        std::span<const uint8_t> bits_per_sample,
+                        std::endian endianness) noexcept {
+        return DecompSpec::supports(scheme, tile_size, sample_formats, bits_per_sample, endianness);
     }
 };
 

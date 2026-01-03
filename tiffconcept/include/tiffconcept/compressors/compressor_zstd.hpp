@@ -74,16 +74,19 @@ public:
     // Movable
     ZstdCompressor(ZstdCompressor&&) noexcept = default;
     ZstdCompressor& operator=(ZstdCompressor&&) noexcept = default;
-    
-    /// Clone this compressor for multi-threading
-    /// Creates a new compressor with the same compression level but a fresh context
-    [[nodiscard]] ZstdCompressor clone() const noexcept {
-        return ZstdCompressor{compression_level_};
-    }
-    
+
     /// Get the default compression scheme for this compressor
     [[nodiscard]] static constexpr CompressionScheme get_default_scheme() noexcept {
         return CompressionScheme::ZSTD;
+    }
+
+    /// Check if format is supported (supports all formats)
+    [[nodiscard]] static constexpr bool supports_format(
+        [[maybe_unused]] const TileSize& tile_size,
+        [[maybe_unused]] std::span<const SampleFormat> sample_formats,
+        [[maybe_unused]] std::span<const uint8_t> bits_per_sample,
+        [[maybe_unused]] std::endian endianness) noexcept {
+        return true; // ZSTD is format-agnostic, operates on byte streams
     }
     
     /// Compress data using the context (thread-safe if each thread has its own context)
@@ -95,7 +98,11 @@ public:
     [[nodiscard]] Result<std::size_t> compress(
         std::vector<std::byte>& output,
         std::size_t offset,
-        std::span<const std::byte> input) const noexcept {
+        std::span<const std::byte> input,
+        [[maybe_unused]] const TileSize& tile_size,
+        [[maybe_unused]] std::span<const SampleFormat> sample_formats,
+        [[maybe_unused]] std::span<const uint8_t> bits_per_sample,
+        [[maybe_unused]] std::endian endianness) const noexcept {
         
         auto ctx_result = ensure_context();
         if (!ctx_result) [[unlikely]] {

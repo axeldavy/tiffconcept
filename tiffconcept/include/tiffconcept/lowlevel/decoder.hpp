@@ -70,6 +70,7 @@
 #include "predictor.hpp"
 #include "../types/result.hpp"
 #include "../types/tiff_spec.hpp"
+#include "../types/tile_info.hpp"
 
 namespace tiffconcept {
 
@@ -109,11 +110,8 @@ private:
     /// Apply predictor decoding in-place (implementation in decoder_impl.hpp)
     [[nodiscard]] Result<void> apply_predictor(
         std::span<std::byte> data,
-        uint32_t width,
-        uint32_t height,
-        uint32_t stride,
-        Predictor predictor,
-        uint16_t samples_per_pixel) const noexcept;
+        const TileSize& tile_size,
+        Predictor predictor) const noexcept;
     
 public:
     /**
@@ -136,11 +134,9 @@ public:
      * 
      * @param compressed_input Compressed tile data
      * @param decompressed_output Output buffer (must be large enough)
-     * @param width Tile width in pixels
-     * @param height Tile height in pixels
+     * @param tile_size Tile size information (width, height, samples per pixel)
      * @param compression Compression scheme used
      * @param predictor Predictor used (None, Horizontal, or FloatingPoint)
-     * @param samples_per_pixel Number of samples per pixel (channels)
      * @return Ok() on success, or Error on failure
      * 
      * @throws None (noexcept)
@@ -156,11 +152,9 @@ public:
     [[nodiscard]] Result<void> decode_into(
         std::span<const std::byte> compressed_input,
         std::span<std::byte> decompressed_output,
-        uint32_t width,
-        uint32_t height,
+        const TileSize& tile_size,
         CompressionScheme compression = CompressionScheme::None,
-        Predictor predictor = Predictor::None,
-        uint16_t samples_per_pixel = 1) const noexcept;
+        Predictor predictor = Predictor::None) const noexcept;
     
     /**
      * @brief Decode tile using internal scratch buffer
@@ -174,11 +168,9 @@ public:
      * - The TileDecoder object is destroyed
      * 
      * @param compressed_input Compressed tile data
-     * @param width Tile width in pixels
-     * @param height Tile height in pixels
+     * @param tile_size Tile size information (width, height, samples per pixel)
      * @param compression Compression scheme used
      * @param predictor Predictor used (None, Horizontal, or FloatingPoint)
-     * @param samples_per_pixel Number of samples per pixel (channels)
      * @return Result containing span over decoded pixels, or an error
      * 
      * @throws None (noexcept)
@@ -202,11 +194,9 @@ public:
      */
     [[nodiscard]] Result<std::span<const PixelType>> decode(
         std::span<const std::byte> compressed_input,
-        uint32_t width,
-        uint32_t height,
+        const TileSize& tile_size,
         CompressionScheme compression = CompressionScheme::None,
-        Predictor predictor = Predictor::None,
-        uint16_t samples_per_pixel = 1) noexcept;
+        Predictor predictor = Predictor::None) noexcept;
     
     /**
      * @brief Decode tile and return owned copy
@@ -216,11 +206,9 @@ public:
      * store it beyond the lifetime of the decode operation.
      * 
      * @param compressed_input Compressed tile data
-     * @param width Tile width in pixels
-     * @param height Tile height in pixels
+     * @param tile_size Tile size information (width, height, samples per pixel)
      * @param compression Compression scheme used
      * @param predictor Predictor used (None, Horizontal, or FloatingPoint)
-     * @param samples_per_pixel Number of samples per pixel (channels)
      * @return Result containing vector of decoded pixels, or an error
      * 
      * @throws None (noexcept)
@@ -244,21 +232,16 @@ public:
      */
     [[nodiscard]] Result<std::vector<PixelType>> decode_copy(
         std::span<const std::byte> compressed_input,
-        uint32_t width,
-        uint32_t height,
+        const TileSize& tile_size,
         CompressionScheme compression = CompressionScheme::None,
-        Predictor predictor = Predictor::None,
-        uint16_t samples_per_pixel = 1) const noexcept;
-
+        Predictor predictor = Predictor::None) const noexcept;
 private:
     [[nodiscard]] Result<void> decode_into_impl(
         std::span<const std::byte> compressed_input,
         std::span<std::byte> decompressed_output,
-        uint32_t width,
-        uint32_t height,
+        const TileSize& tile_size,
         CompressionScheme compression,
-        Predictor predictor,
-        uint16_t samples_per_pixel) const noexcept;
+        Predictor predictor) const noexcept;
 };
 
 } // namespace tiffconcept

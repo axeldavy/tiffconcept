@@ -161,11 +161,9 @@ public:
             // Note: TileDecoder handles decompression and predictor steps
             auto decode_res = decoder_.decode(
                 std::span<const std::byte>(compressed_buffer_.data(), tile_compressed_size),
-                tile.id.size.width,
-                tile.id.size.height * tile.id.size.depth, // Treat depth as height extension for decoding
+                tile.id.size,
                 compression,
-                predictor,
-                tile.id.size.nsamples
+                predictor
             );
             if (!decode_res) return decode_res.error();
 
