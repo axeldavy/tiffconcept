@@ -235,6 +235,7 @@ std::filesystem::path TiffGenerator<T>::create_file(
     switch (storage_config.predictor) {
         case PredictorType::None: pred = Predictor::None; break;
         case PredictorType::Horizontal: pred = Predictor::Horizontal; break;
+        case PredictorType::LOCO: pred = Predictor::LOCO_I; break;
     }
 
     bool read_optimized = storage_config.read_optimized;

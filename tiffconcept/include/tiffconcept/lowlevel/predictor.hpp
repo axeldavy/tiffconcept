@@ -107,6 +107,48 @@ void delta_encode_floating_point(
     std::size_t stride,
     std::size_t samples_per_pixel = 1) noexcept;
 
+/// Apply LOCO-I predictor decoding in place
+/// 
+/// This decodes data using the LOCO-I (JPEG-LS) prediction algorithm,
+/// which uses a context-adaptive predictor based on three neighboring pixels
+/// The predictor adapts based on edge detection to handle smooth regions,
+/// horizontal edges, and vertical edges efficiently.
+/// 
+/// @tparam T Pixel type (uint8_t, uint16_t, etc.)
+/// @param buffer Buffer containing the encoded data (modified in place)
+/// @param width Number of pixels per row
+/// @param height Number of rows
+/// @param stride Number of elements (samples) between row starts (>= width * samples_per_pixel)
+/// @param samples_per_pixel Number of samples (channels) per pixel (default 1)
+template <DeltaDecodableInteger T>
+void loco_i_decode(
+    std::span<T> buffer,
+    std::size_t width,
+    std::size_t height,
+    std::size_t stride,
+    std::size_t samples_per_pixel = 1) noexcept;
+
+/// Apply LOCO-I predictor encoding in place
+/// 
+/// This encodes data using the LOCO-I (JPEG-LS) prediction algorithm,
+/// which uses a context-adaptive predictor based on three neighboring pixels.
+/// Each pixel is replaced with the difference between its value and the
+/// predicted value based on its neighbors.
+/// 
+/// @tparam T Pixel type (uint8_t, uint16_t, etc.)
+/// @param buffer Buffer containing the raw data (modified in place)
+/// @param width Number of pixels per row
+/// @param height Number of rows
+/// @param stride Number of elements (samples) between row starts (>= width * samples_per_pixel)
+/// @param samples_per_pixel Number of samples (channels) per pixel (default 1)
+template <DeltaDecodableInteger T>
+void loco_i_encode(
+    std::span<T> buffer,
+    std::size_t width,
+    std::size_t height,
+    std::size_t stride,
+    std::size_t samples_per_pixel = 1) noexcept;
+
 } // namespace predictor
 
 } // namespace tiffconcept

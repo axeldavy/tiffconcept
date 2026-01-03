@@ -23,7 +23,7 @@ enum class TiffFormat { Classic, BigTIFF };
 enum class CompressionType { None, ZSTD };
 
 /// Predictor type enumeration  
-enum class PredictorType { None, Horizontal };
+enum class PredictorType { None, Horizontal, LOCO };
 
 /// Read strategy type
 enum class ReadStrategy { Fast, HighLatency, Parallel };

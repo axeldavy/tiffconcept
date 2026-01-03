@@ -477,6 +477,7 @@ enum class Predictor : uint16_t {
     None          = 1, ///< No predictor
     Horizontal    = 2, ///< Horizontal differencing
     FloatingPoint = 3, ///< Floating point horizontal differencing
+    LOCO_I        = 8192, ///< LOCO-I (JPEG-LS) prediction (custom tag)
 };
 
 /// @brief Planar configuration for multi-channel images

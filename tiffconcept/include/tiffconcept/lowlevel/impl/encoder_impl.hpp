@@ -67,6 +67,13 @@ template <typename PixelType, typename CompSpec>
                 width, height, stride, samples_per_pixel
             );
         }
+    } else if (predictor == Predictor::LOCO_I) {
+        if constexpr (!std::is_floating_point_v<PixelType> && sizeof(PixelType) < 8) {
+            predictor::loco_i_encode(
+                std::span<PixelType>(predictor_buffer_.data(), required_size),
+                width, height, stride, samples_per_pixel
+            );
+        }
     }
     
     // Return encoded data as byte span

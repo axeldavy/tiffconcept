@@ -47,6 +47,10 @@ Result<void> TileDecoder<PixelType, DecompSpec>::apply_predictor(
         if constexpr (std::is_floating_point_v<PixelType>) {
             predictor::delta_decode_floating_point(typed_data, width, height, stride, samples_per_pixel);
         }
+    } else if (predictor == Predictor::LOCO_I) {
+        if constexpr (!std::is_floating_point_v<PixelType> && sizeof(PixelType) < 8) {
+            predictor::loco_i_decode(typed_data, width, height, stride, samples_per_pixel);
+        }
     }
     return Ok();
 }

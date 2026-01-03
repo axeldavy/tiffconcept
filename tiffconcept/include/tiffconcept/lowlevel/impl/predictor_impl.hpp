@@ -916,6 +916,177 @@ inline void delta_encode_floating_point(
     }
 }
 
+// ============================================================================
+// LOCO-I Predictor Implementation
+// ============================================================================
+
+namespace detail {
+
+/// LOCO-I predictor function (JPEG-LS prediction)
+/// Predicts pixel value based on three neighbors: top_left top
+///                                                left     x
+/// Uses edge detection to adapt prediction
+/// Pseudo code:
+/// if (top_left >= max(top, left)) return min(top, left);
+/// if (top_left <= min(top, left)) return max(top, left);
+/// return left + top - top_left;
+template <DeltaDecodableInteger T>
+TIFFCONCEPT_FORCE_INLINE T loco_i_predict(T left, T top, T top_left) noexcept {
+    /// if (top_left >= max(top, left)) return min(top, left);
+    /// if (top_left <= min(top, left)) return max(top, left);
+    /// can be rewritten as:
+    /// if (top_left >= top && top >= left) return left;
+    /// if (top_left >= left && left >= top) return top;
+    /// if (top_left <= top && top <= left) return left;
+    /// if (top_left <= left && left <= top) return top;
+    /// (1) and (3) can be combined, (2) and (4) can be combined using xor of sign bits
+    const T top_left__top = top_left - top;
+    const T top_left__left = top_left - left;
+    const T top__left = top - left;
+
+    const T sign_pos = static_cast<T>(1) << (sizeof(T) * 8 - 1);
+
+    // top_left__top & sign_pos will be 0 iff top_left >= top, etc
+
+    // test (1) and (3)
+    if (((top_left__top ^ top__left) & sign_pos) == 0) {
+        // (1) top_left >= top && top >= left or
+        // (3')top_left < top && top < left
+        // For the more generic test top_left <= top && top <= left 
+        // we are missing the cases where:
+        // (a) top_left == top and top < left
+        // (b) top_left < top and top == left
+        return left;
+    }
+    // test (2) and (4)
+    if (((top_left__left ^ top__left) & sign_pos) != 0) {
+        // (2')top_left >= left && left > top or
+        // (4')top_left < left && left <= top
+        // from the original (2 and 4) tests we are missing the cases where:
+        // (c) top_left >= left and left == top
+        // (d) top_left == left and left <= top
+        return top;
+    }
+
+    // for (a) and (d), left + top - top_left will naturally
+    // yield the correct value
+    // (b) is contained in (4') and (c) is contained in (1)
+    // so we are covered in all cases
+
+    // Generic case (smooth region), use linear prediction
+    // Due to the previous tests, we know that top_left is strictly between left and top
+    // Thus left + top - top_left cannot overflow/underflow.
+    // However (left + top) might, thus we use wider type for the addition.
+    static_assert(sizeof(T) < 8, "Unsupported type size in loco_i_predict"); // uint64_t could be implemented with overflow arithmetic intrinsics
+    using WideT = std::conditional_t<sizeof(T) < 4, int32_t, int64_t>;
+    const WideT prediction = static_cast<WideT>(left) + static_cast<WideT>(top) 
+        - static_cast<WideT>(top_left);
+
+    return static_cast<T>(prediction);
+}
+
+} // namespace detail
+
+/// Apply LOCO-I predictor decoding in place
+template <DeltaDecodableInteger T>
+inline void loco_i_decode(
+    std::span<T> buffer,
+    std::size_t width,
+    std::size_t height,
+    std::size_t stride,
+    std::size_t samples_per_pixel) noexcept {
+    
+    if (height == 0 || width == 0) return;
+    
+    for (std::size_t s = 0; s < samples_per_pixel; ++s) {
+        // First row - use simple left predictor (same as horizontal differencing)
+        std::size_t row_offset = 0;
+        for (std::size_t x = 1; x < width; ++x) {
+            std::size_t curr_idx = row_offset + x * samples_per_pixel + s;
+            std::size_t prev_idx = row_offset + (x - 1) * samples_per_pixel + s;
+            buffer[curr_idx] += buffer[prev_idx];
+        }
+        
+        // Remaining rows - use LOCO-I predictor
+        for (std::size_t y = 1; y < height; ++y) {
+            row_offset = y * stride;
+            std::size_t prev_row_offset = (y - 1) * stride;
+            
+            // First pixel in row - use top predictor
+            {
+                std::size_t curr_idx = row_offset + s;
+                std::size_t top_idx = prev_row_offset + s;
+                buffer[curr_idx] += buffer[top_idx];
+            }
+            
+            // Rest of the row - use full LOCO-I predictor
+            for (std::size_t x = 1; x < width; ++x) {
+                std::size_t curr_idx = row_offset + x * samples_per_pixel + s;
+                std::size_t left_idx = row_offset + (x - 1) * samples_per_pixel + s;
+                std::size_t top_idx = prev_row_offset + x * samples_per_pixel + s;
+                std::size_t top_left_idx = prev_row_offset + (x - 1) * samples_per_pixel + s;
+                
+                T left = buffer[left_idx];
+                T top = buffer[top_idx];
+                T top_left = buffer[top_left_idx];
+                
+                T prediction = detail::loco_i_predict(left, top, top_left);
+                buffer[curr_idx] += prediction;
+            }
+        }
+    }
+}
+
+/// Apply LOCO-I predictor encoding in place
+template <DeltaDecodableInteger T>
+inline void loco_i_encode(
+    std::span<T> buffer,
+    std::size_t width,
+    std::size_t height,
+    std::size_t stride,
+    std::size_t samples_per_pixel) noexcept {
+    
+    if (height == 0 || width == 0) return;
+    
+    for (std::size_t s = 0; s < samples_per_pixel; ++s) {
+        // Process rows from bottom to top to avoid overwriting needed values
+        for (std::size_t y = height - 1; y > 0; --y) {
+            std::size_t row_offset = y * stride;
+            std::size_t prev_row_offset = (y - 1) * stride;
+            
+            // Process pixels from right to left
+            for (std::size_t x = width - 1; x > 0; --x) {
+                std::size_t curr_idx = row_offset + x * samples_per_pixel + s;
+                std::size_t left_idx = row_offset + (x - 1) * samples_per_pixel + s;
+                std::size_t top_idx = prev_row_offset + x * samples_per_pixel + s;
+                std::size_t top_left_idx = prev_row_offset + (x - 1) * samples_per_pixel + s;
+                
+                T left = buffer[left_idx];
+                T top = buffer[top_idx];
+                T top_left = buffer[top_left_idx];
+                
+                T prediction = detail::loco_i_predict(left, top, top_left);
+                buffer[curr_idx] -= prediction;
+            }
+            
+            // First pixel in row - use top predictor
+            {
+                std::size_t curr_idx = row_offset + s;
+                std::size_t top_idx = prev_row_offset + s;
+                buffer[curr_idx] -= buffer[top_idx];
+            }
+        }
+        
+        // First row - use simple left predictor (same as horizontal differencing)
+        std::size_t row_offset = 0;
+        for (std::size_t x = width - 1; x > 0; --x) {
+            std::size_t curr_idx = row_offset + x * samples_per_pixel + s;
+            std::size_t prev_idx = row_offset + (x - 1) * samples_per_pixel + s;
+            buffer[curr_idx] -= buffer[prev_idx];
+        }
+    }
+}
+
 } // namespace predictor
 
 } // namespace tiffconcept
