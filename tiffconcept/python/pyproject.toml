@@ -1,0 +1,71 @@
+[build-system]
+requires = ["scikit-build-core>=0.5", "pybind11>=3.0"]
+build-backend = "scikit_build_core.build"
+
+[project]
+name = "tiffconcept"
+version = "0.1.0"
+description = "High-performance TIFF reading and writing library with support for compression and multi-page files"
+readme = "README.md"
+license = {text = "MIT"}
+authors = [
+    {name = "Axel", email = "axel@example.com"}
+]
+requires-python = ">=3.12"
+dependencies = [
+    "numpy>=1.26",
+]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: C++",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Topic :: Scientific/Engineering :: Image Processing",
+]
+
+[project.optional-dependencies]
+test = [
+    "pytest>=7.0",
+    "pytest-cov>=4.0",
+]
+stubs = [
+    "pybind11-stubgen>=2.0",
+]
+
+[tool.scikit-build]
+cmake.minimum-version = "3.15"
+cmake.build-type = "Release"
+cmake.source-dir = "."
+wheel.packages = ["tiffconcept"]
+wheel.install-dir = "."
+sdist.include = ["tiffconcept/*.pyi"]
+build-dir = "build/{wheel_tag}"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+addopts = "-v --tb=short"
+
+[tool.cibuildwheel]
+build = ["cp312-*", "cp313-*", "cp314-*"]
+skip = ["*-win32", "*-manylinux_i686", "*-musllinux_*"]
+test-requires = ["pytest"]
+test-command = "pytest {project}/tests"
+
+# Support free-threaded Python 3.13+
+[tool.cibuildwheel.linux]
+before-all = "yum install -y zlib-devel || apt-get install -y zlib1g-dev"
+
+[tool.cibuildwheel.macos]
+environment = {MACOSX_DEPLOYMENT_TARGET = "10.14"}
+
+[tool.cibuildwheel.windows]
+before-build = "pip install delvewheel"
+repair-wheel-command = "delvewheel repair -w {dest_dir} {wheel}"

@@ -162,6 +162,30 @@ If you use other compression schemes, you can:
 - Implement the library interfaces for the compression schemes you need. Potentially contribute them back.
 - Use another library like LibTIFF. If you still need to walk through TIFF files and metadata very fast, you can use this library for metadata extraction and LibTIFF for image data extraction.
 
+## Python Bindings
+
+Python bindings are available in the `tiffconcept/python/` directory, providing a high-performance Python interface to the C++ library.
+
+**Requirements:** Python >= 3.12, NumPy >= 1.26, pybind11 >= 3.0
+
+**Installation:**
+```bash
+cd tiffconcept/python
+pip install .
+```
+
+**Quick Start:**
+```python
+import tiffconcept as tc
+
+with tc.open('image.tif') as tif:
+    print(f"Pages: {len(tif)}")
+    page = tif[0]
+    data = page.read(layout='DHWC')  # TensorFlow/Keras style
+```
+
+See [tiffconcept/python/README.md](tiffconcept/python/README.md) for complete documentation.
+
 ## License
 
 This library is provided under the MIT license. See the LICENSE file for details.

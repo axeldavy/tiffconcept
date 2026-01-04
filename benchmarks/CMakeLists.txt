@@ -45,6 +45,28 @@ set_target_properties(zstd_static PROPERTIES
     POSITION_INDEPENDENT_CODE ON
 )
 
+
+# ==============================================================================
+# CharLS Library (JPEG-LS)
+# ==============================================================================
+# Try to find system CharLS first
+find_package(charls QUIET)
+
+if(charls_FOUND)
+    message(STATUS "Using system CharLS library")
+    set(CHARLS_LIBRARY charls::charls)
+else()
+    message(STATUS "Using bundled CharLS library")
+    # Build CharLS from source
+    set(CHARLS_BUILD_TESTS OFF CACHE BOOL "Build CharLS tests")
+    set(CHARLS_BUILD_SAMPLES OFF CACHE BOOL "Build CharLS samples")
+    set(CHARLS_BUILD_FUZZ_TEST OFF CACHE BOOL "Build CharLS fuzz tests")
+    set(CHARLS_INSTALL OFF CACHE BOOL "Install CharLS")
+    
+    add_subdirectory(${CMAKE_SOURCE_DIR}/../tiffconcept/external/charls ${CMAKE_BINARY_DIR}/charls EXCLUDE_FROM_ALL)
+    set(CHARLS_LIBRARY charls)
+endif()
+
 # ==============================================================================
 # Optional Dependencies
 # ==============================================================================
@@ -118,6 +140,7 @@ add_executable(benchmark_read_directory
 
 target_link_libraries(benchmark_read_directory
     zstd_static
+    ${CHARLS_LIBRARY}
 )
 
 # libtiff is required for benchmark_read_directory

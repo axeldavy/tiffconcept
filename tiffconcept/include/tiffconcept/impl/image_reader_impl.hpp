@@ -112,7 +112,8 @@ inline Result<void> collect_tiles_for_region(
             uint32_t tile_depth = 1;
             if constexpr (TagSpec::template has_tag<TagCode::TileDepth>()) {
                 const auto& td = metadata.template get<TagCode::TileDepth>();
-                if constexpr (std::remove_cvref_t<decltype(td)>::value_type::is_optional) {
+                using TileDepthTagDesc = typename TagSpec::template get_tag<TagCode::TileDepth>;
+                if constexpr (TileDepthTagDesc::is_optional) {//(std::remove_cvref_t<decltype(td)>::value_type::is_optional) {
                     if (td.has_value()) {
                         tile_depth = td.value();
                     }

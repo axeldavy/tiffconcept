@@ -945,7 +945,7 @@ TIFFCONCEPT_FORCE_INLINE T loco_i_predict(T left, T top, T top_left) noexcept {
     const T top_left__left = top_left - left;
     const T top__left = top - left;
 
-    const T sign_pos = static_cast<T>(1) << (sizeof(T) * 8 - 1);
+    const T sign_pos = static_cast<T>(1U << (sizeof(T) * 8 - 1));
 
     // top_left__top & sign_pos will be 0 iff top_left >= top, etc
 

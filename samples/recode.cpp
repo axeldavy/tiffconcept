@@ -17,8 +17,10 @@
 #include "../tiffconcept/include/tiffconcept/types/tiff_spec.hpp"
 #include "../tiffconcept/include/tiffconcept/image_reader.hpp"
 #include "../tiffconcept/include/tiffconcept/reader_base.hpp"
+#include "../tiffconcept/include/tiffconcept/compressors/compressor_jpegls.hpp"
 #include "../tiffconcept/include/tiffconcept/compressors/compressor_standard.hpp"
 #include "../tiffconcept/include/tiffconcept/compressors/compressor_zstd.hpp"
+#include "../tiffconcept/include/tiffconcept/decompressors/decompressor_jpegls.hpp"
 #include "../tiffconcept/include/tiffconcept/decompressors/decompressor_standard.hpp"
 #include "../tiffconcept/include/tiffconcept/decompressors/decompressor_zstd.hpp"
 #include "../tiffconcept/include/tiffconcept/types/result.hpp"
@@ -48,7 +50,11 @@ using namespace tiffconcept;
 // DecompSpec supporting None and Zstd
 // ============================================================================
 
-using BenchDecompSpec = DecompressorSpec<NoneDecompressorDesc, ZstdDecompressorDesc>;
+using BenchDecompSpec = DecompressorSpec<
+    NoneDecompressorDesc,
+    ZstdDecompressorDesc,
+    JpeglsDecompressorDesc
+>;
 
 // ============================================================================
 // Generic Tag collection for both Stripped and Tiled images
@@ -340,6 +346,39 @@ void write_file(
                     throw std::runtime_error("Failed to write TIFF image: " + std::string(result.error().message));
                 }
             }
+        } else if (comp_scheme == CompressionScheme::JPEG_LS) {
+            using CompSpec = CompressorSpec<JpeglsCompressorDesc>;
+            using WConfig = WriteConfig<IFDStrategy, TileStrategy, DirectWrite<StreamFileWriter>, TwoPassOffsets>;
+            using WriterType = TiffWriter<T, CompSpec, WConfig, Format, TargetEndian>;
+            
+            WriterType writer;
+            StreamFileWriter file_writer(file_path);
+
+            std::span<const T> data_span(
+                reinterpret_cast<const T*>(image_data.get()), 
+                input_shape.num_elements()
+            );
+            
+            auto write_result = writer.template write_single_image<ImageLayoutSpec::DHWC>(
+                file_writer, 
+                data_span, 
+                image_config.width, 
+                image_config.height,
+                image_config.depth,
+                image_config.tile_width, 
+                image_config.tile_height,
+                image_config.tile_depth,
+                image_config.samples_per_pixel,
+                PlanarConfiguration::Chunky,
+                comp_scheme,
+                pred,
+                additional_tags
+            );
+            
+            if (!write_result.is_ok()) {
+                std::cerr << "Failed to write TIFF with JPEG-LS: " << write_result.error().message << "\n";
+                std::exit(1);
+            }
         } else {
             using CompSpec = CompressorSpec<NoneCompressorDesc>;
             using WConfig = WriteConfig<IFDStrategy, TileStrategy, DirectWrite<StreamFileWriter>, TwoPassOffsets>;
@@ -500,11 +539,12 @@ void write_file(
 
 void print_usage(const char* prog_name) {
     std::cout << "Usage: " << prog_name << " <input_tiff> <output_dir> <tile_width> <tile_height>\n";
-    std::cout << "\nCreates 4 variants of the input TIFF:\n";
+    std::cout << "\nCreates 5 variants of the input TIFF:\n";
     std::cout << "  1. Uncompressed\n";
     std::cout << "  2. ZSTD compressed\n";
     std::cout << "  3. ZSTD + Horizontal predictor\n";
     std::cout << "  4. ZSTD + LOCO predictor\n";
+    std::cout << "  5. JPEG-LS lossless\n";
     std::cout << "\nExample:\n";
     std::cout << "  " << prog_name << " input.tif output/ 512 512\n";
 }
@@ -573,7 +613,8 @@ int main(int argc, char** argv) {
         {"uncompressed", CompressionScheme::None, Predictor::None},
         {"zstd", CompressionScheme::ZSTD, Predictor::None},
         {"zstd_horizontal", CompressionScheme::ZSTD, Predictor::Horizontal},
-        {"zstd_loco", CompressionScheme::ZSTD, Predictor::LOCO_I}
+        {"zstd_loco", CompressionScheme::ZSTD, Predictor::LOCO_I},
+        {"jpeg_ls", CompressionScheme::JPEG_LS, Predictor::None}
     };
 
     // Create each variant

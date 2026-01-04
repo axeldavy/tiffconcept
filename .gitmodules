@@ -1,3 +1,9 @@
 [submodule "tiffconcept/external/charls"]
 	path = tiffconcept/external/charls
 	url = https://github.com/team-charls/charls
+[submodule "tiffconcept/external/pybind11"]
+	path = tiffconcept/external/pybind11
+	url = https://github.com/pybind/pybind11
+[submodule "tiffconcept/external/scikit-build-core"]
+	path = tiffconcept/external/scikit-build-core
+	url = https://github.com/scikit-build/scikit-build-core

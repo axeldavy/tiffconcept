@@ -448,6 +448,7 @@ enum class CompressionScheme : uint16_t {
     Deflate_Adobe  = 8,     ///< Adobe-style Deflate
     Deflate        = 32946, ///< PKZIP-style Deflate
     PackBits       = 32773, ///< PackBits compression
+    JPEG_LS        = 34670,  ///< JPEG-LS compression (custom, couldn't find any official code)
     ZSTD           = 50000, ///< Zstandard (non-standard but commonly used)
     ZSTD_Alt       = 34926, ///< Alternative Zstandard code
 };
