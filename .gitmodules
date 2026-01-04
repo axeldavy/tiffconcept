@@ -7,3 +7,6 @@
 [submodule "tiffconcept/external/scikit-build-core"]
 	path = tiffconcept/external/scikit-build-core
 	url = https://github.com/scikit-build/scikit-build-core
+[submodule "tiffconcept/external/libjxl"]
+	path = tiffconcept/external/libjxl
+	url = https://github.com/libjxl/libjxl

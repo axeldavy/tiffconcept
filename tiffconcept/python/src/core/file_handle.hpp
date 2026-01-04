@@ -20,6 +20,7 @@
 #include "tiffconcept/decompressors/decompressor_standard.hpp"
 #include "tiffconcept/decompressors/decompressor_zstd.hpp"
 #include "tiffconcept/decompressors/decompressor_jpegls.hpp"
+#include "tiffconcept/decompressors/decompressor_jpegxl.hpp"
 
 // Platform-specific file readers
 #if defined(HAVE_LIBURING)
@@ -41,6 +42,7 @@ using PyDecompressorSpec = DecompressorSpec<
     NoneDecompressorDesc,
     ZstdDecompressorDesc,
     JpeglsDecompressorDesc,
+    JpegxlDecompressorDesc,
     PackBitsDecompressorDesc
 >;
 

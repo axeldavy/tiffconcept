@@ -17,6 +17,7 @@
 #include "../tiffconcept/include/tiffconcept/image_reader.hpp"
 #include "../tiffconcept/include/tiffconcept/reader_base.hpp"
 #include "../tiffconcept/include/tiffconcept/decompressors/decompressor_jpegls.hpp"
+#include "../tiffconcept/include/tiffconcept/decompressors/decompressor_jpegxl.hpp"
 #include "../tiffconcept/include/tiffconcept/decompressors/decompressor_standard.hpp"
 #include "../tiffconcept/include/tiffconcept/decompressors/decompressor_zstd.hpp"
 #include "../tiffconcept/include/tiffconcept/types/result.hpp"
@@ -57,7 +58,8 @@ using namespace tiffconcept;
 using BenchDecompSpec = DecompressorSpec<
     NoneDecompressorDesc,
     ZstdDecompressorDesc,
-    JpeglsDecompressorDesc
+    JpeglsDecompressorDesc,
+    JpegxlDecompressorDesc
 >;
 
 // ============================================================================

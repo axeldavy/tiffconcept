@@ -134,7 +134,6 @@ public:
 };
 
 /// ZSTD decompressor descriptor
-/// Handles both standard ZSTD (50000) and alternative ZSTD tag (50001)
 using ZstdDecompressorDesc = DecompressorDescriptor<
     ZstdDecompressor,
     CompressionScheme::ZSTD,

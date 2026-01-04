@@ -150,15 +150,9 @@ public:
     constexpr void set_level(int level) noexcept {
         compression_level_ = level;
     }
-    
-    /// Get the worst-case compressed size for given input size
-    [[nodiscard]] static std::size_t get_compress_bound(std::size_t input_size) noexcept {
-        return ZSTD_compressBound(input_size);
-    }
 };
 
 /// ZSTD compressor descriptor
-/// Handles both standard ZSTD (50000) and alternative ZSTD tag (50001)
 using ZstdCompressorDesc = CompressorDescriptor<
     ZstdCompressor,
     CompressionScheme::ZSTD,

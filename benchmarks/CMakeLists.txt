@@ -68,6 +68,32 @@ else()
 endif()
 
 # ==============================================================================
+# JPEG XL Library (libjxl)
+# ==============================================================================
+# Try to find system libjxl first
+find_package(libjxl QUIET)
+
+if(libjxl_FOUND)
+    message(STATUS "Using system libjxl library")
+    set(JXL_LIBRARIES libjxl::libjxl)
+else()
+    message(STATUS "Using bundled libjxl library")
+    # Build libjxl from source
+    set(BUILD_TESTING OFF CACHE BOOL "Build libjxl tests")
+    set(JPEGXL_ENABLE_BENCHMARK OFF CACHE BOOL "Build libjxl benchmarks")
+    set(JPEGXL_ENABLE_EXAMPLES OFF CACHE BOOL "Build libjxl examples")
+    set(JPEGXL_ENABLE_MANPAGES OFF CACHE BOOL "Build libjxl manpages")
+    set(JPEGXL_ENABLE_PLUGINS OFF CACHE BOOL "Build libjxl plugins")
+    set(JPEGXL_ENABLE_DEVTOOLS OFF CACHE BOOL "Build libjxl devtools")
+    set(JPEGXL_ENABLE_TOOLS OFF CACHE BOOL "Build libjxl tools")
+    set(JPEGXL_ENABLE_JPEGLI OFF CACHE BOOL "Build jpegli")
+    set(JPEGXL_ENABLE_SKCMS OFF CACHE BOOL "Build with skcms")
+    
+    add_subdirectory(${CMAKE_SOURCE_DIR}/../tiffconcept/external/libjxl ${CMAKE_BINARY_DIR}/libjxl EXCLUDE_FROM_ALL)
+    set(JXL_LIBRARIES jxl jxl_threads)
+endif()
+
+# ==============================================================================
 # Optional Dependencies
 # ==============================================================================
 
@@ -141,6 +167,7 @@ add_executable(benchmark_read_directory
 target_link_libraries(benchmark_read_directory
     zstd_static
     ${CHARLS_LIBRARY}
+    ${JXL_LIBRARIES}
 )
 
 # libtiff is required for benchmark_read_directory

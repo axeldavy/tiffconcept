@@ -55,6 +55,31 @@ else()
 endif()
 
 # ==============================================================================
+# JPEG XL Library (libjxl)
+# ==============================================================================
+find_package(libjxl QUIET)
+
+if(libjxl_FOUND)
+    message(STATUS "Using system libjxl library")
+    set(JXL_LIBRARIES libjxl::libjxl)
+else()
+    message(STATUS "Using bundled libjxl library")
+    set(BUILD_TESTING OFF CACHE BOOL "Build libjxl tests")
+    set(JPEGXL_ENABLE_BENCHMARK OFF CACHE BOOL "Build libjxl benchmarks")
+    set(JPEGXL_ENABLE_EXAMPLES OFF CACHE BOOL "Build libjxl examples")
+    set(JPEGXL_ENABLE_MANPAGES OFF CACHE BOOL "Build libjxl manpages")
+    set(JPEGXL_ENABLE_PLUGINS OFF CACHE BOOL "Build libjxl plugins")
+    set(JPEGXL_ENABLE_DEVTOOLS OFF CACHE BOOL "Build libjxl devtools")
+    set(JPEGXL_ENABLE_TOOLS OFF CACHE BOOL "Build libjxl tools")
+    set(JPEGXL_ENABLE_JPEGLI OFF CACHE BOOL "Build jpegli")
+    set(JPEGXL_ENABLE_SKCMS OFF CACHE BOOL "Build with skcms")
+    
+    add_subdirectory(${TIFFCONCEPT_EXTERNAL_DIR}/libjxl 
+                     ${CMAKE_BINARY_DIR}/libjxl EXCLUDE_FROM_ALL)
+    set(JXL_LIBRARIES jxl jxl_threads)
+endif()
+
+# ==============================================================================
 # Python Module
 # ==============================================================================
 
@@ -83,6 +108,7 @@ target_include_directories(_tiffconcept_core PRIVATE
 target_link_libraries(_tiffconcept_core PRIVATE
     zstd_static
     ${CHARLS_LIBRARY}
+    ${JXL_LIBRARIES}
 )
 
 # Platform-specific definitions
