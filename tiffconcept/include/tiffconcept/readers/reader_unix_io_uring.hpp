@@ -208,100 +208,102 @@ public:
         // Initialize io_uring
         ring_ = std::unique_ptr<io_uring, IoUringDeleter>(new io_uring{});
 
-        io_uring_params params{};
-        params.cq_entries = std::max(config.sq_queue_depth, config.cq_queue_depth); // must be greater than config.sq_queue_depth
-        params.flags = 
-            IORING_SETUP_CQSIZE // use cq_entries to set CQ size
-            | IORING_SETUP_CLAMP // clamp to max supported sizes
-            | IORING_SETUP_SUBMIT_ALL // submit all queued ops on io_uring_submit, even on error
-            | IORING_SETUP_COOP_TASKRUN // improves performance since we don't use multiple threads
-            | IORING_SETUP_TASKRUN_FLAG // improves COOP_TASKRUN
-            | IORING_SETUP_NO_SQARRAY; // don't mmap SQ array (saves memory)
-        // may want to use IORING_SETUP_SINGLE_ISSUER and IORING_SETUP_DEFER_TASKRUN as well
-        params.sq_thread_cpu = 0;
-        params.sq_thread_idle = 0;
-        // entries filled by io_uring_queue_init_params
-        params.sq_entries = config.sq_queue_depth;
-        params.features = 0;
-        params.wq_fd = -1;
-        
-        int ret = io_uring_queue_init_params(config.sq_queue_depth, ring_.get(), &params);
-        if (ret == -ENOMEM) {
-            io_uring_queue_exit(ring_.get());
-            // When allocating/releasing very fast, the kernel seems to have a
-            // processing delay to free the previously used resources.
-            // Retry after a short delay.
-            std::this_thread::yield();
-            ret = io_uring_queue_init_params(config.sq_queue_depth, ring_.get(), &params);
-            if (ret == -ENOMEM) {
-                io_uring_queue_exit(ring_.get());
-                std::this_thread::sleep_for(std::chrono::milliseconds(5));
-                ret = io_uring_queue_init_params(config.sq_queue_depth, ring_.get(), &params);
+        // Flags built hierarchically so a single binary supports kernels from 5.1+.
+        // Candidates are ordered most → least capable; EINVAL (flag not known by
+        // this kernel) advances to the next entry.  ENOMEM halves the queue depths
+        // before retrying (see below).
+        //
+        // IORING_SETUP_SUBMIT_ALL is intentionally absent: for file reads there are
+        // no prep-time errors, so it adds per-submit overhead for nothing.
+        constexpr uint32_t F_5_5  = 0u
+#ifdef IORING_SETUP_CQSIZE
+            | IORING_SETUP_CQSIZE          // 5.5+: honour params.cq_entries for CQ size
+#endif
+            ;
+        constexpr uint32_t F_5_6  = F_5_5
+#ifdef IORING_SETUP_CLAMP
+            | IORING_SETUP_CLAMP           // 5.6+: silently clamp to kernel maximums
+#endif
+            ;
+        constexpr uint32_t F_5_19 = F_5_6
+#ifdef IORING_SETUP_COOP_TASKRUN
+            | IORING_SETUP_COOP_TASKRUN    // 5.19+: avoid signal interruption on completion
+#endif
+#ifdef IORING_SETUP_TASKRUN_FLAG
+            | IORING_SETUP_TASKRUN_FLAG    // 5.19+: expose task-run flag in SQ ring head
+#endif
+            ;
+        // 6.0+: NO_SQARRAY skips the SQ index-array mmap (saves one mmap region);
+        // SINGLE_ISSUER tells the kernel only one CPU submits SQEs, enabling
+        // internal locking and memory-layout optimisations that reduce per-ring
+        // footprint — both directly mitigate ENOMEM in tight alloc/dealloc loops.
+        constexpr uint32_t F_6_0  = F_5_19
+#ifdef IORING_SETUP_NO_SQARRAY
+            | IORING_SETUP_NO_SQARRAY      // 6.0+: skip SQ index-array mmap
+#endif
+#ifdef IORING_SETUP_SINGLE_ISSUER
+            | IORING_SETUP_SINGLE_ISSUER   // 6.0+: single-CPU submission path
+#endif
+            ;
+
+        // Unique candidates most → least capable.  Duplicates (present when the
+        // build liburing headers predate certain flags) are skipped at runtime.
+        const uint32_t flag_candidates[] = { F_6_0, F_5_19, F_5_6, F_5_5, 0u };
+
+        constexpr uint32_t min_depth = 8u;
+        const uint32_t target_sq = std::max(config.sq_queue_depth, min_depth);
+        const uint32_t target_cq = std::max({config.cq_queue_depth, target_sq, min_depth});
+
+        // The CQ holds only *completed* (kernel-finished, not-yet-drained) entries.
+        // available_async_ops() enforces pending_ops_ <= real_cq_depth_, so at most
+        // real_cq_depth_ completions can exist simultaneously — the CQ never overflows.
+
+        int ret = -EINVAL;
+        bool done = false;
+        uint32_t prev_flags = ~0u;
+        for (uint32_t flags : flag_candidates) {
+            if (done || flags == prev_flags) continue;
+            prev_flags = flags;
+
+            uint32_t sq = target_sq;
+            uint32_t cq = target_cq;
+
+            while (!done) {
+                // Always zero-initialise the struct before each attempt.
+                // io_uring_queue_init_params cleans up internally on failure
+                // (unmaps rings, closes the ring fd).  Reusing the struct without
+                // zeroing it first is undefined behaviour (double-unmap/double-close).
+                *ring_ = io_uring{};
+                io_uring_params params{};
+                params.flags      = flags;
+                params.cq_entries = cq;   // respected when IORING_SETUP_CQSIZE is set
+                params.sq_entries = sq;   // informational; actual value filled by kernel
+                params.wq_fd      = -1;
+
+                ret = io_uring_queue_init_params(sq, ring_.get(), &params);
+                if (ret == 0) {
+                    real_cq_depth_ = params.cq_entries;
+                    done = true;
+                } else if (ret == -EINVAL) {
+                    break;        // unsupported flags → try next flag level
+                } else if (ret != -ENOMEM) {
+                    done = true;  // EPERM or similar — stop entirely
+                } else {
+                    // ENOMEM: the kernel defers ring cleanup via RCU, so destroyed
+                    // rings temporarily hold memory.  Halving the queue sizes makes
+                    // forward progress without sleeping or changing system tunables.
+                    if (sq == min_depth) break;  // already at minimum → try next level
+                    cq = std::max(cq / 2u, min_depth);
+                    sq = std::max(sq / 2u, min_depth);
+                }
             }
         }
 
-        // prints features for debugging
-        /*std::cerr << "IoUringFileReader: io_uring initialized with features:";
-        if (params.features & IORING_FEAT_SINGLE_MMAP) {
-            std::cerr << " SINGLE_MMAP";
-        }
-        if (params.features & IORING_FEAT_NODROP) {
-            std::cerr << " NODROP";
-        }
-        if (params.features & IORING_FEAT_SUBMIT_STABLE) {
-            std::cerr << " SUBMIT_STABLE";
-        }
-        if (params.features & IORING_FEAT_RW_CUR_POS) {
-            std::cerr << " RW_CUR_POS";
-        }
-        if (params.features & IORING_FEAT_CUR_PERSONALITY) {
-            std::cerr << " CUR_PERSONALITY";
-        }
-        if (params.features & IORING_FEAT_FAST_POLL) {
-            std::cerr << " FAST_POLL";
-        }
-        if (params.features & IORING_FEAT_POLL_32BITS) {
-            std::cerr << " POLL_32BITS";
-        }
-        if (params.features & IORING_FEAT_SQPOLL_NONFIXED) {
-            std::cerr << " SQPOLL_NONFIXED";
-        }
-        if (params.features & IORING_FEAT_EXT_ARG) {
-            std::cerr << " EXT_ARG";
-        }
-        if (params.features & IORING_FEAT_NATIVE_WORKERS) {
-            std::cerr << " NATIVE_WORKERS";
-        }
-        if (params.features & IORING_FEAT_RSRC_TAGS) {
-            std::cerr << " RSRC_TAGS";
-        }
-        if (params.features & IORING_FEAT_CQE_SKIP) {
-            std::cerr << " CQE_SKIP";
-        }
-        if (params.features & IORING_FEAT_LINKED_FILE) {
-            std::cerr << " LINKED_FILE";
-        }
-        if (params.features & IORING_FEAT_REG_REG_RING) {
-            std::cerr << " REG_REG_RING";
-        }
-        if (params.features & IORING_FEAT_MIN_TIMEOUT) {
-            std::cerr << " MIN_TIMEOUT";
-        }
-        if (params.features & IORING_FEAT_RECVSEND_BUNDLE) {
-            std::cerr << " RECVSEND_BUNDLE";
-        }
-        std::cerr << "\n";*/
-
         if (ret < 0) [[unlikely]] {
-            int err = -ret;
             ring_.reset();
-            std::cerr << "IoUringFileReader: Failed to initialize io_uring, error " << err << "\n";
-            std::cerr << "  liburing error: " << std::strerror(err) << "\n";
-            std::cerr << params.features << "\n";
-            return Err(Error::Code::ReadError, 
-                      "Failed to initialize io_uring: " + std::string(std::strerror(err)));
+            return Err(Error::Code::ReadError,
+                      "Failed to initialize io_uring: " + std::string(std::strerror(-ret)));
         }
-        real_cq_depth_ = params.cq_entries;
         return Ok();
     }
     
