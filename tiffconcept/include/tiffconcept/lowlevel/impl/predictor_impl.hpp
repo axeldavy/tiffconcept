@@ -211,44 +211,8 @@ TIFFCONCEPT_FORCE_INLINE __m512i prefix_sum_avx512_u8(__m512i delta, __m512i& ca
     sum = _mm512_add_epi8(sum, _mm512_bslli_epi128(sum, 2));
     sum = _mm512_add_epi8(sum, _mm512_bslli_epi128(sum, 4));
     sum = _mm512_add_epi8(sum, _mm512_bslli_epi128(sum, 8));
-    
-#if defined(__AVX512VBMI__)
-    // Use VBMI for efficient cross-lane propagation
-    __m512i lane_carries = _mm512_permutexvar_epi8(
-        _mm512_set_epi8(
-            47, 47, 47, 47, 47, 47, 47, 47, 47, 47, 47, 47, 47, 47, 47, 47,  // Lane 3 gets lane 2's last
-            31, 31, 31, 31, 31, 31, 31, 31, 31, 31, 31, 31, 31, 31, 31, 31,  // Lane 2 gets lane 1's last
-            15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15,  // Lane 1 gets lane 0's last
-             0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0   // Lane 0 gets zero
-        ),
-        sum
-    );
-    
-#ifdef __AVX512BW__
-    // Zero out lane 0's carry using AVX512BW mask operations
-    lane_carries = _mm512_maskz_mov_epi8(0xFFFFFFFFFFFF0000ULL, lane_carries);
-#else
-    // Without AVX512BW, use blend with zero
-    __m512i zero = _mm512_setzero_si512();
-    __m512i mask_vec = _mm512_set_epi64(
-        0xFFFFFFFFFFFFFFFFULL, 0xFFFFFFFFFFFFFFFFULL,
-        0xFFFFFFFFFFFFFFFFULL, 0xFFFFFFFFFFFFFFFFULL,
-        0xFFFFFFFFFFFFFFFFULL, 0xFFFFFFFFFFFFFFFFULL,
-        0, 0
-    );
-    lane_carries = _mm512_and_si512(lane_carries, mask_vec);
-#endif
-    
-    sum = _mm512_add_epi8(sum, lane_carries);
 
-    // Add carry from previous vector
-    sum = _mm512_add_epi8(sum, carry_vec);
-    
-    // Extract final carry
-    carry_vec = _mm512_permutexvar_epi8(_mm512_set1_epi8(63), sum);
-    
-#else
-    // Without VBMI, use manual lane extraction and propagation (AVX512F only)
+    // Propagate carries across lanes using cumulative sums
     __m128i lane0 = _mm512_extracti32x4_epi32(sum, 0);
     __m128i lane1 = _mm512_extracti32x4_epi32(sum, 1);
     __m128i lane2 = _mm512_extracti32x4_epi32(sum, 2);
@@ -272,8 +236,7 @@ TIFFCONCEPT_FORCE_INLINE __m512i prefix_sum_avx512_u8(__m512i delta, __m512i& ca
     // Extract final carry from updated sum
     __m128i final_lane3 = _mm512_extracti32x4_epi32(sum, 3);
     carry_vec = _mm512_set1_epi8(static_cast<char>(_mm_extract_epi16(final_lane3, 7) >> 8));
-#endif
-    
+
     return sum;
 }
 
@@ -283,30 +246,8 @@ TIFFCONCEPT_FORCE_INLINE __m512i prefix_sum_avx512_u16(__m512i delta, __m512i& c
     __m512i sum = _mm512_add_epi16(delta, _mm512_bslli_epi128(delta, 2));
     sum = _mm512_add_epi16(sum, _mm512_bslli_epi128(sum, 4));
     sum = _mm512_add_epi16(sum, _mm512_bslli_epi128(sum, 8));
-    
-#if defined(__AVX512BW__)
-    // Cross-lane carry propagation using permutexvar (requires AVX512BW for epi16)
-    __m512i lane_carries = _mm512_permutexvar_epi16(
-        _mm512_set_epi16(
-            23, 23, 23, 23, 23, 23, 23, 23,  // Lane 3 gets lane 2's last
-            15, 15, 15, 15, 15, 15, 15, 15,  // Lane 2 gets lane 1's last
-             7,  7,  7,  7,  7,  7,  7,  7,  // Lane 1 gets lane 0's last
-             0,  0,  0,  0,  0,  0,  0,  0   // Lane 0 gets zero
-        ),
-        sum
-    );
-    // Zero out lane 0's carry
-    lane_carries = _mm512_maskz_mov_epi16(0xFFFFFF00, lane_carries);
-    sum = _mm512_add_epi16(sum, lane_carries);
 
-    // Add carry from previous vector
-    sum = _mm512_add_epi16(sum, carry_vec);
-    
-    // Extract final carry
-    carry_vec = _mm512_permutexvar_epi16(_mm512_set1_epi16(31), sum);
-    
-#else
-    // Without AVX512BW, use manual lane extraction (AVX512F only)
+    // Propagate carries across lanes using cumulative sums
     __m128i lane0 = _mm512_extracti32x4_epi32(sum, 0);
     __m128i lane1 = _mm512_extracti32x4_epi32(sum, 1);
     __m128i lane2 = _mm512_extracti32x4_epi32(sum, 2);
@@ -330,8 +271,7 @@ TIFFCONCEPT_FORCE_INLINE __m512i prefix_sum_avx512_u16(__m512i delta, __m512i& c
     // Extract final carry from updated sum
     __m128i final_lane3 = _mm512_extracti32x4_epi32(sum, 3);
     carry_vec = _mm512_set1_epi16(static_cast<int16_t>(_mm_extract_epi16(final_lane3, 7)));
-#endif
-    
+
     return sum;
 }
 
