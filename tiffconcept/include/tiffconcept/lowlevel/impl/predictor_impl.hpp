@@ -182,7 +182,7 @@ TIFFCONCEPT_FORCE_INLINE __m256i prefix_sum_avx2_u16(__m256i delta, __m256i& car
 
 #endif // AVX2
 
-#ifdef __AVX512F__
+#ifdef __AVX512BW__
 
 TIFFCONCEPT_FORCE_INLINE uint8_t carry_vec_to_carry_avx512_u8(__m512i carry_vec) noexcept {
     // Extract last byte from the 512-bit vector
@@ -269,15 +269,15 @@ TIFFCONCEPT_FORCE_INLINE __m512i prefix_sum_avx512_u8(__m512i delta, __m512i& ca
     // Add carry from previous vector
     sum = _mm512_add_epi8(sum, carry_vec);
     
-    // Extract final carry
-    uint8_t carry3 = static_cast<uint8_t>(_mm_extract_epi16(lane3, 7) >> 8);
-    carry_vec = _mm512_set1_epi8(static_cast<char>(carry0 + carry1 + carry2 + carry3));
+    // Extract final carry from updated sum
+    __m128i final_lane3 = _mm512_extracti32x4_epi32(sum, 3);
+    carry_vec = _mm512_set1_epi8(static_cast<char>(_mm_extract_epi16(final_lane3, 7) >> 8));
 #endif
     
     return sum;
 }
 
-/// AVX512F prefix sum for uint16_t (32 elements at a time)
+/// AVX512BW prefix sum for uint16_t (32 elements at a time)
 TIFFCONCEPT_FORCE_INLINE __m512i prefix_sum_avx512_u16(__m512i delta, __m512i& carry_vec) noexcept {
     // Intra-lane prefix sum using shifts (within each 128-bit lane)
     __m512i sum = _mm512_add_epi16(delta, _mm512_bslli_epi128(delta, 2));
@@ -327,15 +327,15 @@ TIFFCONCEPT_FORCE_INLINE __m512i prefix_sum_avx512_u16(__m512i delta, __m512i& c
     // Add carry from previous vector
     sum = _mm512_add_epi16(sum, carry_vec);
     
-    // Extract final carry
-    uint16_t carry3 = static_cast<uint16_t>(_mm_extract_epi16(lane3, 7));
-    carry_vec = _mm512_set1_epi16(static_cast<int16_t>(carry0 + carry1 + carry2 + carry3));
+    // Extract final carry from updated sum
+    __m128i final_lane3 = _mm512_extracti32x4_epi32(sum, 3);
+    carry_vec = _mm512_set1_epi16(static_cast<int16_t>(_mm_extract_epi16(final_lane3, 7)));
 #endif
     
     return sum;
 }
 
-#endif // __AVX512F__
+#endif // __AVX512BW__
 
 
 /// Apply horizontal differencing (TIFF predictor=2) decoding in place - specialized implementation
@@ -365,7 +365,7 @@ inline void delta_decode_horizontal_impl(
         } else {
             T acc = 0;
             std::size_t x = 0;
-#if defined(__AVX512F__)
+#if defined(__AVX512BW__)
             if constexpr (std::is_same_v<T, uint8_t> || std::is_same_v<T, int8_t>) {
                 __m512i acc_vec = carry_to_carry_vec_avx512_u8(static_cast<uint8_t>(acc));
                 while (x + 64 <= width) {
