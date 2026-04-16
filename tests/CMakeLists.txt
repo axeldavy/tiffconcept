@@ -149,6 +149,15 @@ target_link_libraries(test_predictor
     GTest::gtest
 )
 
+# Enable native SIMD for predictor tests so that SSE2/AVX2/AVX512 code paths
+# are compiled and exercised. Without this flag __AVX2__ etc. are not defined
+# and the SIMD branches are dead-code even on capable hardware.
+if(MSVC)
+    target_compile_options(test_predictor PRIVATE /arch:AVX2)
+else()
+    target_compile_options(test_predictor PRIVATE -march=native)
+endif()
+
 target_link_libraries(test_reader_writer
     GTest::gtest_main
     GTest::gtest

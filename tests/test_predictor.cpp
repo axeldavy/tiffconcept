@@ -798,6 +798,286 @@ TEST(PredictorTest, DecodePreEncodedFloat) {
     EXPECT_EQ(original, decoded);
 }
 
+// ============================================================================
+// SIMD Path Coverage Tests
+//
+// All existing tests use width=10, which is too small to trigger any SIMD loop:
+//   SSE2  u8  path requires width >= 16
+//   SSE2  u16 path requires width >= 8
+//   AVX2  u8  path requires width >= 32
+//   AVX2  u16 path requires width >= 16
+//   AVX512 u8  path requires width >= 64
+//   AVX512 u16 path requires width >= 32
+//
+// The tests below cover every boundary, including transitions between multiple
+// SIMD chunks and the scalar tail. Multi-row images verify that carry is reset
+// at each row boundary (a global-carry bug would corrupt all rows after the first).
+// Each test also compares against an independent scalar reference implementation
+// so a bug in SIMD cannot be masked by a matching bug in encoding.
+// ============================================================================
+
+// Scalar reference: prefix-sum one row at a time (no SIMD)
+template <typename T>
+static std::vector<T> scalar_prefix_sum(std::vector<T> data,
+                                        std::size_t width,
+                                        std::size_t height,
+                                        std::size_t stride) {
+    for (std::size_t y = 0; y < height; ++y) {
+        T acc = data[y * stride];
+        for (std::size_t x = 1; x < width; ++x) {
+            acc = static_cast<T>(acc + data[y * stride + x]);
+            data[y * stride + x] = acc;
+        }
+    }
+    return data;
+}
+
+// ---- uint8_t parameterised by width ----------------------------------------
+
+class U8DeltaDecodeWidthTest : public ::testing::TestWithParam<std::size_t> {};
+
+TEST_P(U8DeltaDecodeWidthTest, RoundTrip) {
+    const std::size_t width  = GetParam();
+    const std::size_t height = 4;
+    const std::size_t stride = width;
+
+    auto original = generate_random_data<uint8_t>(height * stride, width * 17 + 99);
+    auto encoded  = original;
+    delta_encode_horizontal(std::span(encoded), width, height, stride, 1);
+    auto decoded  = encoded;
+    delta_decode_horizontal(std::span(decoded),  width, height, stride, 1);
+    EXPECT_EQ(original, decoded);
+}
+
+TEST_P(U8DeltaDecodeWidthTest, MatchesScalarReference) {
+    const std::size_t width  = GetParam();
+    const std::size_t height = 3;
+    const std::size_t stride = width;
+
+    // Start from arbitrary delta-encoded data (random bytes treated as deltas)
+    auto encoded   = generate_random_data<uint8_t>(height * stride, width * 31 + 7);
+    auto reference = scalar_prefix_sum(encoded, width, height, stride);
+
+    delta_decode_horizontal(std::span(encoded), width, height, stride, 1);
+    EXPECT_EQ(reference, encoded);
+}
+
+INSTANTIATE_TEST_SUITE_P(
+    SIMDBoundaries, U8DeltaDecodeWidthTest,
+    ::testing::Values(
+        // Below SSE2 threshold
+        1, 8, 15,
+        // SSE2 exact fit and straddling boundaries
+        16, 17, 23, 24,
+        // AVX2 boundaries
+        31, 32, 33,
+        // Requires two SIMD regions (AVX2 + SSE2 tail, or AVX2×2)
+        47, 48, 49, 63, 64, 65,
+        // Multiple full AVX2 chunks plus a tail
+        95, 96, 97, 100, 127, 128, 129,
+        // Larger images typical of real TIFF tiles
+        200, 512, 1000
+    ),
+    [](const ::testing::TestParamInfo<std::size_t>& info) {
+        return "width_" + std::to_string(info.param);
+    }
+);
+
+// ---- uint16_t parameterised by width ---------------------------------------
+
+class U16DeltaDecodeWidthTest : public ::testing::TestWithParam<std::size_t> {};
+
+TEST_P(U16DeltaDecodeWidthTest, RoundTrip) {
+    const std::size_t width  = GetParam();
+    const std::size_t height = 4;
+    const std::size_t stride = width;
+
+    auto original = generate_random_data<uint16_t>(height * stride, width * 13 + 77);
+    auto encoded  = original;
+    delta_encode_horizontal(std::span(encoded), width, height, stride, 1);
+    auto decoded  = encoded;
+    delta_decode_horizontal(std::span(decoded),  width, height, stride, 1);
+    EXPECT_EQ(original, decoded);
+}
+
+TEST_P(U16DeltaDecodeWidthTest, MatchesScalarReference) {
+    const std::size_t width  = GetParam();
+    const std::size_t height = 3;
+    const std::size_t stride = width;
+
+    auto encoded   = generate_random_data<uint16_t>(height * stride, width * 29 + 3);
+    auto reference = scalar_prefix_sum(encoded, width, height, stride);
+
+    delta_decode_horizontal(std::span(encoded), width, height, stride, 1);
+    EXPECT_EQ(reference, encoded);
+}
+
+INSTANTIATE_TEST_SUITE_P(
+    SIMDBoundaries, U16DeltaDecodeWidthTest,
+    ::testing::Values(
+        // Below SSE2 threshold
+        1, 4, 7,
+        // SSE2 exact fit and straddling
+        8, 9, 12, 15,
+        // AVX2 boundaries
+        16, 17, 23, 24,
+        // Multiple SIMD regions
+        31, 32, 33, 47, 48, 49,
+        // AVX512 boundaries
+        63, 64, 65, 95, 96, 97,
+        100, 200, 512, 1000
+    ),
+    [](const ::testing::TestParamInfo<std::size_t>& info) {
+        return "width_" + std::to_string(info.param);
+    }
+);
+
+// ---- int8_t  (uses the same SIMD branches as uint8_t) ----------------------
+
+class I8DeltaDecodeWidthTest : public ::testing::TestWithParam<std::size_t> {};
+
+TEST_P(I8DeltaDecodeWidthTest, RoundTrip) {
+    const std::size_t width  = GetParam();
+    const std::size_t height = 3;
+    const std::size_t stride = width;
+
+    auto original = generate_random_data<int8_t>(height * stride, width * 11 + 5);
+    auto encoded  = original;
+    delta_encode_horizontal(std::span(encoded), width, height, stride, 1);
+    auto decoded  = encoded;
+    delta_decode_horizontal(std::span(decoded),  width, height, stride, 1);
+    EXPECT_EQ(original, decoded);
+}
+
+INSTANTIATE_TEST_SUITE_P(
+    SIMDBoundaries, I8DeltaDecodeWidthTest,
+    ::testing::Values(15, 16, 17, 32, 33, 48, 64, 100, 200),
+    [](const ::testing::TestParamInfo<std::size_t>& info) {
+        return "width_" + std::to_string(info.param);
+    }
+);
+
+// ---- int16_t  (uses the same SIMD branches as uint16_t) --------------------
+
+class I16DeltaDecodeWidthTest : public ::testing::TestWithParam<std::size_t> {};
+
+TEST_P(I16DeltaDecodeWidthTest, RoundTrip) {
+    const std::size_t width  = GetParam();
+    const std::size_t height = 3;
+    const std::size_t stride = width;
+
+    auto original = generate_random_data<int16_t>(height * stride, width * 7 + 3);
+    auto encoded  = original;
+    delta_encode_horizontal(std::span(encoded), width, height, stride, 1);
+    auto decoded  = encoded;
+    delta_decode_horizontal(std::span(decoded),  width, height, stride, 1);
+    EXPECT_EQ(original, decoded);
+}
+
+INSTANTIATE_TEST_SUITE_P(
+    SIMDBoundaries, I16DeltaDecodeWidthTest,
+    ::testing::Values(7, 8, 9, 16, 17, 32, 33, 64, 65, 100, 200),
+    [](const ::testing::TestParamInfo<std::size_t>& info) {
+        return "width_" + std::to_string(info.param);
+    }
+);
+
+// ---- Carry isolation: each row must be decoded independently ----------------
+//
+// If carry from one row bleeds into the next, rows after the first will decode
+// incorrectly. We detect this by encoding rows with identical content and verifying
+// all rows produced identical encoded data, then checking round-trip.
+
+TEST(PredictorSIMDTest, U8CarryResetPerRow) {
+    const std::size_t width  = 64; // two full AVX2 chunks
+    const std::size_t height = 5;
+    const std::size_t stride = width;
+
+    auto row = generate_random_data<uint8_t>(width, 0xDEADBEEF);
+    std::vector<uint8_t> original(height * stride);
+    for (std::size_t y = 0; y < height; ++y)
+        std::copy(row.begin(), row.end(), original.begin() + y * stride);
+
+    auto encoded = original;
+    delta_encode_horizontal(std::span(encoded), width, height, stride, 1);
+
+    // All encoded rows must be identical (because all original rows were identical)
+    for (std::size_t y = 1; y < height; ++y) {
+        for (std::size_t x = 0; x < width; ++x) {
+            EXPECT_EQ(encoded[x], encoded[y * stride + x])
+                << "Encoded row " << y << " element " << x << " differs from row 0";
+        }
+    }
+
+    auto decoded = encoded;
+    delta_decode_horizontal(std::span(decoded), width, height, stride, 1);
+    EXPECT_EQ(original, decoded);
+}
+
+TEST(PredictorSIMDTest, U16CarryResetPerRow) {
+    const std::size_t width  = 32; // two full AVX2 chunks for u16
+    const std::size_t height = 5;
+    const std::size_t stride = width;
+
+    auto row = generate_random_data<uint16_t>(width, 0xCAFEBABE);
+    std::vector<uint16_t> original(height * stride);
+    for (std::size_t y = 0; y < height; ++y)
+        std::copy(row.begin(), row.end(), original.begin() + y * stride);
+
+    auto encoded = original;
+    delta_encode_horizontal(std::span(encoded), width, height, stride, 1);
+
+    for (std::size_t y = 1; y < height; ++y) {
+        for (std::size_t x = 0; x < width; ++x) {
+            EXPECT_EQ(encoded[x], encoded[y * stride + x])
+                << "Encoded row " << y << " element " << x << " differs from row 0";
+        }
+    }
+
+    auto decoded = encoded;
+    delta_decode_horizontal(std::span(decoded), width, height, stride, 1);
+    EXPECT_EQ(original, decoded);
+}
+
+// ---- Known-value decode test -----------------------------------------------
+//
+// Feeds delta data with a known correct output so a bug in SIMD cannot be
+// hidden by a matching bug in the encoder.
+
+TEST(PredictorSIMDTest, U8KnownDecodeWide) {
+    // Construct a 64-element (two AVX2 chunks) encoded row:
+    // enc[0] = 5 (starting value), enc[1..63] = 3 (constant delta)
+    // Expected decoded output: 5, 8, 11, ..., 5 + 3*63 = 194
+    const std::size_t width = 64;
+    std::vector<uint8_t> encoded(width);
+    encoded[0] = 5;
+    std::fill(encoded.begin() + 1, encoded.end(), 3u);
+
+    std::vector<uint8_t> expected(width);
+    for (std::size_t i = 0; i < width; ++i)
+        expected[i] = static_cast<uint8_t>(5 + 3 * i);
+
+    delta_decode_horizontal(std::span(encoded), width, 1, width, 1);
+    EXPECT_EQ(expected, encoded);
+}
+
+TEST(PredictorSIMDTest, U16KnownDecodeWide) {
+    // 32-element row (two AVX2 u16 chunks)
+    // enc[0] = 100, enc[1..31] = 200 (delta)
+    // decoded[i] = 100 + 200*i  (mod 65536)
+    const std::size_t width = 32;
+    std::vector<uint16_t> encoded(width);
+    encoded[0] = 100;
+    std::fill(encoded.begin() + 1, encoded.end(), uint16_t{200});
+
+    std::vector<uint16_t> expected(width);
+    for (std::size_t i = 0; i < width; ++i)
+        expected[i] = static_cast<uint16_t>(100 + 200 * i);
+
+    delta_decode_horizontal(std::span(encoded), width, 1, width, 1);
+    EXPECT_EQ(expected, encoded);
+}
+
 int main(int argc, char **argv) {
     ::testing::InitGoogleTest(&argc, argv);
     return RUN_ALL_TESTS();
